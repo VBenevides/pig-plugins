@@ -1,0 +1,859 @@
+{
+  "source": "@juicesharp/rpiv-ask-user-question@2.12.0",
+  "validations": [
+    {
+      "name": "empty",
+      "params": {
+        "questions": []
+      },
+      "normalized": {
+        "questions": []
+      },
+      "validation": {
+        "ok": false,
+        "error": "no_questions",
+        "message": "Error: At least one question is required"
+      }
+    },
+    {
+      "name": "too many",
+      "params": {
+        "questions": [
+          {
+            "question": "Q0",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q1",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q2",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q3",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q4",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "normalized": {
+        "questions": [
+          {
+            "question": "Q0",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q1",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q2",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q3",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          },
+          {
+            "question": "Q4",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "validation": {
+        "ok": false,
+        "error": "too_many_questions",
+        "message": "Error: At most 4 questions are allowed per invocation"
+      }
+    },
+    {
+      "name": "duplicate question precedence",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "A",
+                "description": ""
+              },
+              {
+                "label": "A",
+                "description": ""
+              }
+            ]
+          },
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "normalized": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "A",
+                "description": ""
+              },
+              {
+                "label": "A",
+                "description": ""
+              }
+            ]
+          },
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "validation": {
+        "ok": false,
+        "error": "duplicate_question",
+        "message": "Error: Question text must be unique within an invocation"
+      }
+    },
+    {
+      "name": "few options",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": []
+          }
+        ]
+      },
+      "normalized": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": []
+          }
+        ]
+      },
+      "validation": {
+        "ok": false,
+        "error": "empty_options",
+        "message": "Error: Each question requires at least 2 options"
+      }
+    },
+    {
+      "name": "reserved after normalization",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Other\r",
+                "description": ""
+              },
+              {
+                "label": "B",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "normalized": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Other",
+                "description": ""
+              },
+              {
+                "label": "B",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "validation": {
+        "ok": false,
+        "error": "reserved_label",
+        "message": "Error: Option label is reserved (Other, Type something., Next)"
+      }
+    },
+    {
+      "name": "duplicate before later reserved",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "A",
+                "description": ""
+              },
+              {
+                "label": "A",
+                "description": ""
+              },
+              {
+                "label": "Next",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "normalized": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "A",
+                "description": ""
+              },
+              {
+                "label": "A",
+                "description": ""
+              },
+              {
+                "label": "Next",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "validation": {
+        "ok": false,
+        "error": "duplicate_option_label",
+        "message": "Error: Option labels must be unique within a question"
+      }
+    },
+    {
+      "name": "normalization",
+      "params": {
+        "questions": [
+          {
+            "question": "Pi\rck?",
+            "header": "Cho\rice",
+            "options": [
+              {
+                "label": "G\ro",
+                "description": "A\r\nB",
+                "preview": "one\r\ntwo\r"
+              },
+              {
+                "label": "rust",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "normalized": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "A\nB",
+                "preview": "one\ntwo"
+              },
+              {
+                "label": "rust",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "validation": {
+        "ok": true
+      }
+    },
+    {
+      "name": "case sensitive labels",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": ""
+              },
+              {
+                "label": "go",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "normalized": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": ""
+              },
+              {
+                "label": "go",
+                "description": ""
+              }
+            ]
+          }
+        ]
+      },
+      "validation": {
+        "ok": true
+      }
+    }
+  ],
+  "envelopes": [
+    {
+      "name": "option",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [
+          {
+            "questionIndex": 0,
+            "question": "Pick?",
+            "kind": "option",
+            "answer": "Go",
+            "preview": "package main\n",
+            "notes": "stable"
+          }
+        ],
+        "cancelled": false
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User has answered your questions: \"Pick?\"=\"Go\". selected preview: package main\n. user notes: stable. You can now continue with the user's answers in mind."
+          }
+        ],
+        "details": {
+          "answers": [
+            {
+              "questionIndex": 0,
+              "question": "Pick?",
+              "kind": "option",
+              "answer": "Go",
+              "preview": "package main\n",
+              "notes": "stable"
+            }
+          ],
+          "cancelled": false
+        }
+      }
+    },
+    {
+      "name": "multi",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [
+          {
+            "questionIndex": 0,
+            "question": "Pick?",
+            "kind": "multi",
+            "answer": null,
+            "selected": [
+              "Go",
+              "Rust"
+            ]
+          }
+        ],
+        "cancelled": false
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User has answered your questions: \"Pick?\"=\"Go, Rust\". You can now continue with the user's answers in mind."
+          }
+        ],
+        "details": {
+          "answers": [
+            {
+              "questionIndex": 0,
+              "question": "Pick?",
+              "kind": "multi",
+              "answer": null,
+              "selected": [
+                "Go",
+                "Rust"
+              ]
+            }
+          ],
+          "cancelled": false
+        }
+      }
+    },
+    {
+      "name": "empty option",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [
+          {
+            "questionIndex": 0,
+            "question": "Pick?",
+            "kind": "option",
+            "answer": ""
+          }
+        ],
+        "cancelled": false
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User has answered your questions: \"Pick?\"=\"\". You can now continue with the user's answers in mind."
+          }
+        ],
+        "details": {
+          "answers": [
+            {
+              "questionIndex": 0,
+              "question": "Pick?",
+              "kind": "option",
+              "answer": ""
+            }
+          ],
+          "cancelled": false
+        }
+      }
+    },
+    {
+      "name": "empty custom",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [
+          {
+            "questionIndex": 0,
+            "question": "Pick?",
+            "kind": "custom",
+            "answer": null
+          }
+        ],
+        "cancelled": false
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User has answered your questions: \"Pick?\"=\"(no input)\". You can now continue with the user's answers in mind."
+          }
+        ],
+        "details": {
+          "answers": [
+            {
+              "questionIndex": 0,
+              "question": "Pick?",
+              "kind": "custom",
+              "answer": null
+            }
+          ],
+          "cancelled": false
+        }
+      }
+    },
+    {
+      "name": "empty multi",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [
+          {
+            "questionIndex": 0,
+            "question": "Pick?",
+            "kind": "multi",
+            "answer": null,
+            "selected": []
+          }
+        ],
+        "cancelled": false
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User has answered your questions: \"Pick?\"=\"(no input)\". You can now continue with the user's answers in mind."
+          }
+        ],
+        "details": {
+          "answers": [
+            {
+              "questionIndex": 0,
+              "question": "Pick?",
+              "kind": "multi",
+              "answer": null,
+              "selected": []
+            }
+          ],
+          "cancelled": false
+        }
+      }
+    },
+    {
+      "name": "cancel partial",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [
+          {
+            "questionIndex": 0,
+            "question": "Pick?",
+            "kind": "option",
+            "answer": "Go",
+            "preview": "package main\n",
+            "notes": "stable"
+          }
+        ],
+        "cancelled": true,
+        "globalNote": "later"
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User declined to answer questions"
+          }
+        ],
+        "details": {
+          "answers": [
+            {
+              "questionIndex": 0,
+              "question": "Pick?",
+              "kind": "option",
+              "answer": "Go",
+              "preview": "package main\n",
+              "notes": "stable"
+            }
+          ],
+          "cancelled": true,
+          "globalNote": "later"
+        }
+      }
+    },
+    {
+      "name": "global only",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [],
+        "cancelled": false,
+        "globalNote": "note\nsecond"
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User has answered your questions: global note: note\nsecond. You can now continue with the user's answers in mind."
+          }
+        ],
+        "details": {
+          "answers": [],
+          "cancelled": false,
+          "globalNote": "note\nsecond"
+        }
+      }
+    },
+    {
+      "name": "no answers",
+      "params": {
+        "questions": [
+          {
+            "question": "Pick?",
+            "header": "Choice",
+            "options": [
+              {
+                "label": "Go",
+                "description": "Compiled"
+              },
+              {
+                "label": "Rust",
+                "description": "Compiled"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "answers": [],
+        "cancelled": false
+      },
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "User declined to answer questions"
+          }
+        ],
+        "details": {
+          "answers": [],
+          "cancelled": true
+        }
+      }
+    }
+  ]
+}

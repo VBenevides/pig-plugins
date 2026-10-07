@@ -204,3 +204,41 @@ Go output matches cited text, sources, native-search status and query lists.
 Mock-provider PiG execution also verifies explicit search-model configuration, discovery through the real `builtin:tool-search`, and Gemini-only tool suppression.
 Live paid-provider calls were not used for verification.
 Do not enable the TypeScript web-search twin at the same time.
+
+## ask-user-question
+
+The native Go extension ports `@juicesharp/rpiv-ask-user-question@2.12.0`.
+`ask_user_question` uses the original JSON schema: 1–4 questions, 2–4 options per question,
+headers of at most 16 UTF-16 units, and option labels of at most 60 UTF-16 units.
+Carriage-return normalization, reserved labels, duplicate checks, answer details, and response envelopes follow upstream.
+
+The TUI has question tabs, a review/submit tab, checkbox multi-select, free text, option previews,
+per-question notes, global notes, partial submission, and cancellation with partial answers preserved.
+Arrow keys select options; Enter confirms; Tab/Shift+Tab switch tabs outside text entry.
+`n` opens notes outside text entry. Shift+Enter adds a line; Ctrl+U clears a custom draft.
+Ctrl+G opens PiG's multiline editor dialog, not the system `$EDITOR`.
+Escape closes notes or cancels the questionnaire.
+Ctrl+] collapses the questionnaire to a visible hint row; the same key expands it.
+
+RPC uses upstream's sequential select/input fallback, including numeric multi-select and custom answers.
+Print and other non-interactive calls return `no_ui` without opening a dialog.
+The tool is model-only, not available through codemode.
+Unlike upstream's visibility reconciliation, it remains registered in print mode:
+PiG removes inactive tools from execution, which would replace the required no-UI error with “Tool not found.”
+
+Configuration lives at `$XDG_CONFIG_HOME/rpiv-ask-user-question/config.json`, or
+`~/.config/rpiv-ask-user-question/config.json`. A missing XDG file falls back to the legacy path.
+Malformed primary files warn and use defaults instead of falling back. The file limit is 1 MiB.
+`guidance` can override `description`, `promptSnippet`, and `promptGuidelines`.
+`collapseKey` accepts a key specification or `"off"`.
+
+Approved host limits: default semantic keys rather than custom host keybinding resolution;
+visible collapse rather than a hidden overlay with raw-input reopening.
+Previews use bounded plain-text/code rendering, side-by-side at 100 columns or wider and stacked otherwise.
+They do not reproduce upstream's full Markdown styling. Narrow terminals use conservative Unicode cell counts.
+
+Fixtures replay normalization, validation precedence and response envelopes through the pinned TypeScript.
+Real PiG runs cover RPC answers/cancellation and print-mode rejection.
+A real 120-column TUI smoke exercised previews, collapse/expand, tabs, multi-select, custom input,
+question/global notes, editor-dialog cancellation with draft restoration, review, submission and clean exit.
+Do not enable the TypeScript questionnaire twin at the same time.
