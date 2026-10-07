@@ -1,0 +1,22 @@
+name: pig-plugins-dev
+description: Development binary with the implemented pig-plugins extensions.
+extensions:
+  - name: hashline-edit
+    origins: [local:./extensions/hashline-edit]
+  - name: smart-approve-lancet
+    origins: [local:./extensions/smart-approve-lancet]
+  - name: pi-curator
+    origins: [local:./extensions/pi-curator]
+  - name: lsp
+    origins: [local:./extensions/lsp]
+  - name: web-search
+    origins: [local:./extensions/web-search]
+  - name: ask-user-question
+    origins: [local:./extensions/ask-user-question]
+  - name: todo
+    origins: [local:./extensions/todo]
+  - name: auto-models
+    origins: [local:./extensions/auto-models]
+discovery:
+  extensions: []
+  skills: []

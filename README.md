@@ -7,16 +7,20 @@ equals the folder name. The repository is one Go module so extensions share `int
 ## Port status
 
 Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
-`web-search`, `ask-user-question`, and `todo`.
+`web-search`, `ask-user-question`, `todo`, and `auto-models`.
 Use `pig -e ./extensions/<name>` to load a port for one session.
 Validation with `make check` does not enable these extensions in the default configuration.
 
-`better-footer` and `auto-models` remain blocked, not partially implemented.
-PiG's native extension context does not expose whether startup model/provider/thinking flags were explicit.
-The verified `GetFlag` probe returned null both with implicit defaults and explicit CLI selections.
-Upstream footer restoration must respect that precedence; upstream auto-models must disable switching after `--model`.
-A startup-options API or an explicitly approved contract change is required.
-Workspace-plus-conversation `rewind` remains deferred by user choice.
+`better-footer` remains unimplemented, and `rewind` is deferred by user choice.
+
+### auto-models
+
+Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude and Codex quota windows) and `/auto-model` (primary and fallback model, with thinking level).
+Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. OAuth credentials come from `auth.json`.
+Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
+In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.
+Differences from upstream: only OAuth credentials are used, quota requests have a timeout, size limit, and no redirects, and persistence errors are reported, not ignored.
+An independent security review was not completed because the reviewer agent hit a usage limit.
 
 ## Layout
 
@@ -40,6 +44,35 @@ pig -e ./extensions/<name>          # load one extension into a session
 it with the version-matched staged SDK at build time; `go.work` does the same for plain `go` commands.
 
 Tests that start `pig` skip when it is not on `PATH`.
+
+### Build a bundled development binary
+
+Requires `pig` and Go on `PATH`. Run:
+
+```sh
+binary=$(./scripts/dev_build.sh)
+"$binary"
+```
+
+The script builds `build/pig-plugins` for the current platform and prints its absolute path to stdout.
+Build diagnostics go to stderr. To choose another output path:
+
+```sh
+./scripts/dev_build.sh ./build/pig-plugins-custom
+```
+
+Relative output paths are relative to the invoking directory; the script can run from outside the repository.
+Successful builds replace an existing output binary. A failed build leaves the previous binary intact.
+`piglet.yaml` bundles all seven implemented extensions and disables ambient extension and skill discovery.
+The executable does not need Go or the extension source tree to run. It uses normal PiG model selection and credentials.
+Curator, language servers, and the optional LANCET model and ONNX Runtime library remain external prerequisites.
+The script does not install extensions into your default configuration.
+
+The first build downloads the source and dependencies for the installed PiG release.
+It uses a temporary workspace to resolve the extensions' dependency checksums and placeholder SDK version.
+Cached source and repository Go files are not modified; the temporary source copy is removed on exit.
+For a development PiG checkout, set `PIG_SOURCE_ROOT` to its absolute path before running the script.
+Build artifacts are ignored by Git.
 
 ## Parity
 
@@ -119,13 +152,17 @@ The tools reject access outside the session's repository.
 Read budgets cover the complete serialized response, including metadata, escaping, and the final newline.
 Use `next_cursor` with one event ID to read the next page.
 
-`/pi-curator [status|prefetch <off|64..8192>|startup <off|1..10>|engine <legacy|fts|hybrid|episodes|state>]`
+`/pi-curator [status|off|on|prefetch <off|64..8192>|startup <off|1..10>|engine <legacy|fts|hybrid|episodes|state>]`
 stores settings in `<agent dir>/pi-curator.json` with mode 0600.
 Saved settings take precedence over environment variables.
 The integration defaults are prefetch 512, startup 2, and engine legacy.
 Set `PI_CURATOR_PREFETCH_BUDGET=0` to disable task prefetch.
 Set `PI_CURATOR_STARTUP_DECISIONS=0` to disable startup history as well.
 `PI_CURATOR_SEARCH_ENGINE` selects the tool engine. `PI_CURATOR_PREFETCH_ENGINE` separately selects the prefetch engine.
+`/pi-curator off` persists `enabled=false`. It stops capture, recall, consent prompts, and the memory tools at once, and survives restart.
+`/pi-curator on` re-enables the extension. It does not grant consent.
+Startup history and task recall share one budget, which includes the envelope. Startup history takes at most half when a task search runs. The "combined history exceeds prefetch budget" warning no longer occurs for normal budgets.
+`prefetch off` disables task recall only. Startup history stays bounded at 512.
 History enters an ordinary hidden message, never the system prompt.
 The system prompt receives only static recall guidance. The extension adds no memory-access widget.
 
