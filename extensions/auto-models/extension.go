@@ -86,6 +86,9 @@ func Extension() *sdk.Extension {
 	for _, event := range []string{"agent_end", "model_select"} {
 		event := event
 		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
+			if event == "model_select" {
+				x.reconcile(ctx)
+			}
 			x.queueRefresh(ctx, event == "model_select")
 			return nil, nil
 		})
@@ -183,6 +186,24 @@ func (x *extension) choose(ctx sdk.Context, slot quota.Slot) (bool, error) {
 	}
 	ctx.SetThinkingLevel(slot.Thinking)
 	return true, nil
+}
+
+// reconcile keeps the footer badge and fallback state in line with the active
+// model, including manual /model switches and host-applied defaults.
+func (x *extension) reconcile(ctx sdk.Context) {
+	primary, fallback := x.slots()
+	provider, model := ctx.ModelProvider(), ctx.Model()
+	switch {
+	case provider == primary.Provider && model == primary.Model:
+		x.selected(ctx, true, primary)
+	case provider == fallback.Provider && model == fallback.Model:
+		x.selected(ctx, false, fallback)
+	default:
+		x.mu.Lock()
+		x.usingPrimary = false
+		x.mu.Unlock()
+		ctx.SetStatus("auto-model", "")
+	}
 }
 func (x *extension) selected(ctx sdk.Context, primary bool, slot quota.Slot) {
 	x.mu.Lock()
