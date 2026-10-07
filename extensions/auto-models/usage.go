@@ -134,9 +134,12 @@ func (x *extension) usage(ctx sdk.Context, _ string) error {
 			}
 			lines = append(lines, "  ⏰ Data age: "+quota.FormatAge(now.Sub(captured)))
 		default:
-			if provider != "anthropic" && provider != "openai" && provider != "openai-codex" {
+			switch {
+			case provider == "openai" && present && entry.Type == "oauth" && !quota.CodexQuotaSupported(entry):
+				lines = append(lines, "  📈 Quota unavailable: this login has no ChatGPT account id (API-audience token)")
+			case provider != "anthropic" && provider != "openai" && provider != "openai-codex":
 				lines = append(lines, "  📈 No quota endpoint known for this provider")
-			} else {
+			default:
 				lines = append(lines, "  📈 Quota details fetched automatically after use")
 			}
 		}
