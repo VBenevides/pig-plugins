@@ -123,3 +123,44 @@ Repository roots are checked again before each subprocess.
 The CLI has no atomic expected-repository parameter. Concurrent replacement of repository metadata remains a limitation.
 
 Do not enable `harness-curator`, the TypeScript twin, at the same time.
+
+## lsp
+
+The native Go extension follows `pi-lsp@0.1.7` for the core tool contract and JSON configuration.
+Positions use zero-based `line` and UTF-16 `character`.
+It adds read-only `lsp_rename_preview`, `code_overview`, and `code_search` from the `harness-code` reference.
+Structural search uses the existing outline heuristics, not an AST parser.
+Query and body expressions use bounded ECMAScript regexes.
+All eight tools are deferred. A session without `tool_search` or `codemode` activates them directly.
+
+Global configuration lives at `<agent dir>/lsp.json`.
+`PI_AGENT_DIR`, when set, selects the original upstream configuration directory.
+The nearest `.pi/lsp.json` overrides global servers by ID.
+Project configuration requires hash-based approval before its commands can run.
+The choices are `Trust once`, `Trust always`, and `Reject`.
+Persistent hashes live at `<agent dir>/trust/lsp.json`. A changed file requires new approval.
+Headless sessions reject an untrusted project configuration.
+Commands use executable-plus-arguments spawning, never a shell.
+The original `{workspace}`, `{root}`, `{file}`, `{relFile}`, `{dir}`, `{relDir}`, `{config}`, and `{configDir}` templates remain available.
+
+When no global configuration exists, the extension uses the `harness-code` language-server registry.
+It searches operator PATH, `ZED_PI_HARNESS_LSP_SEARCH_PATH`, and the Neovim Mason bin directory.
+It never installs a server. It does not search repository `node_modules/.bin` implicitly.
+Declare a local executable explicitly in a trusted project configuration instead.
+`ZED_PI_HARNESS_LSP_<FAMILY>` accepts a JSON argv array or whitespace-separated command.
+Families are typescript, python, go, rust, bash, lua, markdown, json, and c.
+
+The extension starts servers lazily and synchronizes disk text before requests.
+Successful `write` and `edit` calls append diagnostics from each matching server.
+Servers that request `didSave` receive that notification.
+Diagnostics requests refresh current disk state instead of treating an empty cache as a clean result.
+A server that sends no diagnostics produces an explicit incomplete-analysis result.
+The post-edit hook has a six-second deadline.
+Requests, initialization, framing, document size, open-document count, and server-pool size have limits.
+Shutdown joins the server and terminates its process group, including surviving helpers.
+The client refuses every `workspace/applyEdit` request. Rename previews never change files.
+
+Real gopls output was compared with the TypeScript reference on one isolated Go fixture.
+Hover, definition, references, document symbols, workspace symbols, rename edits, and diagnostics matched.
+Mock-LLM PiG runs cover all eight tools, post-edit diagnostics, and rejection of untrusted project commands.
+Do not enable `harness-code`, the TypeScript twin, at the same time.
