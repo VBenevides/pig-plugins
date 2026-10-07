@@ -2,6 +2,7 @@ package automodels
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,9 +24,20 @@ func (x *extension) usage(ctx sdk.Context, _ string) error {
 	}
 	primary, fallback := x.slots()
 	providers := []string{primary.Provider}
-	if fallback.Provider != primary.Provider {
+	seen := map[string]bool{primary.Provider: true}
+	if !seen[fallback.Provider] {
 		providers = append(providers, fallback.Provider)
+		seen[fallback.Provider] = true
 	}
+	// Every other subscription (OAuth) login is checked too, in stable order.
+	others := []string{}
+	for provider, entry := range auth {
+		if !seen[provider] && entry.Type == "oauth" {
+			others = append(others, provider)
+		}
+	}
+	sort.Strings(others)
+	providers = append(providers, others...)
 	lines := []string{}
 	for _, provider := range providers {
 		if err := run.Err(); err != nil {
@@ -122,7 +134,11 @@ func (x *extension) usage(ctx sdk.Context, _ string) error {
 			}
 			lines = append(lines, "  ⏰ Data age: "+quota.FormatAge(now.Sub(captured)))
 		default:
-			lines = append(lines, "  📈 Quota details fetched automatically after use")
+			if provider != "anthropic" && provider != "openai" && provider != "openai-codex" {
+				lines = append(lines, "  📈 No quota endpoint known for this provider")
+			} else {
+				lines = append(lines, "  📈 Quota details fetched automatically after use")
+			}
 		}
 		lines = append(lines, "")
 	}
