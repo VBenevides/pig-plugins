@@ -51,7 +51,7 @@ func (x *extension) usage(ctx sdk.Context, _ string) error {
 			switch provider {
 			case "anthropic":
 				claude, fetchErr = x.client.FetchClaude(run, entry)
-			case "openai-codex":
+			case "openai-codex", "openai":
 				codex, fetchErr = x.client.FetchCodex(run, entry)
 			}
 		}
@@ -123,7 +123,13 @@ func (x *extension) usage(ctx sdk.Context, _ string) error {
 		}
 		lines = append(lines, "")
 	}
-	ctx.Notify(clean(strings.Join(lines, "\n")), "info")
+	text := clean(strings.Join(lines, "\n"))
+	if ctx.HasUI() && ctx.Mode() != "rpc" {
+		ctx.SetStatus("auto-model-usage", "")
+		_, err := ctx.Custom(&dashboard{title: "Usage", lines: strings.Split(text, "\n"), theme: ctx.UITheme()}, sdk.RemoteOverlayOptions{Title: "Usage"})
+		return err
+	}
+	ctx.Notify(text, "info")
 	return nil
 }
 

@@ -16,6 +16,8 @@ Validation with `make check` does not enable these extensions in the default con
 ### auto-models
 
 Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude and Codex quota windows) and `/auto-model` (primary and fallback model, with thinking level).
+In a TUI, `/usage` opens a scrollable dashboard (`q`, `esc` or ctrl-c closes; `j`/`k`, arrows and page keys scroll). Other modes print a notification.
+The footer quota badge shows the active provider only. The `openai` and `openai-codex` providers both use the ChatGPT quota endpoint.
 Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. OAuth credentials come from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
 In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.

@@ -367,7 +367,7 @@ func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
 				if err == nil {
 					status = quota.ClaudeStatusQuota(usage)
 				}
-			case "openai-codex":
+			case "openai-codex", "openai":
 				var usage *quota.CodexUsage
 				usage, err = x.client.FetchCodex(x.life, entry)
 				if err == nil {
