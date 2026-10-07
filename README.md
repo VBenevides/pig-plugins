@@ -35,6 +35,17 @@ purpose: regenerating a golden from the Go port would erase the check.
 
 Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate tool names.
 
+## hashline-edit
+
+Replaces the built-in `read` and `edit` with anchored read (`<line>#<hash>|text`, four hex digits of SHA-1) and strict
+anchored edit. It ports the `harness-hashline` twin from zed-pi-harness, not the upstream npm `pi-hashline-edit`
+0.8.3, which uses a different anchor format (`LINE#HASH:` with two-character hashes) and extra ops. The outline for
+large source files uses the same regular expressions as the original; `internal/hashline/testdata/ts-golden.json` holds
+the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
+Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
+text, directories and missing files are handled by `internal/hashline` itself; edits of one file are serialised by an
+in-process lock instead of Pi's file mutation queue.
+
 ## LANCET model runtime
 
 `internal/lancet` is a native Go port of the LANCET v0.4.3 classifier (byte-level BPE tokenizer, int8 encoder, pooled
