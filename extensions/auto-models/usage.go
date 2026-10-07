@@ -145,9 +145,19 @@ func (x *extension) configure(ctx sdk.Context, _ string) error {
 	if err != nil || !ok {
 		return err
 	}
-	models, err := ctx.ModelRegistry().GetAvailable()
+	// A configured scope (--models or enabledModels) limits the choices; with no scope, offer every authenticated model.
+	scoped, err := ctx.ScopedModels()
 	if err != nil {
 		return err
+	}
+	models := make([]map[string]any, 0, len(scoped))
+	for _, entry := range scoped {
+		models = append(models, entry.Model)
+	}
+	if len(models) == 0 {
+		if models, err = ctx.ModelRegistry().GetAvailable(); err != nil {
+			return err
+		}
 	}
 	items := make([]choice, 0, len(models))
 	for _, model := range models {
