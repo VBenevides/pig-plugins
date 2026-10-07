@@ -34,3 +34,12 @@ with golden files captured from the original (`testdata/` next to the test). `pi
 purpose: regenerating a golden from the Go port would erase the check.
 
 Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate tool names.
+
+## LANCET model runtime
+
+`internal/lancet` is a native Go port of the LANCET v0.4.3 classifier (byte-level BPE tokenizer, int8 encoder, pooled
+linear head, Platt calibration). The encoder runs in `libonnxruntime` loaded with `dlopen` through
+`github.com/shota3506/onnxruntime-purego`: PiG builds extensions with cgo disabled, so a cgo binding such as
+`yalue/onnxruntime_go` cannot compile there. The model files and the shared library stay outside the repository;
+`Load(dir, libraryPath)` verifies every model file against the pinned size and SHA-256 before use. Tests skip when
+they are absent; set `LANCET_MODEL_DIR` and `LANCET_ORT_LIBRARY` to point at them.

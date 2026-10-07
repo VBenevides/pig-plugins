@@ -10,5 +10,8 @@ if [ ! -f "$sdk/go.mod" ]; then
 fi
 cd "$root"
 rm -f go.work go.work.sum
-go work init . "$sdk"
+go work init .
+# A workspace `use` is not enough once a third-party module is imported: Go then loads the module graph and
+# tries to fetch the placeholder v0.0.0 of the SDK. A workspace replace answers that lookup locally.
+go work edit -replace "github.com/MichaelKinsy/PiG/extensions/sdk@v0.0.0=$sdk"
 echo "gowork: wrote $root/go.work (sdk: $sdk)"
