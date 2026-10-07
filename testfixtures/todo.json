@@ -1,0 +1,756 @@
+{
+  "source": "@diegopetrucci/pi-todo@0.1.11",
+  "runs": [
+    {
+      "name": "mutations",
+      "branch": [],
+      "actions": [
+        {
+          "params": {
+            "action": "list"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "No todos"
+              }
+            ],
+            "details": {
+              "action": "list",
+              "todos": [],
+              "nextId": 1
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "add",
+            "text": "first"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Added todo #1: first"
+              }
+            ],
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                }
+              ],
+              "nextId": 2
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "add",
+            "text": "second"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Added todo #2: second"
+              }
+            ],
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "toggle",
+            "id": 1
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Todo #1 completed"
+              }
+            ],
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "toggle",
+            "id": 99
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Todo #99 not found"
+              }
+            ],
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "#99 not found"
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "add",
+            "text": ""
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Error: text required for add"
+              }
+            ],
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "text required"
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "toggle"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Error: id required for toggle"
+              }
+            ],
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "id required"
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "toggle",
+            "id": 1.5
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Todo #1.5 not found"
+              }
+            ],
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "#1.5 not found"
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "list"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "[x] #1: first\n[ ] #2: second"
+              }
+            ],
+            "details": {
+              "action": "list",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "fork from first add",
+      "branch": [
+        {
+          "type": "message",
+          "message": {
+            "role": "user",
+            "content": "ignored"
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                }
+              ],
+              "nextId": 2
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "other",
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        }
+      ],
+      "actions": [
+        {
+          "params": {
+            "action": "list"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "[ ] #1: first"
+              }
+            ],
+            "details": {
+              "action": "list",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                }
+              ],
+              "nextId": 2
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "add",
+            "text": "branch item"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Added todo #2: branch item"
+              }
+            ],
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                },
+                {
+                  "id": 2,
+                  "text": "branch item",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "toggle",
+            "id": 2
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Todo #2 completed"
+              }
+            ],
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                },
+                {
+                  "id": 2,
+                  "text": "branch item",
+                  "done": true
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "clear"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Cleared 2 todos"
+              }
+            ],
+            "details": {
+              "action": "clear",
+              "todos": [],
+              "nextId": 1
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "list"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "No todos"
+              }
+            ],
+            "details": {
+              "action": "list",
+              "todos": [],
+              "nextId": 1
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "add",
+            "text": "reset"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Added todo #1: reset"
+              }
+            ],
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "reset",
+                  "done": false
+                }
+              ],
+              "nextId": 2
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "resume latest snapshot",
+      "branch": [
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "list",
+              "todos": [],
+              "nextId": 1
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                }
+              ],
+              "nextId": 2
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "#99 not found"
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "add",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "text required"
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "id required"
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3,
+              "error": "#1.5 not found"
+            }
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "action": "list",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        }
+      ],
+      "actions": [
+        {
+          "params": {
+            "action": "list"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "[x] #1: first\n[ ] #2: second"
+              }
+            ],
+            "details": {
+              "action": "list",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": true
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "toggle",
+            "id": 1
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Todo #1 uncompleted"
+              }
+            ],
+            "details": {
+              "action": "toggle",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        },
+        {
+          "params": {
+            "action": "list"
+          },
+          "response": {
+            "content": [
+              {
+                "type": "text",
+                "text": "[ ] #1: first\n[ ] #2: second"
+              }
+            ],
+            "details": {
+              "action": "list",
+              "todos": [
+                {
+                  "id": 1,
+                  "text": "first",
+                  "done": false
+                },
+                {
+                  "id": 2,
+                  "text": "second",
+                  "done": false
+                }
+              ],
+              "nextId": 3
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

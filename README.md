@@ -242,3 +242,27 @@ Real PiG runs cover RPC answers/cancellation and print-mode rejection.
 A real 120-column TUI smoke exercised previews, collapse/expand, tabs, multi-select, custom input,
 question/global notes, editor-dialog cancellation with draft restoration, review, submission and clean exit.
 Do not enable the TypeScript questionnaire twin at the same time.
+
+## todo
+
+The native Go extension ports `@diegopetrucci/pi-todo@0.1.11`.
+`todo` supports `list`, `add` with `text`, `toggle` with numeric `id`, and `clear`.
+Each result includes the original `{action, todos, nextId, error?}` snapshot.
+PiG stores these details in its session JSONL; there is no separate task file.
+Session start and tree navigation restore the latest full snapshot on the active branch.
+State stays inside the extension factory. New-session replacement starts with an empty list and ID 1.
+Tool batches run sequentially; a mutex also protects state from concurrent internal callers.
+
+Tool cards preserve status markers and the five-item collapsed list; expanded cards show all items.
+`/todos` opens the original read-only list with a completion count and closes on Escape or Ctrl+C.
+It requires the TUI, not RPC or print mode. No persistent widget is installed.
+Terminal controls are removed from rendered text. Long tool-card text is limited to 1,024 wrapped lines per item.
+Malformed latest snapshots fail visibly and block mutations rather than falling back to stale state.
+The ID counter stays inside JavaScript's exact-integer range.
+
+Eighteen actions and branch/resume snapshots were replayed through the pinned TypeScript.
+Real PiG runs verify persisted resume, tree navigation to an earlier todo result, branch ID reuse,
+clear/reset, and factory replacement on a new session.
+A native TUI smoke verifies sequential batch IDs, themed cards, the collapsed list,
+all seven items in `/todos`, Escape closure and clean exit.
+Do not enable `harness-interact` or the TypeScript todo twin at the same time.

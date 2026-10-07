@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "required": [
+    "action"
+  ],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "add",
+        "toggle",
+        "clear"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "description": "Todo text (for add)"
+    },
+    "id": {
+      "type": "number",
+      "description": "Todo ID (for toggle)"
+    }
+  }
+}
