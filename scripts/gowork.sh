@@ -1,0 +1,14 @@
+#!/bin/sh
+# Create the ignored go.work that points this module at PiG's staged Go SDK, so plain `go` commands
+# resolve github.com/MichaelKinsy/PiG/extensions/sdk. `pig` does the same replacement itself at build time.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd)
+sdk=$(pig reload --sdk-path)
+if [ ! -f "$sdk/go.mod" ]; then
+    echo "gowork: PiG SDK not found at '$sdk' (run pig once, or 'pig extension init' to stage it)" >&2
+    exit 1
+fi
+cd "$root"
+rm -f go.work go.work.sum
+go work init . "$sdk"
+echo "gowork: wrote $root/go.work (sdk: $sdk)"
