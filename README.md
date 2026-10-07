@@ -4,6 +4,20 @@ Native Go extensions for [PiG](https://github.com/MichaelKinsy/PiG) (the Go port
 `extensions/<name>/` is one conventional factory, `func Extension() *sdk.Extension`, whose registered identity
 equals the folder name. The repository is one Go module so extensions share `internal/` packages.
 
+## Port status
+
+Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
+`web-search`, `ask-user-question`, and `todo`.
+Use `pig -e ./extensions/<name>` to load a port for one session.
+Validation with `make check` does not enable these extensions in the default configuration.
+
+`better-footer` and `auto-models` remain blocked, not partially implemented.
+PiG's native extension context does not expose whether startup model/provider/thinking flags were explicit.
+The verified `GetFlag` probe returned null both with implicit defaults and explicit CLI selections.
+Upstream footer restoration must respect that precedence; upstream auto-models must disable switching after `--model`.
+A startup-options API or an explicitly approved contract change is required.
+Workspace-plus-conversation `rewind` remains deferred by user choice.
+
 ## Layout
 
 | Path | Purpose |
@@ -29,9 +43,9 @@ Tests that start `pig` skip when it is not on `PATH`.
 
 ## Parity
 
-Each extension ports an existing TypeScript original and must behave the same. Parity tests compare the Go output
-with golden files captured from the original (`testdata/` or `testfixtures/`). `pigtest.Golden` has no update flag on
-purpose: regenerating a golden from the Go port would erase the check.
+Each extension ports an existing TypeScript original. Parity tests compare Go output with golden files captured
+from that original (`testdata/` or `testfixtures/`). Approved host limits and intentional safety differences are
+listed in each extension's section. `pigtest.Golden` has no update flag: Go output must not regenerate its own baseline.
 
 Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate tool names.
 
