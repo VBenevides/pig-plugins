@@ -1,6 +1,7 @@
 package picurator
 
 import (
+	"context"
 	"errors"
 	"slices"
 
@@ -65,6 +66,9 @@ type buildFunc func(params map[string]any, engine string) (curator.ToolRequest, 
 // tool returns the executor of a memory tool. It only runs in the consented repository of the session.
 func (x *extension) tool(build buildFunc) sdk.ToolFunc {
 	return func(ctx sdk.Context, params map[string]any) (any, error) {
+		if !x.enabled(ctx) {
+			return nil, errors.New("Repository memory is disabled or settings are invalid; use /pi-curator on to enable it")
+		}
 		sessionID, err := ctx.GetSessionID()
 		if err != nil {
 			return nil, err
@@ -75,10 +79,15 @@ func (x *extension) tool(build buildFunc) sdk.ToolFunc {
 		}
 		runCtx, cancel := sdkctx.Request(ctx)
 		defer cancel()
+		stop := context.AfterFunc(state.bg, cancel)
+		defer stop()
 		if runCtx.Err() != nil {
 			return nil, errors.New("Memory request aborted")
 		}
-		values, _ := x.config.Effective() // a damaged settings file was reported at session start
+		values, err := x.config.Effective()
+		if err != nil {
+			return nil, err
+		}
 		request, err := build(params, values.Engine)
 		if err != nil {
 			return nil, err

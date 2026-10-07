@@ -113,8 +113,9 @@ func TestTypeScriptParity(t *testing.T) {
 					}
 					return d.Env[key]
 				}}
-				if got := config.Describe(); !reflect.DeepEqual(got, d.Lines) {
-					t.Errorf("describe=%v want %v", got, d.Lines)
+				want := append([]string{"enabled: true"}, d.Lines...)
+				if got := config.Describe(); !reflect.DeepEqual(got, want) {
+					t.Errorf("describe=%v want %v", got, want)
 				}
 			}
 		})

@@ -56,17 +56,19 @@ type session struct {
 	done chan struct{}
 
 	mu       sync.Mutex
-	startup  *string
-	prefetch *prefetchEntry
+	retired  bool
+	startup  *historyEntry
+	prefetch *historyEntry
 }
 
-type prefetchEntry struct{ prompt, content string }
+type historyEntry struct{ key, prompt, content string }
 
 type extension struct {
 	config   curator.Config
 	getenv   func(string) string
 	mu       sync.Mutex
 	sessions map[string]*session
+	disabled bool
 	// awaiting holds the sessions that still have to ask for consent before their first prompt.
 	awaiting map[string]bool
 }
@@ -90,7 +92,7 @@ func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 
 	e.RegisterCommand(curator.CommandName, sdk.CommandOptions{
-		Description: "Show pi-curator memory status and set prefetch, startup decisions and search engine",
+		Description: "Show memory status, turn capture and recall off/on, and set prefetch, startup decisions and search engine",
 		GetArgumentCompletions: func(prefix string) ([]sdk.AutocompleteItem, error) {
 			var items []sdk.AutocompleteItem
 			for _, c := range curator.Completions(prefix) {
@@ -101,7 +103,9 @@ func Extension() *sdk.Extension {
 		Handler: func(ctx sdk.Context, args string) error {
 			runCtx, cancel := sdkctx.Request(ctx)
 			defer cancel()
-			controller := &curator.Controller{Config: x.config, Curator: x.options(ctx.Cwd())}
+			controller := &curator.Controller{Config: x.config, Curator: x.options(ctx.Cwd()), OnEnabledChange: func(enabled bool) error {
+				return x.switchEnabled(ctx, enabled)
+			}}
 			controller.Handle(runCtx, args, ctx.Notify)
 			return nil
 		},
@@ -137,7 +141,10 @@ func gitRoot(cwd string) (string, error) {
 // current returns the capturing state of the session, or nil when there is none or the repository changed.
 func (x *extension) current(id, cwd string) *session {
 	x.mu.Lock()
-	state := x.sessions[id]
+	var state *session
+	if !x.disabled {
+		state = x.sessions[id]
+	}
 	x.mu.Unlock()
 	if state == nil {
 		return nil
@@ -168,15 +175,68 @@ func (x *extension) report(ctx sdk.Context, message string) {
 	}
 }
 
+// enabled fails closed on settings errors. Missing enabled remains on for existing users.
+func (x *extension) enabled(ctx sdk.Context) bool {
+	x.mu.Lock()
+	disabled := x.disabled
+	x.mu.Unlock()
+	if disabled {
+		return false
+	}
+	values, err := x.config.Effective()
+	if err != nil {
+		x.report(ctx, err.Error()+"; memory access and capture denied")
+		return false
+	}
+	return values.Enabled
+}
+
+// switchEnabled runs only after the controller saves enabled atomically. Off
+// stops accepting events first; already accepted events retain the shutdown drain
+// and explicit-gap semantics. On runs normal repository checks, never consent.
+func (x *extension) switchEnabled(ctx sdk.Context, enabled bool) error {
+	if enabled {
+		if _, err := x.config.Effective(); err != nil {
+			return err
+		}
+		x.mu.Lock()
+		x.disabled = false
+		x.mu.Unlock()
+		_, err := x.onSessionStart(ctx, nil)
+		return err
+	}
+	x.mu.Lock()
+	x.disabled = true
+	states := make([]*session, 0, len(x.sessions))
+	for _, state := range x.sessions {
+		state.mu.Lock()
+		state.retired = true
+		state.mu.Unlock()
+		state.stop()
+		states = append(states, state)
+	}
+	clear(x.sessions)
+	clear(x.awaiting)
+	x.mu.Unlock()
+	for _, state := range states {
+		x.retire(state, "disabled")
+	}
+	return nil
+}
+
 func (x *extension) onSessionStart(ctx sdk.Context, _ map[string]any) (any, error) {
+	if !x.enabled(ctx) {
+		return nil, nil
+	}
 	runCtx, cancel := sdkctx.Request(ctx)
 	defer cancel()
-	if _, err := x.config.Effective(); err != nil {
-		x.report(ctx, err.Error()+"; saved settings ignored")
-	}
 	sessionID, err := ctx.GetSessionID()
 	if err != nil {
 		x.report(ctx, "setup failed, not capturing: "+err.Error())
+		return nil, nil
+	}
+	if x.declined(ctx) {
+		x.warn("memory declined for this session; not capturing")
 		return nil, nil
 	}
 	status, err := curator.RepoStatus(runCtx, x.options(ctx.Cwd()))
@@ -215,6 +275,9 @@ func (x *extension) activate(ctx sdk.Context, sessionID string, status curator.S
 		return err
 	}
 	x.start(sessionID, root)
+	if x.current(sessionID, ctx.Cwd()) == nil {
+		return nil
+	}
 	x.exposeTools(ctx)
 	if ctx.HasUI() {
 		ctx.Notify(fmt.Sprintf("pi-curator %s: capturing this session", Version), "info")
@@ -226,6 +289,9 @@ func (x *extension) activate(ctx sdk.Context, sessionID string, status curator.S
 // nothing is captured and nothing is created. Otherwise the question waits for the first prompt: pig does not read
 // the answer to a dialog while a session is still starting, so asking here would hang the session.
 func (x *extension) awaitConsent(ctx sdk.Context, sessionID string) {
+	if !x.enabled(ctx) {
+		return
+	}
 	switch {
 	case x.declined(ctx):
 		x.warn("memory declined for this session; not capturing")
@@ -233,7 +299,9 @@ func (x *extension) awaitConsent(ctx sdk.Context, sessionID string) {
 		x.warn("memory not initialized and no UI to ask; not capturing")
 	default:
 		x.mu.Lock()
-		x.awaiting[sessionID] = true
+		if !x.disabled {
+			x.awaiting[sessionID] = true
+		}
 		x.mu.Unlock()
 	}
 }
@@ -241,6 +309,9 @@ func (x *extension) awaitConsent(ctx sdk.Context, sessionID string) {
 // askConsent puts the consent question to the user once, before the first prompt of a session that awaits it.
 // Memory is only created when the user agrees.
 func (x *extension) askConsent(ctx sdk.Context, runCtx context.Context, sessionID string) {
+	if !x.enabled(ctx) {
+		return
+	}
 	x.mu.Lock()
 	waiting := x.awaiting[sessionID]
 	delete(x.awaiting, sessionID)
@@ -258,7 +329,7 @@ func (x *extension) askConsent(ctx sdk.Context, runCtx context.Context, sessionI
 		}
 		return
 	}
-	if err == nil {
+	if err == nil && x.enabled(ctx) {
 		var status curator.Status
 		if status, err = curator.InitRepo(runCtx, x.options(ctx.Cwd())); err == nil {
 			err = x.activate(ctx, sessionID, status)
@@ -295,10 +366,16 @@ func (x *extension) start(sessionID, root string) {
 	}()
 	x.mu.Lock()
 	previous := x.sessions[sessionID]
+	if x.disabled {
+		x.mu.Unlock()
+		state.stop()
+		<-state.done
+		return
+	}
 	x.sessions[sessionID] = state
 	x.mu.Unlock()
 	if previous != nil {
-		previous.stop()
+		x.retire(previous, "session replaced")
 	}
 }
 
@@ -311,12 +388,20 @@ func (x *extension) kick(state *session) {
 }
 
 func (x *extension) onMessageEnd(ctx sdk.Context, data map[string]any) (any, error) {
+	if !x.enabled(ctx) {
+		return nil, nil
+	}
 	sessionID, err := ctx.GetSessionID()
 	if err != nil {
 		return nil, nil
 	}
 	state := x.current(sessionID, ctx.Cwd())
 	if state == nil {
+		return nil, nil
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.retired {
 		return nil, nil
 	}
 	events := curator.EventsFromMessage(sessionID, data["message"], state.calls)
@@ -329,12 +414,20 @@ func (x *extension) onMessageEnd(ctx sdk.Context, data map[string]any) (any, err
 }
 
 func (x *extension) onAgentEnd(ctx sdk.Context, data map[string]any) (any, error) {
+	if !x.enabled(ctx) {
+		return nil, nil
+	}
 	sessionID, err := ctx.GetSessionID()
 	if err != nil {
 		return nil, nil
 	}
 	state := x.current(sessionID, ctx.Cwd())
 	if state == nil {
+		return nil, nil
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.retired {
 		return nil, nil
 	}
 	state.capture.Enqueue([]curator.EventIn{curator.TaskBoundary(sessionID, data["messages"])})
@@ -352,15 +445,27 @@ func (x *extension) onSessionShutdown(ctx sdk.Context, _ map[string]any) (any, e
 	delete(x.sessions, sessionID)
 	delete(x.awaiting, sessionID)
 	x.mu.Unlock()
+	x.retire(state, "shutdown")
+	return nil, nil
+}
+
+// retire cancels the single worker, drains pre-switch events under the existing
+// shutdown deadlines, then reports or journals explicit gaps for anything unsent.
+func (x *extension) retire(state *session, reason string) {
 	if state == nil {
-		return nil, nil
+		return
 	}
+	state.mu.Lock()
+	state.retired = true
+	state.mu.Unlock()
 	state.stop()
 	<-state.done
 	drain := func() {
 		drainCtx, cancel := context.WithTimeout(context.Background(), shutdownDrain)
 		defer cancel()
-		_ = state.capture.Flush(drainCtx) // the deadline is the bound; what is left is reported below
+		if err := state.capture.Flush(drainCtx); err != nil {
+			x.warn(reason + " drain failed: " + err.Error())
+		}
 	}
 	drain()
 	// Whatever the deadline left behind becomes an explicit, journaled gap.
@@ -368,7 +473,6 @@ func (x *extension) onSessionShutdown(ctx sdk.Context, _ map[string]any) (any, e
 	drain()
 	left := state.capture.Stats()
 	if left.Queued > 0 || left.Gaps > 0 || left.GapsUncounted > 0 {
-		x.warn(fmt.Sprintf("shutdown with %d unsent events and %d unjournaled capture gaps", left.Queued, left.Gaps+left.GapsUncounted))
+		x.warn(fmt.Sprintf("%s with %d unsent events and %d unjournaled capture gaps", reason, left.Queued, left.Gaps+left.GapsUncounted))
 	}
-	return nil, nil
 }

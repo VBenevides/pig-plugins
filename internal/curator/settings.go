@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -36,6 +37,7 @@ const (
 
 // Settings holds the saved values; a nil field is not saved.
 type Settings struct {
+	Enabled  *bool
 	Prefetch *int
 	Startup  *int
 	Engine   string
@@ -103,6 +105,9 @@ func jsString(value any) string {
 }
 
 func merge(into *Settings, change Settings) {
+	if change.Enabled != nil {
+		into.Enabled = change.Enabled
+	}
 	if change.Prefetch != nil {
 		into.Prefetch = change.Prefetch
 	}
@@ -129,6 +134,13 @@ func LoadSettings(file string) (Settings, error) {
 		return Settings{}, fmt.Errorf("%s is not a valid settings object: %w", file, err)
 	}
 	var result Settings
+	if value, present := object["enabled"]; present {
+		enabled, ok := value.(bool)
+		if !ok {
+			return Settings{}, fmt.Errorf("%s: enabled must be a boolean", file)
+		}
+		result.Enabled = &enabled
+	}
 	for _, key := range fileKeys {
 		value, present := object[key.file]
 		if !present {
@@ -155,6 +167,9 @@ func SaveSettings(file string, change Settings) error {
 	case !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("read %s: %w", file, err)
 	}
+	if change.Enabled != nil {
+		current["enabled"] = *change.Enabled
+	}
 	if change.Prefetch != nil {
 		current["prefetchBudget"] = *change.Prefetch
 	}
@@ -164,7 +179,20 @@ func SaveSettings(file string, change Settings) error {
 	if change.Engine != "" {
 		current["searchEngine"] = change.Engine
 	}
-	return fsutil.WriteJSONFileAtomic(file, current, 0o600)
+	if err := fsutil.WriteJSONFileAtomic(file, current, 0o600); err != nil {
+		return err
+	}
+	// The atomic writer syncs the file. Sync the directory to persist its rename.
+	dir, err := os.Open(filepath.Dir(file))
+	if err != nil {
+		return fmt.Errorf("open settings directory for %s: %w", file, err)
+	}
+	syncErr := dir.Sync()
+	closeErr := dir.Close()
+	if err := errors.Join(syncErr, closeErr); err != nil {
+		return fmt.Errorf("persist settings directory for %s: %w", file, err)
+	}
+	return nil
 }
 
 // Config resolves the effective values from the settings file, the environment and the defaults.
@@ -178,6 +206,7 @@ func (c Config) File() string { return agentdir.File(c.Getenv, "pi-curator.json"
 
 // Values are the effective settings as text, the way the plugin reads its environment variables.
 type Values struct {
+	Enabled  bool
 	Prefetch string
 	Startup  string
 	Engine   string
@@ -190,6 +219,10 @@ type Values struct {
 func (c Config) Effective() (Values, error) {
 	saved, err := LoadSettings(c.File())
 	var out Values
+	out.Enabled = true
+	if saved.Enabled != nil {
+		out.Enabled = *saved.Enabled
+	}
 	pick := func(i int, savedText, variable, fallback string) string {
 		if savedText != "" {
 			out.sources[i] = "saved"
@@ -224,6 +257,7 @@ func (c Config) Effective() (Values, error) {
 func (c Config) Describe() []string {
 	values, _ := c.Effective() // a damaged file is reported by the caller, and shows here as nothing saved
 	return []string{
+		fmt.Sprintf("enabled: %t", values.Enabled),
 		fmt.Sprintf("prefetch: %s (%s)", values.Prefetch, values.sources[0]),
 		fmt.Sprintf("startup: %s (%s)", values.Startup, values.sources[1]),
 		fmt.Sprintf("engine: %s (%s)", values.Engine, values.sources[2]),

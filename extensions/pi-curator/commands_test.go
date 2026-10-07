@@ -1,11 +1,14 @@
 package picurator_test
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/VBenevides/pig-plugins/internal/curator"
 	"github.com/VBenevides/pig-plugins/internal/pigtest"
 )
 
@@ -81,5 +84,109 @@ func TestCaptureRedactsSecrets(t *testing.T) {
 	}
 	if !strings.Contains(log, "recorded") {
 		t.Fatal("successful neighbor not captured", log)
+	}
+}
+
+func TestOffOnImmediatelyControlsRecallToolsAndCapture(t *testing.T) {
+	home := repoHome(t)
+	seed(t, home)
+	file := filepath.Join(home.AgentDir(), "pi-curator.json")
+	writeFile(t, file, `{"prefetchBudget":512,"startupDecisions":2,"searchEngine":"legacy"}`)
+	mock := pigtest.NewMockLLM(
+		pigtest.Calls(pigtest.Call("memory_search", map[string]any{"query": "atomic writes"})),
+		pigtest.Calls(pigtest.Call("memory_read", map[string]any{"ids": []string{"decision"}})),
+		pigtest.Text("private-off-answer"),
+		pigtest.Calls(pigtest.Call("memory_search", map[string]any{"query": "atomic writes"})),
+		pigtest.Text("restored-on-answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env(nil),
+		Prompts: []string{"/pi-curator off", "private-off-prompt atomic writes", "/pi-curator on", "restored-on-prompt atomic writes"}})
+	if len(result.Asked) != 0 {
+		t.Fatal("on asked consent for existing consented memory", result.Asked)
+	}
+	toolResults := pigtest.ToolResults(mock)
+	if len(toolResults) != 3 || !strings.Contains(toolResults[0], "disabled") || !strings.Contains(toolResults[1], "disabled") || !strings.Contains(toolResults[2], marker) {
+		t.Fatal(toolResults, result.Stderr)
+	}
+	requests := mock.Requests()
+	if len(requests) < 4 {
+		t.Fatal("missing model requests", result.Stderr)
+	}
+	first, err := json.Marshal(requests[0])
+	if err != nil || strings.Contains(string(first), marker) || strings.Contains(string(first), "Repository memory") {
+		t.Fatal("off injected recall", string(first), err)
+	}
+	restored, err := json.Marshal(requests[3])
+	if err != nil || !strings.Contains(string(restored), marker) || !strings.Contains(string(restored), "Repository memory") {
+		t.Fatal("on did not restore automatic recall", string(restored), err)
+	}
+	log := journal(home)
+	for _, private := range []string{"private-off-prompt", "private-off-answer"} {
+		if strings.Contains(log, private) {
+			t.Fatal("off captured private content", log)
+		}
+	}
+	for _, preserved := range []string{marker, "restored-on-prompt", "restored-on-answer"} {
+		if !strings.Contains(log, preserved) {
+			t.Fatal("on did not restore capture or preserve journal", log)
+		}
+	}
+	values, err := (curator.Config{Getenv: func(key string) string {
+		if key == "PIG_CODING_AGENT_DIR" {
+			return home.AgentDir()
+		}
+		return ""
+	}}).Effective()
+	if err != nil || !values.Enabled || values.Prefetch != "512" || values.Startup != "2" || values.Engine != "legacy" {
+		t.Fatal(values, err)
+	}
+}
+
+func TestOffPersistsAcrossRestartWithoutPromptRecallOrCapture(t *testing.T) {
+	home := repoHome(t)
+	seed(t, home)
+	before := journal(home)
+	mock := pigtest.NewMockLLM(pigtest.Text("private-restart-answer"))
+	defer mock.Close()
+	home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env(nil), Prompts: []string{"/pi-curator off"}})
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)},
+		Env:     env(map[string]string{"PI_CURATOR_PREFETCH_BUDGET": "512", "PI_CURATOR_STARTUP_DECISIONS": "2"}),
+		Prompts: []string{"private-restart-prompt atomic writes"}, Confirm: func(map[string]any) bool { return true }})
+	if len(result.Asked) != 0 || journal(home) != before || strings.Contains(requestText(mock), marker) {
+		t.Fatal("disabled restart recalled, prompted, or captured", result.Asked, journal(home), requestText(mock))
+	}
+}
+
+func TestOnDefersConsentAndHonorsEarlierRefusal(t *testing.T) {
+	home := repoHome(t)
+	writeFile(t, filepath.Join(home.AgentDir(), "pi-curator.json"), `{"enabled":false}`)
+	mock := pigtest.NewMockLLM(pigtest.Text("private-disabled"), pigtest.Text("declined"), pigtest.Text("still-declined"))
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env(nil),
+		Prompts: []string{"private-disabled-prompt", "/pi-curator on", "ask-on-first-prompt", "/pi-curator off", "/pi-curator on", "do-not-ask-again"},
+		Confirm: func(map[string]any) bool { return false }})
+	if len(result.Asked) != 1 {
+		t.Fatal("off prompted or on bypassed/refreshed refusal", result.Asked, result.Stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home.Work, ".curator")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("on granted consent", err)
+	}
+	for _, name := range pigtest.ToolNames(mock) {
+		if strings.HasPrefix(name, "memory_") {
+			t.Fatal("disabled startup exposed memory tools", name)
+		}
+	}
+}
+
+func TestOnRestoresCaptureAfterExplicitConsent(t *testing.T) {
+	home := repoHome(t)
+	writeFile(t, filepath.Join(home.AgentDir(), "pi-curator.json"), `{"enabled":false}`)
+	mock := pigtest.NewMockLLM(pigtest.Text("accepted-on-answer"))
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env(nil),
+		Prompts: []string{"/pi-curator on", "accepted-on-prompt"}, Confirm: func(map[string]any) bool { return true }})
+	if len(result.Asked) != 1 || !strings.Contains(journal(home), "accepted-on-answer") || !strings.Contains(journal(home), "accepted-on-prompt") {
+		t.Fatal(result.Asked, journal(home), result.Stderr)
 	}
 }

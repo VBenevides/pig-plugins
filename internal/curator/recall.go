@@ -66,15 +66,28 @@ func PrefetchBudget(raw string) (budget int, valid, enabled bool) {
 	return n, true, n >= 64
 }
 
-// StartupBlock formats decision lines as a block that opens with a blank line, or "" when there are none.
-func StartupBlock(lines []string) string {
-	if len(lines) == 0 {
+// StartupBlock fits whole decision lines and their history envelope into maxBytes.
+// An oversized decision does not discard a useful neighboring decision.
+func StartupBlock(lines []string, maxBytes int) string {
+	prefix := "\n\n" + StartupHeader
+	if len(prefix) >= maxBytes {
 		return ""
 	}
 	var block strings.Builder
-	block.WriteString("\n\n" + StartupHeader)
 	for _, line := range lines {
-		block.WriteString("\n- " + line)
+		size := len("\n- ") + len(line)
+		used := block.Len()
+		if used == 0 {
+			used = len(prefix)
+		}
+		if size > maxBytes-used {
+			continue
+		}
+		if block.Len() == 0 {
+			block.WriteString(prefix)
+		}
+		block.WriteString("\n- ")
+		block.WriteString(line)
 	}
 	return block.String()
 }
