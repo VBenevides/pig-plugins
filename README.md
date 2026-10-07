@@ -83,3 +83,43 @@ Differences from the TypeScript original:
 - A native scoring call cannot be interrupted once it started; scoring is bounded by a 60 s timeout between steps.
 
 Do not enable `harness-guard`, the TypeScript twin, at the same time.
+
+## pi-curator
+
+The native Go extension captures visible conversation text and tool traffic in consented repositories.
+It calls `PI_CURATOR_BIN`, or `curator` on PATH. The curator packages are internal to another Go module.
+The CLI owns redaction, locking, the journal format, search, and UTF-8 cursor pages.
+Existing `.curator` journals stay readable. The extension never writes the journal directly.
+
+For a repository without memory, the extension asks for consent before the first prompt.
+PiG RPC cannot answer a dialog during `session_start`. The deferred question avoids that startup deadlock.
+Headless sessions require prior operator consent through `curator init --consent --cwd <repository>`.
+Thinking blocks and `read` results are not captured.
+One background worker drains a bounded queue. Overflow and undelivered events become capture gaps.
+Shutdown cancels that worker before two bounded drain attempts. Any unjournaled gaps remain visible in warnings.
+
+`memory_search` and `memory_read` are deferred tools.
+If `tool_search` or `codemode` is active, the model discovers the tools on demand.
+Otherwise, a consented session activates them directly.
+The tools reject access outside the session's repository.
+Read budgets cover the complete serialized response, including metadata, escaping, and the final newline.
+Use `next_cursor` with one event ID to read the next page.
+
+`/pi-curator [status|prefetch <off|64..8192>|startup <off|1..10>|engine <legacy|fts|hybrid|episodes|state>]`
+stores settings in `<agent dir>/pi-curator.json` with mode 0600.
+Saved settings take precedence over environment variables.
+The integration defaults are prefetch 512, startup 2, and engine legacy.
+Set `PI_CURATOR_PREFETCH_BUDGET=0` to disable task prefetch.
+Set `PI_CURATOR_STARTUP_DECISIONS=0` to disable startup history as well.
+`PI_CURATOR_SEARCH_ENGINE` selects the tool engine. `PI_CURATOR_PREFETCH_ENGINE` separately selects the prefetch engine.
+History enters an ordinary hidden message, never the system prompt.
+The system prompt receives only static recall guidance. The extension adds no memory-access widget.
+
+Parity fixtures come from the original TypeScript event mapper, settings parser, and prefetch expression.
+Go maps lose argument insertion order. Tool arguments and paths therefore use deterministic key ordering.
+Unlike the adapter, default settings are described as defaults rather than environment values.
+The Go queue also bounds bytes, so an oversized event cannot prevent its valid neighbors from reaching curator.
+Repository roots are checked again before each subprocess.
+The CLI has no atomic expected-repository parameter. Concurrent replacement of repository metadata remains a limitation.
+
+Do not enable `harness-curator`, the TypeScript twin, at the same time.

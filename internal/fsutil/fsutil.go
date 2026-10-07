@@ -2,9 +2,11 @@
 package fsutil
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -69,4 +71,23 @@ func WriteJSONFileAtomic(path string, v any, perm fs.FileMode) error {
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
 	return WriteFileAtomic(path, append(data, '\n'), perm)
+}
+
+// DecodeObject decodes a JSON document that must be exactly one object. Numbers stay as json.Number, so a file
+// that is read, changed and written back does not have its other numbers rewritten.
+func DecodeObject(data []byte) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("unexpected data after the JSON value")
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, errors.New("not a JSON object")
+	}
+	return object, nil
 }

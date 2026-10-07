@@ -11,7 +11,6 @@
 package smartapprovelancet
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/agentdir"
 	"github.com/VBenevides/pig-plugins/internal/guard"
 	"github.com/VBenevides/pig-plugins/internal/lancet"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 // Name is the extension identity and the footer status key.
@@ -62,7 +62,7 @@ func Extension() *sdk.Extension {
 			return items, nil
 		},
 		Handler: func(ctx sdk.Context, args string) error {
-			runCtx, cancel := requestContext(ctx)
+			runCtx, cancel := sdkctx.Request(ctx)
 			defer cancel()
 			controller.Handle(runCtx, args, ctx.Notify, func() { announce(ctx) })
 			return nil
@@ -75,7 +75,7 @@ func Extension() *sdk.Extension {
 			return nil, nil
 		}
 		input, _ := data["input"].(map[string]any)
-		runCtx, cancel := requestContext(ctx)
+		runCtx, cancel := sdkctx.Request(ctx)
 		defer cancel()
 		decision := gate.Check(runCtx, guard.Call{
 			Tool:    tool,
@@ -90,19 +90,4 @@ func Extension() *sdk.Extension {
 		return nil, nil
 	})
 	return e
-}
-
-// requestContext adapts the request's cancellation to a context.Context.
-func requestContext(ctx sdk.Context) (context.Context, context.CancelFunc) {
-	runCtx, cancel := context.WithCancel(context.Background())
-	if done := ctx.Done(); done != nil {
-		go func() {
-			select {
-			case <-done:
-				cancel()
-			case <-runCtx.Done():
-			}
-		}()
-	}
-	return runCtx, cancel
 }

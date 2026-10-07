@@ -1,0 +1,1695 @@
+{
+ "safeId": [
+  {
+   "raw": "abc",
+   "id": "abc"
+  },
+  {
+   "raw": "user:1700000000000",
+   "id": "user:1700000000000"
+  },
+  {
+   "raw": "toolu_01A",
+   "id": "toolu_01A"
+  },
+  {
+   "raw": "call:toolu_01A",
+   "id": "call:toolu_01A"
+  },
+  {
+   "raw": "result:call_1|x",
+   "id": "result:call_1-x"
+  },
+  {
+   "raw": "-leading",
+   "id": "h-58a376dfeff7878a"
+  },
+  {
+   "raw": ".dot",
+   "id": "h-0ce4e5a50a795746"
+  },
+  {
+   "raw": "_under",
+   "id": "h-85198aec3c3d5a57"
+  },
+  {
+   "raw": "",
+   "id": "h-e3b0c44298fc1c14"
+  },
+  {
+   "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "id": "h-c12cb024a2e5551c"
+  },
+  {
+   "raw": "emoji😀id",
+   "id": "emoji--id"
+  },
+  {
+   "raw": "naïve",
+   "id": "na-ve"
+  },
+  {
+   "raw": "a b/c@d.e:f-g",
+   "id": "a-b/c@d.e:f-g"
+  },
+  {
+   "raw": "ok/slash",
+   "id": "ok/slash"
+  },
+  {
+   "raw": "tab\tin",
+   "id": "tab-in"
+  },
+  {
+   "raw": "日本語",
+   "id": "h-77710aedc74ecfa3"
+  },
+  {
+   "raw": "x😀y",
+   "id": "x--y"
+  }
+ ],
+ "events": [
+  {
+   "name": "user text",
+   "messages": [
+    {
+     "role": "user",
+     "timestamp": 1,
+     "content": "remember the deploy flag"
+    }
+   ],
+   "events": [
+    {
+     "id": "user:1",
+     "session_id": "sess1",
+     "category": "user_message",
+     "role": "user",
+     "content": "remember the deploy flag",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "user blocks",
+   "messages": [
+    {
+     "role": "user",
+     "timestamp": 2,
+     "content": [
+      {
+       "type": "text",
+       "text": "a"
+      },
+      {
+       "type": "image",
+       "data": "x"
+      },
+      {
+       "type": "text",
+       "text": "b"
+      }
+     ]
+    }
+   ],
+   "events": [
+    {
+     "id": "user:2",
+     "session_id": "sess1",
+     "category": "user_message",
+     "role": "user",
+     "content": "a\nb",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "user empty",
+   "messages": [
+    {
+     "role": "user",
+     "timestamp": 3,
+     "content": ""
+    },
+    {
+     "role": "user",
+     "timestamp": 4,
+     "content": [
+      {
+       "type": "image"
+      }
+     ]
+    }
+   ],
+   "events": []
+  },
+  {
+   "name": "user without timestamp",
+   "messages": [
+    {
+     "role": "user",
+     "content": "no clock"
+    }
+   ],
+   "events": [
+    {
+     "id": "user:06db4f6c67b6b902",
+     "session_id": "sess1",
+     "category": "user_message",
+     "role": "user",
+     "content": "no clock",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "user fractional timestamp",
+   "messages": [
+    {
+     "role": "user",
+     "timestamp": 1700000000000.5,
+     "content": "frac"
+    }
+   ],
+   "events": [
+    {
+     "id": "user:1700000000000.5",
+     "session_id": "sess1",
+     "category": "user_message",
+     "role": "user",
+     "content": "frac",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "assistant text and thinking",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 5,
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "SECRET-CHAIN"
+      },
+      {
+       "type": "text",
+       "text": "flag is --fast"
+      }
+     ]
+    }
+   ],
+   "events": [
+    {
+     "id": "assistant:5",
+     "session_id": "sess1",
+     "category": "assistant_message",
+     "role": "assistant",
+     "content": "flag is --fast",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "assistant only thinking",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 6,
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "x"
+      }
+     ]
+    }
+   ],
+   "events": []
+  },
+  {
+   "name": "assistant tool calls then results",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 7,
+     "content": [
+      {
+       "type": "text",
+       "text": "looking"
+      },
+      {
+       "type": "toolCall",
+       "id": "toolu_01",
+       "name": "edit",
+       "arguments": {
+        "path": "src/a.go"
+       }
+      },
+      {
+       "type": "toolCall",
+       "id": "toolu_02",
+       "name": "bash",
+       "arguments": {
+        "command": "ls"
+       }
+      }
+     ]
+    },
+    {
+     "role": "toolResult",
+     "timestamp": 8,
+     "toolCallId": "toolu_01",
+     "toolName": "edit",
+     "isError": false,
+     "content": [
+      {
+       "type": "text",
+       "text": "edited"
+      }
+     ]
+    },
+    {
+     "role": "toolResult",
+     "timestamp": 9,
+     "toolCallId": "toolu_02",
+     "toolName": "bash",
+     "isError": true,
+     "content": [
+      {
+       "type": "text",
+       "text": "boom"
+      },
+      {
+       "type": "text",
+       "text": "more"
+      }
+     ]
+    }
+   ],
+   "events": [
+    {
+     "id": "assistant:7",
+     "session_id": "sess1",
+     "category": "assistant_message",
+     "role": "assistant",
+     "content": "looking",
+     "source": {
+      "host": "omp"
+     }
+    },
+    {
+     "id": "call:toolu_01",
+     "session_id": "sess1",
+     "category": "tool_call",
+     "tool_name": "edit",
+     "call_id": "toolu_01",
+     "content": "{\"path\":\"src/a.go\"}",
+     "paths": [
+      "src/a.go"
+     ],
+     "source": {
+      "host": "omp"
+     }
+    },
+    {
+     "id": "call:toolu_02",
+     "session_id": "sess1",
+     "category": "tool_call",
+     "tool_name": "bash",
+     "call_id": "toolu_02",
+     "content": "{\"command\":\"ls\"}",
+     "source": {
+      "host": "omp"
+     }
+    },
+    {
+     "id": "result:toolu_01",
+     "session_id": "sess1",
+     "category": "tool_result",
+     "tool_name": "edit",
+     "call_id": "toolu_01",
+     "content": "edited",
+     "is_error": false,
+     "paths": [
+      "src/a.go"
+     ],
+     "source": {
+      "host": "omp"
+     }
+    },
+    {
+     "id": "result:toolu_02",
+     "session_id": "sess1",
+     "category": "tool_result",
+     "tool_name": "bash",
+     "call_id": "toolu_02",
+     "content": "boom\nmore",
+     "is_error": true,
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "read result is not captured",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 10,
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "r1",
+       "name": "read",
+       "arguments": {
+        "path": "big.txt"
+       }
+      }
+     ]
+    },
+    {
+     "role": "toolResult",
+     "timestamp": 11,
+     "toolCallId": "r1",
+     "toolName": "read",
+     "isError": false,
+     "content": [
+      {
+       "type": "text",
+       "text": "FILE BODY"
+      }
+     ]
+    }
+   ],
+   "events": [
+    {
+     "id": "call:r1",
+     "session_id": "sess1",
+     "category": "tool_call",
+     "tool_name": "read",
+     "call_id": "r1",
+     "content": "{\"path\":\"big.txt\"}",
+     "paths": [
+      "big.txt"
+     ],
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "path keys",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 12,
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "p1",
+       "name": "grep",
+       "arguments": {
+        "files": [
+         "a",
+         7,
+         "b"
+        ],
+        "other": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "toolResult",
+     "timestamp": 13,
+     "toolCallId": "p1",
+     "toolName": "grep",
+     "content": "plain string content"
+    }
+   ],
+   "events": [
+    {
+     "id": "call:p1",
+     "session_id": "sess1",
+     "category": "tool_call",
+     "tool_name": "grep",
+     "call_id": "p1",
+     "content": "{\"files\":[\"a\",7,\"b\"],\"other\":\"x\"}",
+     "paths": [
+      "a",
+      "b"
+     ],
+     "source": {
+      "host": "omp"
+     }
+    },
+    {
+     "id": "result:p1",
+     "session_id": "sess1",
+     "category": "tool_result",
+     "tool_name": "grep",
+     "call_id": "p1",
+     "content": "plain string content",
+     "paths": [
+      "a",
+      "b"
+     ],
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "tool call without arguments",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 14,
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "n1",
+       "name": "noargs"
+      }
+     ]
+    }
+   ],
+   "events": [
+    {
+     "id": "call:n1",
+     "session_id": "sess1",
+     "category": "tool_call",
+     "tool_name": "noargs",
+     "call_id": "n1",
+     "content": "{}",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "malformed tool calls",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 15,
+     "content": [
+      {
+       "type": "toolCall",
+       "id": 5,
+       "name": "x"
+      },
+      {
+       "type": "toolCall",
+       "id": "ok",
+       "name": 9
+      },
+      "str",
+      null
+     ]
+    }
+   ],
+   "events": []
+  },
+  {
+   "name": "result without id or name",
+   "messages": [
+    {
+     "role": "toolResult",
+     "timestamp": 16,
+     "content": "x"
+    },
+    {
+     "role": "toolResult",
+     "timestamp": 17,
+     "toolCallId": "z",
+     "content": "y"
+    }
+   ],
+   "events": [
+    {
+     "id": "result:z",
+     "session_id": "sess1",
+     "category": "tool_result",
+     "call_id": "z",
+     "content": "y",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "other roles",
+   "messages": [
+    {
+     "role": "custom",
+     "content": "injected",
+     "timestamp": 18
+    },
+    {
+     "role": "system",
+     "content": "",
+     "timestamp": 19
+    },
+    {
+     "content": "no role"
+    },
+    "text",
+    null,
+    4
+   ],
+   "events": []
+  },
+  {
+   "name": "result unseen call",
+   "messages": [
+    {
+     "role": "toolResult",
+     "timestamp": 20,
+     "toolCallId": "ghost",
+     "toolName": "bash",
+     "isError": false,
+     "content": [
+      {
+       "type": "text",
+       "text": "out"
+      }
+     ]
+    }
+   ],
+   "events": [
+    {
+     "id": "result:ghost",
+     "session_id": "sess1",
+     "category": "tool_result",
+     "tool_name": "bash",
+     "call_id": "ghost",
+     "content": "out",
+     "is_error": false,
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  },
+  {
+   "name": "unsafe call id",
+   "messages": [
+    {
+     "role": "assistant",
+     "timestamp": 21,
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "call|weird id",
+       "name": "bash",
+       "arguments": {
+        "command": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "toolResult",
+     "timestamp": 22,
+     "toolCallId": "call|weird id",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "r"
+      }
+     ]
+    }
+   ],
+   "events": [
+    {
+     "id": "call:call-weird-id",
+     "session_id": "sess1",
+     "category": "tool_call",
+     "tool_name": "bash",
+     "call_id": "call|weird id",
+     "content": "{\"command\":\"x\"}",
+     "source": {
+      "host": "omp"
+     }
+    },
+    {
+     "id": "result:call-weird-id",
+     "session_id": "sess1",
+     "category": "tool_result",
+     "tool_name": "bash",
+     "call_id": "call|weird id",
+     "content": "r",
+     "source": {
+      "host": "omp"
+     }
+    }
+   ]
+  }
+ ],
+ "boundaries": [
+  {
+   "messages": [
+    {
+     "timestamp": 5
+    }
+   ],
+   "event": {
+    "id": "task:5",
+    "session_id": "sess1",
+    "category": "task_boundary",
+    "source": {
+     "host": "omp"
+    }
+   }
+  },
+  {
+   "messages": [],
+   "event": {
+    "id": "task:end",
+    "session_id": "sess1",
+    "category": "task_boundary",
+    "source": {
+     "host": "omp"
+    }
+   }
+  },
+  {
+   "messages": null,
+   "event": {
+    "id": "task:end",
+    "session_id": "sess1",
+    "category": "task_boundary",
+    "source": {
+     "host": "omp"
+    }
+   }
+  },
+  {
+   "messages": [
+    {
+     "timestamp": "x"
+    }
+   ],
+   "event": {
+    "id": "task:end",
+    "session_id": "sess1",
+    "category": "task_boundary",
+    "source": {
+     "host": "omp"
+    }
+   }
+  },
+  {
+   "messages": [
+    {
+     "nothing": 1
+    },
+    {
+     "timestamp": 9
+    }
+   ],
+   "event": {
+    "id": "task:9",
+    "session_id": "sess1",
+    "category": "task_boundary",
+    "source": {
+     "host": "omp"
+    }
+   }
+  },
+  {
+   "messages": [
+    {
+     "timestamp": 1700000000123
+    }
+   ],
+   "event": {
+    "id": "task:1700000000123",
+    "session_id": "sess1",
+    "category": "task_boundary",
+    "source": {
+     "host": "omp"
+    }
+   }
+  }
+ ],
+ "evict": {
+  "limit": 3,
+  "taken": [
+   [],
+   [],
+   [
+    "c"
+   ],
+   [
+    "d"
+   ],
+   [
+    "e"
+   ],
+   []
+  ]
+ },
+ "parse": [
+  {
+   "key": "prefetch",
+   "value": "off",
+   "result": {
+    "prefetchBudget": 0
+   }
+  },
+  {
+   "key": "prefetch",
+   "value": "0",
+   "result": {
+    "prefetchBudget": 0
+   }
+  },
+  {
+   "key": "prefetch",
+   "value": "64",
+   "result": {
+    "prefetchBudget": 64
+   }
+  },
+  {
+   "key": "prefetch",
+   "value": "63",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192"
+  },
+  {
+   "key": "prefetch",
+   "value": "8192",
+   "result": {
+    "prefetchBudget": 8192
+   }
+  },
+  {
+   "key": "prefetch",
+   "value": "8193",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192"
+  },
+  {
+   "key": "prefetch",
+   "value": "512",
+   "result": {
+    "prefetchBudget": 512
+   }
+  },
+  {
+   "key": "prefetch",
+   "value": "-1",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192"
+  },
+  {
+   "key": "prefetch",
+   "value": "1.5",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192"
+  },
+  {
+   "key": "prefetch",
+   "value": "abc",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192"
+  },
+  {
+   "key": "prefetch",
+   "value": "",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192"
+  },
+  {
+   "key": "prefetch",
+   "value": "007",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192"
+  },
+  {
+   "key": "startup",
+   "value": "off",
+   "result": {
+    "startupDecisions": 0
+   }
+  },
+  {
+   "key": "startup",
+   "value": "0",
+   "result": {
+    "startupDecisions": 0
+   }
+  },
+  {
+   "key": "startup",
+   "value": "1",
+   "result": {
+    "startupDecisions": 1
+   }
+  },
+  {
+   "key": "startup",
+   "value": "10",
+   "result": {
+    "startupDecisions": 10
+   }
+  },
+  {
+   "key": "startup",
+   "value": "11",
+   "error": "startup must be off, 0 or a whole number from 1 to 10"
+  },
+  {
+   "key": "startup",
+   "value": "x",
+   "error": "startup must be off, 0 or a whole number from 1 to 10"
+  },
+  {
+   "key": "startup",
+   "value": "02",
+   "result": {
+    "startupDecisions": 2
+   }
+  },
+  {
+   "key": "engine",
+   "value": "legacy",
+   "result": {
+    "searchEngine": "legacy"
+   }
+  },
+  {
+   "key": "engine",
+   "value": "fts",
+   "result": {
+    "searchEngine": "fts"
+   }
+  },
+  {
+   "key": "engine",
+   "value": "hybrid",
+   "result": {
+    "searchEngine": "hybrid"
+   }
+  },
+  {
+   "key": "engine",
+   "value": "episodes",
+   "result": {
+    "searchEngine": "episodes"
+   }
+  },
+  {
+   "key": "engine",
+   "value": "state",
+   "result": {
+    "searchEngine": "state"
+   }
+  },
+  {
+   "key": "engine",
+   "value": "bogus",
+   "error": "engine must be legacy, fts, hybrid, episodes, state"
+  },
+  {
+   "key": "engine",
+   "value": "FTS",
+   "error": "engine must be legacy, fts, hybrid, episodes, state"
+  },
+  {
+   "key": "bogus",
+   "value": "1",
+   "error": "unknown setting \"bogus\"; use prefetch, startup or engine"
+  },
+  {
+   "key": "",
+   "value": "1",
+   "error": "unknown setting \"\"; use prefetch, startup or engine"
+  }
+ ],
+ "files": [
+  {
+   "name": "missing",
+   "text": null,
+   "loaded": {},
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "empty object",
+   "text": "{}",
+   "loaded": {},
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "all valid",
+   "text": "{\"prefetchBudget\":700,\"startupDecisions\":4,\"searchEngine\":\"fts\"}",
+   "loaded": {
+    "prefetchBudget": 700,
+    "startupDecisions": 4,
+    "searchEngine": "fts"
+   },
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 4 (saved)",
+      "engine: fts (saved)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 4 (saved)",
+      "engine: fts (saved)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 4 (saved)",
+      "engine: fts (saved)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "strings",
+   "text": "{\"prefetchBudget\":\"700\",\"startupDecisions\":\"off\",\"searchEngine\":\"state\"}",
+   "loaded": {
+    "prefetchBudget": 700,
+    "startupDecisions": 0,
+    "searchEngine": "state"
+   },
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 0 (saved)",
+      "engine: state (saved)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 0 (saved)",
+      "engine: state (saved)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 0 (saved)",
+      "engine: state (saved)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "zero values",
+   "text": "{\"prefetchBudget\":0,\"startupDecisions\":0}",
+   "loaded": {
+    "prefetchBudget": 0,
+    "startupDecisions": 0
+   },
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 0 (saved)",
+      "startup: 0 (saved)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 0 (saved)",
+      "startup: 0 (saved)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 0 (saved)",
+      "startup: 0 (saved)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "float spelling",
+   "text": "{\"prefetchBudget\":700.0,\"startupDecisions\":1e0}",
+   "loaded": {
+    "prefetchBudget": 700,
+    "startupDecisions": 1
+   },
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 1 (saved)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 1 (saved)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 700 (saved)",
+      "startup: 1 (saved)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "other keys kept",
+   "text": "{\"foo\":1,\"prefetchBudget\":128}",
+   "loaded": {
+    "prefetchBudget": 128
+   },
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 128 (saved)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 128 (saved)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 128 (saved)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bad prefetch",
+   "text": "{\"prefetchBudget\":7}",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192",
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bad startup",
+   "text": "{\"startupDecisions\":11}",
+   "error": "startup must be off, 0 or a whole number from 1 to 10",
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "bad engine",
+   "text": "{\"searchEngine\":\"nope\"}",
+   "error": "engine must be legacy, fts, hybrid, episodes, state",
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "null value",
+   "text": "{\"prefetchBudget\":null}",
+   "error": "prefetch must be off, 0 or a whole number from 64 to 8192",
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "not json",
+   "text": "{nope",
+   "error": "<dir>//case11.json is not valid JSON: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "array",
+   "text": "[]",
+   "error": "<dir>//case12.json must be a JSON object",
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "scalar",
+   "text": "3",
+   "error": "<dir>//case13.json must be a JSON object",
+   "describe": [
+    {
+     "env": {},
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_PREFETCH_BUDGET": "300"
+     },
+     "lines": [
+      "prefetch: 300 (environment PI_CURATOR_PREFETCH_BUDGET)",
+      "startup: 2 (default)",
+      "engine: legacy (default)"
+     ]
+    },
+    {
+     "env": {
+      "PI_CURATOR_STARTUP_DECISIONS": "4",
+      "PI_CURATOR_SEARCH_ENGINE": "hybrid"
+     },
+     "lines": [
+      "prefetch: 512 (default)",
+      "startup: 4 (environment PI_CURATOR_STARTUP_DECISIONS)",
+      "engine: hybrid (environment PI_CURATOR_SEARCH_ENGINE)"
+     ]
+    }
+   ]
+  }
+ ],
+ "defaults": {
+  "PI_CURATOR_PREFETCH_BUDGET": "512",
+  "PI_CURATOR_STARTUP_DECISIONS": "2"
+ },
+ "keepEnv": {
+  "PI_CURATOR_PREFETCH_BUDGET": "64",
+  "PI_CURATOR_STARTUP_DECISIONS": "2"
+ },
+ "prefetch": [
+  {
+   "prompt": "How did we implement atomic writes in the exporter?",
+   "words": [
+    "implement",
+    "atomic",
+    "writes",
+    "exporter"
+   ]
+  },
+  {
+   "prompt": "Fix atomic writes on failure",
+   "words": [
+    "atomic",
+    "writes",
+    "failure"
+   ]
+  },
+  {
+   "prompt": "please check the file code and make sure it works",
+   "words": [
+    "works"
+   ]
+  },
+  {
+   "prompt": "Über die Größe: naïve café 日本語テキスト and src/main.go, pkg.Name_v2 x-y-z",
+   "words": [
+    "Über",
+    "Größe",
+    "naïve",
+    "café",
+    "日本語テキスト",
+    "src/main.go",
+    "pkg.Name_v2",
+    "x-y-z"
+   ]
+  },
+  {
+   "prompt": "aaa bbb ccc dddd eeee dddd",
+   "words": [
+    "dddd",
+    "eeee"
+   ]
+  },
+  {
+   "prompt": "word0x word1x word2x word3x word4x word5x word6x word7x word8x word9x word10x word11x word12x word13x word14x word15x word16x word17x word18x word19x word20x word21x word22x word23x word24x word25x word26x word27x word28x word29x",
+   "words": [
+    "word0x",
+    "word1x",
+    "word2x",
+    "word3x",
+    "word4x",
+    "word5x",
+    "word6x",
+    "word7x",
+    "word8x",
+    "word9x",
+    "word10x",
+    "word11x",
+    "word12x",
+    "word13x",
+    "word14x",
+    "word15x",
+    "word16x",
+    "word17x",
+    "word18x",
+    "word19x"
+   ]
+  },
+  {
+   "prompt": "WILL With WITHOUT Would YOUR",
+   "words": []
+  },
+  {
+   "prompt": "",
+   "words": []
+  },
+  {
+   "prompt": "1234 5678 a1b2c3",
+   "words": [
+    "a1b2c3"
+   ]
+  },
+  {
+   "prompt": "path/to/file.ts and ./relative and ../up",
+   "words": [
+    "path/to/file.ts",
+    "relative"
+   ]
+  }
+ ],
+ "startupCount": [
+  {
+   "raw": "",
+   "count": 0
+  },
+  {
+   "raw": "0",
+   "count": 0
+  },
+  {
+   "raw": "1",
+   "count": 1
+  },
+  {
+   "raw": "5",
+   "count": 5
+  },
+  {
+   "raw": "10",
+   "count": 10
+  },
+  {
+   "raw": "11",
+   "count": 10
+  },
+  {
+   "raw": "99",
+   "count": 10
+  },
+  {
+   "raw": "lots",
+   "count": 0
+  },
+  {
+   "raw": "-1",
+   "count": 0
+  },
+  {
+   "raw": "1.5",
+   "count": 0
+  },
+  {
+   "raw": " 3",
+   "count": 0
+  },
+  {
+   "raw": "007",
+   "count": 7
+  },
+  {
+   "raw": "99999999999999999999",
+   "count": 10
+  }
+ ],
+ "stopwordList": [
+  "about",
+  "after",
+  "again",
+  "also",
+  "because",
+  "before",
+  "being",
+  "between",
+  "could",
+  "does",
+  "doing",
+  "each",
+  "every",
+  "first",
+  "from",
+  "have",
+  "having",
+  "here",
+  "into",
+  "just",
+  "like",
+  "make",
+  "many",
+  "more",
+  "most",
+  "much",
+  "must",
+  "once",
+  "only",
+  "other",
+  "over",
+  "same",
+  "should",
+  "since",
+  "some",
+  "such",
+  "than",
+  "that",
+  "their",
+  "them",
+  "then",
+  "there",
+  "these",
+  "they",
+  "this",
+  "those",
+  "through",
+  "under",
+  "until",
+  "using",
+  "very",
+  "want",
+  "what",
+  "when",
+  "where",
+  "which",
+  "while",
+  "will",
+  "with",
+  "within",
+  "without",
+  "would",
+  "your",
+  "please",
+  "check",
+  "sure",
+  "need",
+  "needs",
+  "file",
+  "files",
+  "code"
+ ]
+}

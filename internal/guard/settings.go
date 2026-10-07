@@ -1,11 +1,8 @@
 package guard
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 
@@ -49,25 +46,6 @@ type Settings struct {
 	Problem string
 }
 
-// decodeObject decodes a JSON document that must be exactly one object. Numbers stay as json.Number so a save
-// does not rewrite them.
-func decodeObject(data []byte) (map[string]any, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, err
-	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return nil, errors.New("unexpected data after the JSON value")
-	}
-	object, ok := value.(map[string]any)
-	if !ok {
-		return nil, errors.New("not a JSON object")
-	}
-	return object, nil
-}
-
 // LoadSettings reads the settings file. A missing file means interactive with LANCET off.
 func LoadSettings(file string) Settings {
 	data, err := os.ReadFile(file)
@@ -85,7 +63,7 @@ func LoadSettings(file string) Settings {
 }
 
 func parseSettings(data []byte) (Settings, error) {
-	object, err := decodeObject(data)
+	object, err := fsutil.DecodeObject(data)
 	if err != nil {
 		return Settings{}, err
 	}
@@ -127,7 +105,7 @@ func SaveSettings(file string, change Change) error {
 	data, err := os.ReadFile(file)
 	switch {
 	case err == nil:
-		if current, err = decodeObject(data); err != nil {
+		if current, err = fsutil.DecodeObject(data); err != nil {
 			return fmt.Errorf("%s: %w", file, err)
 		}
 	case !errors.Is(err, fs.ErrNotExist):
