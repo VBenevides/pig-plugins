@@ -30,7 +30,7 @@ Tests that start `pig` skip when it is not on `PATH`.
 ## Parity
 
 Each extension ports an existing TypeScript original and must behave the same. Parity tests compare the Go output
-with golden files captured from the original (`testdata/` next to the test). `pigtest.Golden` has no update flag on
+with golden files captured from the original (`testdata/` or `testfixtures/`). `pigtest.Golden` has no update flag on
 purpose: regenerating a golden from the Go port would erase the check.
 
 Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate tool names.
@@ -164,3 +164,43 @@ Real gopls output was compared with the TypeScript reference on one isolated Go 
 Hover, definition, references, document symbols, workspace symbols, rename edits, and diagnostics matched.
 Mock-LLM PiG runs cover all eight tools, post-edit diagnostics, and rejection of untrusted project commands.
 Do not enable `harness-code`, the TypeScript twin, at the same time.
+
+## web-search
+
+The native Go extension ports `pi-web-search@1.6.0`.
+`web_search` uses provider-native tools, not a general HTTP search service.
+`web_search` is deferred. Enable `builtin:tool-search` or `codemode` to discover it.
+Sessions without either discovery tool activate it directly.
+With an explicit `--tools` allowlist, include `web_search` in that allowlist; its deferred exposure still keeps it out of the initial model declaration.
+Supported transports are Google Gemini, OpenAI Responses (including Azure, Codex and Copilot),
+xAI Responses, and Anthropic Messages. OpenCode Zen/Go receive their session attribution headers.
+`url_context` uses Gemini URL Context and sends YouTube URLs as video parts.
+It is active only for a compatible conversation model. Tool activation remembers manual enable/disable choices.
+Both tools accept `query`; `web_search` accepts an optional `urls` array, while `url_context` requires 1–20 URLs.
+
+Search uses the current conversation model unless `<agent dir>/web-search.json` explicitly selects one:
+
+```json
+{"provider": "openai", "model": "gpt-5.5"}
+```
+
+`modelId` is accepted as the upstream alternative. `PI_WEB_SEARCH_CONFIG` selects another configuration file.
+Invalid configuration and unsupported models return visible tool errors. There is no automatic model fallback or unexpected billable request.
+Authentication and headers come from PiG's model registry. Explicit auth headers remain authoritative.
+OpenAI reasoning effort follows the live session setting and the `pi-ai@0.80.3` supported-level clamp.
+Search does not change the active conversation model.
+
+SSE updates stream to the tool surface. Results include cited answers, sources, queries, native-search calls,
+search-result metadata, and URL retrieval status. Unicode citations use Gemini byte offsets or OpenAI UTF-16 offsets.
+Provider POST redirects are refused. Google grounding redirects use unauthenticated, bounded HEAD requests;
+a failed optional resolution retains its original URL and records a warning.
+The request deadline is 90 seconds. Limits are 32 MiB per stream, 1 MiB per event, 8 MiB of answer text,
+256 result/citation/call/query entries, and bounded metadata depth and size.
+Unlike upstream, incomplete terminal responses and streams without a terminal response are errors, not partial success.
+Cancellation remains an error even during grounding resolution.
+
+The four transport fixtures were replayed through the original TypeScript adapters and formatter.
+Go output matches cited text, sources, native-search status and query lists.
+Mock-provider PiG execution also verifies explicit search-model configuration, discovery through the real `builtin:tool-search`, and Gemini-only tool suppression.
+Live paid-provider calls were not used for verification.
+Do not enable the TypeScript web-search twin at the same time.

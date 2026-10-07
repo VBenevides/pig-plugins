@@ -1,0 +1,52 @@
+{
+  "google": {
+    "text": "你好[1] world\n\n## Sources\n1. [Docs](https://example.com/docs)",
+    "sources": [
+      {
+        "title": "Docs",
+        "url": "https://example.com/docs"
+      }
+    ],
+    "nativeSearchUsed": true,
+    "searchQueries": [
+      "query"
+    ]
+  },
+  "openai": {
+    "text": "Hi 😀[1] world\n\n## Sources\n1. [Docs](https://example.com/docs)",
+    "sources": [
+      {
+        "title": "Docs",
+        "url": "https://example.com/docs"
+      }
+    ],
+    "nativeSearchUsed": true,
+    "searchQueries": [
+      "query"
+    ]
+  },
+  "xai": {
+    "text": "Hi [1]\n\n## Sources\n1. [Docs](https://example.com/docs)",
+    "sources": [
+      {
+        "title": "Docs",
+        "url": "https://example.com/docs"
+      }
+    ],
+    "nativeSearchUsed": true,
+    "searchQueries": []
+  },
+  "anthropic": {
+    "text": "hello[1] world\n\n## Sources\n1. [Docs](https://example.com/docs)",
+    "sources": [
+      {
+        "title": "Docs",
+        "url": "https://example.com/docs"
+      }
+    ],
+    "nativeSearchUsed": true,
+    "searchQueries": [
+      "query"
+    ]
+  }
+}
