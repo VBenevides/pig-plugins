@@ -129,6 +129,12 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 	return nil
 }
 
+// CodexQuotaSupported reports whether the token can address the ChatGPT usage endpoint.
+// The "openai" provider may hold an API-audience token that the endpoint rejects with 401.
+func CodexQuotaSupported(entry AuthEntry) bool {
+	return entry.AccountID != "" || extractCodexAccountID(entry.Access) != ""
+}
+
 func extractCodexAccountID(token string) string {
 	parts := strings.SplitN(token, ".", 3)
 	if len(parts) < 2 {

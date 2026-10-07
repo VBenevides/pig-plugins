@@ -52,6 +52,9 @@ func (x *extension) usage(ctx sdk.Context, _ string) error {
 			case "anthropic":
 				claude, fetchErr = x.client.FetchClaude(run, entry)
 			case "openai-codex", "openai":
+				if provider == "openai" && !quota.CodexQuotaSupported(entry) {
+					break // API-audience token: ChatGPT usage endpoint answers 401; rely on response headers.
+				}
 				codex, fetchErr = x.client.FetchCodex(run, entry)
 			}
 		}

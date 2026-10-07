@@ -368,6 +368,9 @@ func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
 					status = quota.ClaudeStatusQuota(usage)
 				}
 			case "openai-codex", "openai":
+				if provider == "openai" && !quota.CodexQuotaSupported(entry) {
+					break // API-audience token: ChatGPT usage endpoint answers 401; rely on response headers.
+				}
 				var usage *quota.CodexUsage
 				usage, err = x.client.FetchCodex(x.life, entry)
 				if err == nil {
