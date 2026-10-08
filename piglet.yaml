@@ -27,6 +27,10 @@ extensions:
     origins: [local:./extensions/adhd-output]
   - name: repo-excludes
     origins: [local:./extensions/repo-excludes]
+  - name: cursor-login
+    origins: [local:./extensions/cursor-login]
+  - name: user-resources
+    origins: [local:./extensions/user-resources]
 discovery:
   extensions: []
   skills: []

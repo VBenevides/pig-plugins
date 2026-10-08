@@ -6,9 +6,10 @@
 curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts/install.sh | sh
 ```
 
-Requires `git`, `go`, Node.js 22.13 or newer, and `pig` on `PATH`.
-The script clones the repository into a temporary directory, copies the plugins, prompts and skills into `~/.pig`,
-builds the fused executable at `~/.pig/bin/pig-plugins`, and removes the clone. Details are under
+Requires `git`, `go`, Node.js 22.13 or newer, and `curl`. If `pig` is not on `PATH`, the script first installs PiG 0.4.1
+(the version the bundled patches target; override with `PIG_VERSION`) into `~/.local/bin`.
+The script clones the repository into a temporary directory and builds the fused executable at `~/.pig/bin/pig-plugins`.
+Only after that build succeeds does it copy the plugins, prompts and skills into `~/.pig` and remove the clone. Details are under
 [Install into `~/.pig`](#install-into-pig). Set `PIG_PLUGINS_REPO` to install from another clone or fork.
 
 ## About
@@ -223,7 +224,7 @@ Build diagnostics go to stderr. To choose another output path:
 
 Relative output paths are relative to the invoking directory; the script can run from outside the repository.
 Successful builds replace an existing output binary. A failed build leaves the previous binary intact.
-`piglet.yaml` bundles all nine native extensions plus `pi-image-view` and disables ambient extension and skill discovery.
+`piglet.yaml` bundles all nine native extensions plus `pi-image-view` and disables ambient extension and skill discovery; a baked binary ignores ambient discovery entirely. The `user-resources` extension loads skills, prompts and themes from `~/.pig/agent` instead.
 The executable does not need Go or the source tree to run. Its image subprocess needs Node.js.
 It uses normal PiG model selection and credentials.
 Curator, language servers, and the optional LANCET model and ONNX Runtime library remain external prerequisites.
@@ -507,3 +508,22 @@ On trusted repository startup, this plugin adds missing `.agent-work/`, `.ouro/`
 and `.curator/` entries to Git's `info/exclude`, including linked worktrees.
 It preserves existing bytes and permissions and never edits tracked `.gitignore`.
 Failures are reported. See `extensions/repo-excludes/README.md`.
+
+## cursor-login
+
+Adds `cursor` to `/login`. It uses Cursor's browser PKCE flow (`cursor.com/loginDeepControl`, then polling
+`api2.cursor.sh/auth/poll`) and refreshes through a `refresh_token` grant at `api2.cursor.sh/oauth/token`. These endpoints are undocumented
+and may change. The extension only stores the OAuth credential; it registers no Cursor models, so Cursor
+model requests are not yet supported.
+
+## user-resources
+
+Contributes `~/.pig/agent/skills`, `prompts` and `themes` (those that exist) at runtime, because a baked binary ignores
+ambient discovery. Optional `~/.pig/agent/pig-plugins.json` changes this without rebuilding; a present key replaces its
+default, relative paths resolve against the agent directory and `~/` is expanded:
+
+```json
+{"skillPaths": ["skills", "~/more-skills"], "promptPaths": [], "themePaths": []}
+```
+
+A malformed file is reported as an error. Which extensions are bundled is fixed at build time by `piglet.yaml`.
