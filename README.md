@@ -7,11 +7,11 @@ equals the folder name. The repository is one Go module so extensions share `int
 ## Port status
 
 Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
-`web-search`, `ask-user-question`, `todo`, and `auto-models`.
+`web-search`, `ask-user-question`, `todo`, `auto-models`, and `better-footer`.
 Use `pig -e ./extensions/<name>` to load a port for one session.
 Validation with `make check` does not enable these extensions in the default configuration.
 
-`better-footer` remains unimplemented, and `rewind` is deferred by user choice.
+`rewind` is deferred by user choice.
 
 ### auto-models
 
@@ -20,11 +20,56 @@ In a TUI, `/usage` opens a scrollable dashboard (`q`, `esc` or ctrl-c closes; `j
 The footer quota badge shows the active provider only. The `openai-codex` provider, and `openai` when its token carries a ChatGPT account id, use the ChatGPT quota endpoint.
 An `openai` API-audience OAuth token is rejected by that endpoint (401), so it is not queried; its quota appears only from response headers after use.
 `/auto-model` offers only the session's scoped models (`--models` or `enabledModels`). With no scope it offers every authenticated model.
-Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. OAuth credentials come from `auth.json`.
+Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. The patched native host stores OAuth accounts in `oauth-accounts.json` and lazily migrates existing singleton OAuth logins from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
 In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.
 Differences from upstream: only OAuth credentials are used, quota requests have a timeout, size limit, and no redirects, and persistence errors are reported, not ignored.
-An independent security review was not completed because the reviewer agent hit a usage limit.
+Native account storage and quota integration received a read-only security review with no material findings.
+
+### better-footer
+
+Bundled development binaries now include `pi-better-footer@0.1.3`'s native port.
+The footer shows generation speed (`~` for streamed estimates, final `t/s` excluding
+time to first token and reported reasoning tokens), session usage, context, cost,
+cwd, Git branch/change counts, project version, model, thinking, and quota.
+Narrow terminals hide throughput first to keep the model visible.
+Auto-models badges show `🧠 primary` or `⚡ fallback`; the model name appears only
+in the footer's model field.
+`/better-footer` toggles recent-model persistence and skipping confirmed exhausted
+providers during scoped model cycling. Settings live in `better-footer.json`.
+Explicit CLI selections and resumed sessions take precedence over restoration;
+`--no-recent-model` disables restoration and recording for that run.
+Non-fused `pig -e` sessions disable recent-model tracking because CLI precedence
+cannot be determined. Auto-models and approval badges are preserved through a
+shared status mirror in fused builds; unrelated subprocess extensions cannot
+publish their badges to this mirror.
+
+Quota sources include selected native Codex account HTTP usage, Z.AI, OpenCode Go,
+Copilot, and response headers. Codex CLI app-server is only a fallback when no
+native account exists. Native account cache keys prevent one account's balance
+from being attributed to another.
+
+### Native multi-account Codex
+
+The bundled build applies pinned PiG 0.4.1 host and SDK patches under `patches/pig/`.
+It adds durable account selection and independent quota reporting.
+Start `build/pig-plugins`, run `/login openai-codex` once for each account,
+then use `/accounts` to choose the account used for native model requests.
+Select `openai-codex/gpt-6.1-sol` with `/model`; `/usage` shows the actual active
+model plus every native OAuth account, with labels, selection markers, and
+individual quota windows. A failed account does not hide successful neighbors.
+The `openai` direct API login remains distinct from `openai-codex`; its token
+does not supply a numeric ChatGPT quota.
+
+OMP's accounts in `~/.omp/agent/agent.db` are separate and are not copied.
+Both existing OMP Codex accounts must be logged into PiG before this dashboard
+can report them. Expired credentials are reported without silently refreshing
+or changing account selection merely to display usage.
+Run `make gowork` to use the patched SDK for development. Host tests requiring
+upstream TypeScript comparison packages cannot run unless those packages are
+installed; targeted native lifecycle, refresh, cancellation and bridge tests
+are covered independently.
+
 
 ## Layout
 

@@ -97,12 +97,43 @@ func TestRPCUsageMissingAuthAndPassiveQuota(t *testing.T) {
 	defer mock.Close()
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"/usage"}})
 	text := strings.Join(result.Notices(), "\n")
-	for _, want := range []string{"Account (anthropic)", "Account (openai-codex)", "Not logged in", "42%", "18%", "Quota unknown"} {
+	if !strings.Contains(text, "Active model: mock/mock-model") {
+		t.Fatalf("usage omitted the actual active model/provider: %s", text)
+	}
+	for _, want := range []string{"No native OAuth accounts", "Use /login", "Quota unknown"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q: %s", want, text)
 		}
 	}
+	if strings.Contains(text, "42%") || strings.Contains(text, "18%") {
+		t.Fatalf("provider cache leaked into missing-account quota: %s", text)
+	}
 	if len(mock.Requests()) != 0 {
 		t.Fatal("usage command unexpectedly called the model")
+	}
+}
+
+func TestRPCUsageUnsupportedOpenAITokenDoesNotClaimQuotaAvailable(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	if err := os.MkdirAll(home.AgentDir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "auth.json"), []byte(`{"openai":{"type":"oauth","access":"test-api-token","expires":9999999999999}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ext, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := pigtest.NewMockLLM(pigtest.Text("unused"))
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"/usage"}})
+	_, account, found := strings.Cut(strings.Join(result.Notices(), "\n"), "Account (openai)")
+	if !found || !strings.Contains(account, "Quota unknown") || !strings.Contains(account, "Quota unavailable") {
+		t.Fatalf("missing unsupported quota diagnosis: %s", account)
+	}
+	if strings.Contains(account, "Quota available") || strings.Contains(account, "HTTP 401") {
+		t.Fatalf("unsupported token was queried or shown as available: %s", account)
 	}
 }

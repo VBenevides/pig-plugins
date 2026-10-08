@@ -16,6 +16,10 @@ if ! command -v go >/dev/null 2>&1; then
     echo "dev_build: Go is required on PATH" >&2
     exit 1
 fi
+if ! command -v git >/dev/null 2>&1; then
+    echo "dev_build: git is required on PATH" >&2
+    exit 1
+fi
 
 out=${1:-"$root/build/pig-plugins"}
 case "$out" in
@@ -55,17 +59,21 @@ trap 'exit 143' TERM
 mkdir "$stage/source"
 cp -R "$source/." "$stage/source"
 chmod -R u+w "$stage/source"
+# The native account extension requires the pinned host and SDK patches.
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0001-native-oauth-accounts-host.patch" >&2
+sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
+sdk_ref="$sdk_module@v0.4.1"
+GOWORK=off go mod download "$sdk_ref" >&2
+sdk_source=$(GOWORK=off go list -m -f '{{.Dir}}' "$sdk_ref")
+mkdir "$stage/sdk"
+cp -R "$sdk_source/." "$stage/sdk"
+chmod -R u+w "$stage/sdk"
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0002-native-oauth-accounts-sdk.patch" >&2
 (
     cd "$stage/source"
     rm -f go.work go.work.sum
     GOWORK=off go work init . "$root"
-    sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
-    if [ -f extensions/sdk/go.mod ]; then
-        GOWORK="$stage/source/go.work" go work edit -replace "$sdk_module=$stage/source/extensions/sdk"
-    else
-        sdk_version=$(GOWORK=off go list -m -f '{{.Version}}' "$sdk_module")
-        GOWORK="$stage/source/go.work" go work edit -replace "$sdk_module@v0.0.0=$sdk_module@$sdk_version"
-    fi
+    GOWORK="$stage/source/go.work" go work edit -replace "github.com/MichaelKinsy/PiG/extensions/sdk=$stage/sdk"
 )
 
 # PiG refuses existing outputs. Build beside the destination, then replace it

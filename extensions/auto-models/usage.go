@@ -1,118 +1,126 @@
 package automodels
 
 import (
+	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
+	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 func (x *extension) usage(ctx sdk.Context, _ string) error {
 	ctx.SetWorkingMessage("Checking quota…")
 	ctx.SetWorkingVisible(true)
-	ctx.SetStatus("auto-model-usage", ctx.UITheme().Fg("warning", "⏳ Checking quota…"))
-	defer func() { ctx.SetWorkingMessage(""); ctx.SetWorkingVisible(true); ctx.SetStatus("auto-model-usage", "") }()
+	footerstatus.Set(ctx, "auto-model-usage", ctx.UITheme().Fg("warning", "⏳ Checking quota…"))
+	defer func() {
+		ctx.SetWorkingMessage("")
+		ctx.SetWorkingVisible(true)
+		footerstatus.Set(ctx, "auto-model-usage", "")
+	}()
 	run, cancel := sdkctx.Request(ctx)
 	defer cancel()
-	auth, err := x.store.LoadAuth()
+	lines, err := x.usageLines(run, ctx, ctx.ModelProvider(), ctx.Model())
 	if err != nil {
 		return err
 	}
-	primary, fallback := x.slots()
-	providers := []string{primary.Provider}
-	seen := map[string]bool{primary.Provider: true}
-	if !seen[fallback.Provider] {
-		providers = append(providers, fallback.Provider)
-		seen[fallback.Provider] = true
+	text := clean(strings.Join(lines, "\n"))
+	if ctx.HasUI() && ctx.Mode() != "rpc" {
+		footerstatus.Set(ctx, "auto-model-usage", "")
+		_, err := ctx.Custom(&dashboard{title: "Usage", lines: strings.Split(text, "\n"), theme: ctx.UITheme()}, sdk.RemoteOverlayOptions{Title: "Usage"})
+		return err
 	}
-	// Every other subscription (OAuth) login is checked too, in stable order.
-	others := []string{}
-	for provider, entry := range auth {
-		if !seen[provider] && entry.Type == "oauth" {
-			others = append(others, provider)
-		}
+	ctx.Notify(text, "info")
+	return nil
+}
+
+// Fetch sequentially: each HTTP request has a 15-second deadline and cancellation
+// stops the dashboard without refreshing credentials or changing native selection.
+func (x *extension) usageLines(run context.Context, source accountSource, activeProvider, model string) ([]string, error) {
+	accounts, err := source.OAuthAccounts()
+	if err != nil {
+		return nil, fmt.Errorf("native OAuth account enumeration failed")
 	}
-	sort.Strings(others)
-	providers = append(providers, others...)
-	lines := []string{}
-	for _, provider := range providers {
+	lines := []string{"Active model: " + clean(activeProvider+"/"+model), "Credential source: native PiG OAuth accounts", ""}
+	if len(accounts) == 0 {
+		return append(lines, "No native OAuth accounts. Use /login to add an account.", "Quota unknown"), nil
+	}
+	for _, account := range accounts {
 		if err := run.Err(); err != nil {
-			return err
+			return nil, err
 		}
 		now := time.Now()
-		entry, present := auth[provider]
-		lines = append(lines, "── Account ("+clean(provider)+") ──")
+		label := account.Label
+		if label == "" {
+			label = account.ID
+		}
+		marker := ""
+		if account.Active {
+			marker = " [active]"
+		}
+		lines = append(lines, "── Account ("+clean(account.Provider)+") "+clean(label)+marker+" ──")
+		entry, authErr := accountAuth(source, account.ID)
 		switch {
-		case !present:
-			lines = append(lines, "  🔑 Not logged in")
-		case entry.Type != "oauth":
-			lines = append(lines, "  🔑 API key account (no subscription quota)")
-		case entry.Expires < float64(now.UnixMilli()):
-			lines = append(lines, "  🔑 Token expired, please /login again")
+		case authErr != nil:
+			lines = append(lines, "  🔑 Credential lookup failed")
+		case !validOAuth(entry, now):
+			lines = append(lines, "  🔑 OAuth credentials unavailable or expired; please /login again")
 		default:
 			lines = append(lines, "  🔑 Logged in (token valid until "+time.UnixMilli(int64(entry.Expires)).Format("1/2/2006")+")")
 		}
 		var claude *quota.ClaudeUsage
 		var codex *quota.CodexUsage
-		var fetchErr error
-		if present && validOAuth(entry, now) {
-			switch provider {
+		fetchErr := authErr
+		if authErr == nil && validOAuth(entry, now) {
+			switch account.Provider {
 			case "anthropic":
 				claude, fetchErr = x.client.FetchClaude(run, entry)
-			case "openai-codex", "openai":
-				if provider == "openai" && !quota.CodexQuotaSupported(entry) {
-					break // API-audience token: ChatGPT usage endpoint answers 401; rely on response headers.
-				}
+			case "openai-codex":
 				codex, fetchErr = x.client.FetchCodex(run, entry)
 			}
 		}
-		if run.Err() != nil {
-			return run.Err()
+		if err := run.Err(); err != nil {
+			return nil, err
 		}
-		info := x.rate(provider)
-		left, err := x.cooldown(provider, now)
-		if err != nil {
-			return err
-		}
-		if passive := quota.PassiveCooldown(info, now); passive > 0 {
-			if err := x.setCooldown(provider, now.Add(passive)); err != nil {
-				return err
+		// Passive state belongs to a provider, not a credential. It is eligible
+		// only for the selected account of the currently running provider.
+		var info *quota.RateLimitInfo
+		var left time.Duration
+		if account.Active && account.Provider == activeProvider {
+			info = x.rate(account.Provider)
+			left, err = x.cooldown(account.Provider, now)
+			if err != nil {
+				lines = append(lines, "  📈 Failed to read provider cooldown")
 			}
-			if passive > left {
+			if passive := quota.PassiveCooldown(info, now); passive > left {
 				left = passive
 			}
 		}
 		windows := []quota.CodexWindow{}
-		var governing *quota.CodexWindow
 		if codex != nil && codex.RateLimit != nil {
 			for _, window := range []*quota.CodexWindow{codex.RateLimit.PrimaryWindow, codex.RateLimit.SecondaryWindow} {
 				if window != nil {
 					windows = append(windows, *window)
-					if governing == nil || window.ResetAt > governing.ResetAt {
-						governing = window
-					}
 				}
 			}
 		}
-		stale := quota.IsStale(info, now)
+		available := quota.ClaudeAvailable(claude)
 		switch {
-		case codex != nil && codex.RateLimit != nil && codex.RateLimit.LimitReached && governing != nil:
-			lines = append(lines, "  📊 ❌ Rate-limited, recovers in "+quota.FormatTimeLeft(time.Duration(governing.ResetAfterSeconds*float64(time.Second))))
-			if err := x.setCooldown(provider, time.UnixMilli(int64(governing.ResetAt*1000))); err != nil {
-				return err
-			}
+		case codex != nil && codex.RateLimit != nil && codex.RateLimit.LimitReached:
+			lines = append(lines, "  📊 ❌ Rate-limited")
 		case codex != nil && codex.RateLimit != nil && codex.RateLimit.Allowed:
 			lines = append(lines, "  📊 ✅ Quota available")
-		case left > 0:
-			lines = append(lines, "  📊 ❌ Rate-limited, recovers in "+quota.FormatTimeLeft(left))
-		case stale || !present || entry.Type != "oauth" || fetchErr != nil || (provider == "anthropic" && info == nil):
-			lines = append(lines, "  📊 Quota unknown")
-		default:
+		case available != nil && *available:
 			lines = append(lines, "  📊 ✅ Quota available")
+		case available != nil && !*available:
+			lines = append(lines, "  📊 ❌ Rate-limited")
+		case left > 0:
+			lines = append(lines, "  📊 ❌ Provider rate-limited, recovers in "+quota.FormatTimeLeft(left))
+		default:
+			lines = append(lines, "  📊 Quota unknown")
 		}
 		if fetchErr != nil {
 			lines = append(lines, "  📈 Failed to fetch quota: "+fetchErr.Error())
@@ -124,35 +132,17 @@ func (x *extension) usage(ctx sdk.Context, _ string) error {
 		case claude != nil && len(claude.Limits) > 0:
 			lines = append(lines, quota.FormatClaudeUsageLines(claude.Limits, now)...)
 			lines = append(lines, "  ⏰ Real-time")
-		case stale:
-			lines = append(lines, "  📈 Stale data, quota details fetched automatically after use")
-		case info != nil:
+		case account.Provider == "openai":
+			lines = append(lines, "  📈 Quota unavailable: direct OpenAI login has no numeric subscription balance; Codex quota is separate (/login openai-codex)")
+		case info != nil && !quota.IsStale(info, now):
+			lines = append(lines, "  Provider response data (not account quota):")
 			lines = append(lines, quota.FormatPassiveRateLimitLines(*info)...)
-			captured := now
-			if info.CapturedAt != 0 {
-				captured = time.UnixMilli(int64(info.CapturedAt))
-			}
-			lines = append(lines, "  ⏰ Data age: "+quota.FormatAge(now.Sub(captured)))
 		default:
-			switch {
-			case provider == "openai" && present && entry.Type == "oauth" && !quota.CodexQuotaSupported(entry):
-				lines = append(lines, "  📈 Quota unavailable: this login has no ChatGPT account id (API-audience token)")
-			case provider != "anthropic" && provider != "openai" && provider != "openai-codex":
-				lines = append(lines, "  📈 No quota endpoint known for this provider")
-			default:
-				lines = append(lines, "  📈 Quota details fetched automatically after use")
-			}
+			lines = append(lines, "  📈 No live quota details available for this account")
 		}
 		lines = append(lines, "")
 	}
-	text := clean(strings.Join(lines, "\n"))
-	if ctx.HasUI() && ctx.Mode() != "rpc" {
-		ctx.SetStatus("auto-model-usage", "")
-		_, err := ctx.Custom(&dashboard{title: "Usage", lines: strings.Split(text, "\n"), theme: ctx.UITheme()}, sdk.RemoteOverlayOptions{Title: "Usage"})
-		return err
-	}
-	ctx.Notify(text, "info")
-	return nil
+	return lines, nil
 }
 
 func (x *extension) configure(ctx sdk.Context, _ string) error {

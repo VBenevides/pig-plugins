@@ -17,6 +17,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/agentdir"
+	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/guard"
 	"github.com/VBenevides/pig-plugins/internal/lancet"
 	"github.com/VBenevides/pig-plugins/internal/sdkctx"
@@ -35,7 +36,7 @@ func Extension() *sdk.Extension {
 	gate := guard.NewGate(settings, service)
 	controller := &guard.Controller{Gate: gate, Lancet: service, Settings: settingsFile}
 
-	announce := func(ctx sdk.Context) { ctx.SetStatus(Name, controller.Chip()) }
+	announce := func(ctx sdk.Context) { footerstatus.Set(ctx, Name, controller.Chip()) }
 
 	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
 		if settings.Problem != "" {

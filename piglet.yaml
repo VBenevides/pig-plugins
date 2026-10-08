@@ -17,6 +17,8 @@ extensions:
     origins: [local:./extensions/todo]
   - name: auto-models
     origins: [local:./extensions/auto-models]
+  - name: better-footer
+    origins: [local:./extensions/better-footer]
 discovery:
   extensions: []
   skills: []

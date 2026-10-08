@@ -1,0 +1,130 @@
+Native OAuth account support against github.com/MichaelKinsy/PiG/extensions/sdk v0.4.1
+
+diff --git a/doc.go b/doc.go
+--- a/doc.go
++++ b/doc.go
+@@ -37,6 +37,15 @@
+ //
+ // Terminal and editor strings preserve UTF-16 code units. Lone surrogates use WTF-8 in Go strings and standard Unicode escapes in JSON. The SDK owns that conversion; use extensions/sdk/json rather than encoding/json when serializing such callback text yourself.
+ //
++// # Native OAuth accounts
++//
++// Context.OAuthAccounts returns labels, opaque IDs, selection state, and expiry.
++// It does not return tokens or refresh credentials.
++// Context.SelectOAuthAccount selects the account used by native requests.
++// Context.OAuthAccountAuth explicitly returns an account's access token for
++// quota requests. Never log, display, or persist that credential result.
++// These APIs require a host with native OAuth account support.
++//
+ // # Architecture
+ //
+ // The SDK connects to pig's extension host via a Unix domain socket whose
+diff --git a/oauth_accounts.go b/oauth_accounts.go
+new file mode 100644
+--- /dev/null
++++ b/oauth_accounts.go
+@@ -0,0 +1,29 @@
++package sdk
++
++// OAuthAccount is safe native login metadata. ID is an opaque local account ID,
++// not a token or the provider's account ID. Expires is milliseconds since epoch.
++type OAuthAccount struct {
++	ID       string  `json:"id"`
++	Provider string  `json:"provider"`
++	Label    string  `json:"label"`
++	Active   bool    `json:"active"`
++	Expires  float64 `json:"expires"`
++}
++
++// OAuthAccounts lists native OAuth logins without refreshing or returning tokens.
++func (c Context) OAuthAccounts() ([]OAuthAccount, error) {
++	return hostValue[[]OAuthAccount](c, "oauthAccounts", nil)
++}
++
++// OAuthAccountAuth explicitly reads a native credential for quota requests.
++// The returned type/access/expires/accountId fields include the access token.
++// Do not log, display, or persist this result. This read does not refresh tokens.
++func (c Context) OAuthAccountAuth(id string) (map[string]any, error) {
++	return hostValue[map[string]any](c, "oauthAccountAuth", map[string]string{"id": id})
++}
++
++// SelectOAuthAccount durably selects the same credential used by native requests.
++func (c Context) SelectOAuthAccount(id string) error {
++	_, err := hostValue[any](c, "selectOAuthAccount", map[string]string{"id": id})
++	return err
++}
+diff --git a/oauth_accounts_test.go b/oauth_accounts_test.go
+new file mode 100644
+--- /dev/null
++++ b/oauth_accounts_test.go
+@@ -0,0 +1,70 @@
++package sdk
++
++import (
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/extensions/sdk/json"
++)
++
++func TestNativeOAuthAccountSDKCalls(t *testing.T) {
++	ext := New("native-oauth-accounts")
++	var accounts []OAuthAccount
++	var auth map[string]any
++	var failure error
++	ext.Command("probe", "probe native accounts", func(ctx Context, _ string) error {
++		var err error
++		accounts, err = ctx.OAuthAccounts()
++		if err != nil {
++			return err
++		}
++		auth, err = ctx.OAuthAccountAuth(accounts[0].ID)
++		if err != nil {
++			return err
++		}
++		if err := ctx.SelectOAuthAccount(accounts[1].ID); err != nil {
++			return err
++		}
++		_, failure = ctx.OAuthAccountAuth("missing")
++		return nil
++	})
++	host, _, done := surfaceHost(t, ext, nil)
++	defer surfaceShutdown(t, host, done)
++	calls := []string{}
++	runSurfaceCommand(t, host, "probe", func(call *callMsg) *callResultMsg {
++		calls = append(calls, call.Method)
++		var params struct {
++			ID string `json:"id"`
++		}
++		if len(call.Args) > 0 && string(call.Args) != "null" {
++			if err := json.Unmarshal(call.Args, &params); err != nil {
++				t.Fatal(err)
++			}
++		}
++		switch call.Method {
++		case "oauthAccounts":
++			return &callResultMsg{Result: json.RawMessage(`[{"id":"first","provider":"openai-codex","label":"First","active":true,"expires":1000},{"id":"second","provider":"openai-codex","label":"Second","active":false,"expires":2000}]`)}
++		case "oauthAccountAuth":
++			if params.ID == "missing" {
++				return &callResultMsg{Error: &errorInfo{Message: "oauth accounts: account not found"}}
++			}
++			if params.ID != "first" {
++				t.Fatal("wrong account auth argument")
++			}
++			return &callResultMsg{Result: json.RawMessage(`{"type":"oauth","access":"fixture-access","expires":1000,"accountId":"fixture-account"}`)}
++		case "selectOAuthAccount":
++			if params.ID != "second" {
++				t.Fatal("wrong selection argument")
++			}
++			return &callResultMsg{Result: json.RawMessage(`null`)}
++		default:
++			t.Fatal("unexpected host call", call.Method)
++			return nil
++		}
++	})
++	if len(calls) != 4 || len(accounts) != 2 || !accounts[0].Active || accounts[1].Active {
++		t.Fatal("native metadata was not preserved")
++	}
++	if auth["access"] != "fixture-access" || failure == nil || failure.Error() != "oauth accounts: account not found" {
++		t.Fatal("native credential result or missing-ID error was not preserved")
++	}
++}

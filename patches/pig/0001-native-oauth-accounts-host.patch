@@ -1,0 +1,2273 @@
+Native OAuth account support against github.com/MichaelKinsy/PiG v0.4.1
+
+diff --git a/ai/auth.go b/ai/auth.go
+--- a/ai/auth.go
++++ b/ai/auth.go
+@@ -152,9 +152,12 @@
+ 
+ // AuthStorage is the persistent credential store at <agentDir>/auth.json.
+ type AuthStorage struct {
+-	path string
+-	mu   authMutex // cancellable process-local guard around mutations
+-	read *authReadState
++	path             string
++	mu               authMutex // cancellable process-local guard around mutations
++	read             *authReadState
++	accountsMu       authMutex
++	accountsData     *oauthAccountData
++	accountsRevision string
+ }
+ 
+ // NewAuthStorage opens the credential store and materializes a missing auth.json as {} with mode 0600. The parent directory uses mode 0700. Existing bytes and permissions remain unchanged; a failed initial load preserves the last valid snapshot. Instances of the first auth path share that snapshot.
+@@ -184,7 +187,11 @@
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	return cloneAuthCredentials(creds.values), nil
++	result := cloneAuthCredentials(creds.values)
++	if err := a.overlayOAuthAccounts(ctx, result); err != nil {
++		return nil, err
++	}
++	return result, nil
+ }
+ 
+ func cloneAuthCredentials(creds map[string]Credential) map[string]Credential {
+@@ -197,11 +204,21 @@
+ 
+ // credential returns one provider's stored credential from the latest snapshot.
+ func (a *AuthStorage) credential(provider string) (Credential, bool, error) {
++	selected, handled, err := a.selectedOAuthCredential(context.Background(), provider)
++	if err != nil {
++		return Credential{}, false, err
++	}
++	if selected != nil {
++		return *selected, true, nil
++	}
+ 	creds, err := a.readLatest(context.Background())
+ 	if err != nil {
+ 		return Credential{}, false, err
+ 	}
+ 	cred, ok := creds.values[provider]
++	if handled && cred.Type == CredentialOAuth && cred.Access != "" {
++		return Credential{}, false, nil
++	}
+ 	return cloneCredential(cred), ok, nil
+ }
+ 
+@@ -298,6 +315,22 @@
+ // concurrent pi instances refreshing the same OAuth token don't clobber
+ // each other.
+ func (a *AuthStorage) Set(provider string, cred Credential) error {
++	// Set retains the permissive singleton API before native migration. Native
++	// login uses StoreLoginCredential and validates complete OAuth credentials.
++	_, nativeErr := os.Lstat(a.OAuthAccountsPath())
++	if nativeErr != nil && !errors.Is(nativeErr, os.ErrNotExist) {
++		return nativeErr
++	}
++	if cred.Type == CredentialOAuth && cred.Access != "" && nativeErr == nil {
++		_, err := a.UpsertOAuthAccount(context.Background(), provider, cred)
++		return err
++	}
++	if nativeErr == nil {
++		_, handled, err := a.modifySelectedOAuth(context.Background(), provider, func(*Credential) (*Credential, error) { return new(cred), nil })
++		if err != nil || handled {
++			return err
++		}
++	}
+ 	a.mu.Lock()
+ 	defer a.mu.Unlock()
+ 	return a.withFileLock(context.Background(), false, func(lock *pilock.Lock) error {
+@@ -314,6 +347,17 @@
+ // receives the current credential (zero value if absent) and the boolean
+ // indicates whether it existed. Returning an error aborts the write.
+ func (a *AuthStorage) Update(provider string, mutate func(cur Credential, exists bool) (Credential, error)) error {
++	_, handled, err := a.modifySelectedOAuth(context.Background(), provider, func(current *Credential) (*Credential, error) {
++		var cur Credential
++		if current != nil {
++			cur = *current
++		}
++		next, err := mutate(cur, current != nil)
++		return &next, err
++	})
++	if err != nil || handled {
++		return err
++	}
+ 	a.mu.Lock()
+ 	defer a.mu.Unlock()
+ 	return a.withFileLock(context.Background(), false, func(lock *pilock.Lock) error {
+@@ -335,6 +379,10 @@
+ func (a *AuthStorage) Delete(ctx context.Context, provider string) error {
+ 	if err := ctx.Err(); err != nil {
+ 		return context.Cause(ctx)
++	}
++	handled, err := a.deleteSelectedOAuth(ctx, provider)
++	if err != nil || handled {
++		return err
+ 	}
+ 	if err := a.mu.LockContext(ctx); err != nil {
+ 		return err
+diff --git a/ai/auth_store.go b/ai/auth_store.go
+--- a/ai/auth_store.go
++++ b/ai/auth_store.go
+@@ -155,16 +155,26 @@
+ // Read implements CredentialStore. Concurrent readers share a reload; canceling one reader leaves the others running. A read without a cancellable context falls back to the last valid snapshot on reload failure.
+ func (a *AuthStorage) Read(ctx context.Context, providerID string) (*Credential, error) {
+ 	if err := ctx.Err(); err != nil {
+-		return nil, err
++		return nil, context.Cause(ctx)
++	}
++	selected, handled, err := a.selectedOAuthCredential(ctx, providerID)
++	if err != nil {
++		return nil, err
++	}
++	if selected != nil {
++		return selected, nil
+ 	}
+ 	credentials, err := a.readCredentialData(ctx)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	if err := ctx.Err(); err != nil {
+-		return nil, err
++		return nil, context.Cause(ctx)
+ 	}
+ 	credential, ok := credentials.values[providerID]
++	if handled && credential.Type == CredentialOAuth && credential.Access != "" {
++		return nil, nil
++	}
+ 	if !ok {
+ 		return nil, nil
+ 	}
+@@ -174,16 +184,40 @@
+ // List implements CredentialStore in ECMAScript object-key order without resolving configured key values. It shares Read's reload, cancellation, and unsignalled fallback behavior.
+ func (a *AuthStorage) List(ctx context.Context) ([]CredentialInfo, error) {
+ 	if err := ctx.Err(); err != nil {
+-		return nil, err
++		return nil, context.Cause(ctx)
+ 	}
+ 	credentials, err := a.readCredentialData(ctx)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	if err := ctx.Err(); err != nil {
+-		return nil, err
+-	}
+-	return credentials.infos(), nil
++		return nil, context.Cause(ctx)
++	}
++	result := &authStorageData{values: cloneAuthCredentials(credentials.values), order: slices.Clone(credentials.order)}
++	needed, err := a.nativeOAuthNeeded(ctx, "")
++	if err != nil {
++		return nil, err
++	}
++	if !needed {
++		return result.infos(), nil
++	}
++	err = a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		for provider := range data.Migrated {
++			if result.values[provider].Type == CredentialOAuth && result.values[provider].Access != "" && data.Selected[provider] == "" {
++				result.delete(provider)
++			}
++		}
++		for _, account := range data.Accounts {
++			if data.Selected[account.Provider] == account.ID {
++				result.set(account.Provider, cloneCredential(account.Credential))
++			}
++		}
++		return false, nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return result.infos(), nil
+ }
+ 
+ // Modify implements CredentialStore under the auth.json file lock. A caller waiting for process-local ownership can cancel without waiting for the active callback.
+@@ -191,12 +225,16 @@
+ 	if err := ctx.Err(); err != nil {
+ 		return nil, context.Cause(ctx)
+ 	}
++	selected, handled, err := a.modifySelectedOAuth(ctx, providerID, fn)
++	if err != nil || handled {
++		return selected, err
++	}
+ 	if err := a.mu.LockContext(ctx); err != nil {
+ 		return nil, err
+ 	}
+ 	defer a.mu.Unlock()
+ 	var result *Credential
+-	err := a.withFileLock(ctx, true, func(lock *pilock.Lock) error {
++	err = a.withFileLock(ctx, true, func(lock *pilock.Lock) error {
+ 		// The lock's context carries a heartbeat compromise as its cause, which withLockAsync's throwIfCompromised throws before the caller's abort (auth-storage.ts:168-172,180-184).
+ 		ctx := lock.Context()
+ 		if ctx.Err() != nil {
+diff --git a/ai/models_runtime_auth.go b/ai/models_runtime_auth.go
+--- a/ai/models_runtime_auth.go
++++ b/ai/models_runtime_auth.go
+@@ -356,7 +356,13 @@
+ 	started := make(chan struct{})
+ 	mutation := make(chan error, 1)
+ 	m.operations.Go(func() {
+-		_, err := m.credentials.Modify(ctx, providerID, func(*Credential) (*Credential, error) { close(started); return new(credential), nil })
++		var err error
++		if native, ok := m.credentials.(loginCredentialStore); ok {
++			close(started)
++			err = native.StoreLoginCredential(ctx, providerID, credential)
++		} else {
++			_, err = m.credentials.Modify(ctx, providerID, func(*Credential) (*Credential, error) { close(started); return new(credential), nil })
++		}
+ 		mutation <- err
+ 	})
+ 	select {
+diff --git a/ai/oauth_accounts.go b/ai/oauth_accounts.go
+new file mode 100644
+--- /dev/null
++++ b/ai/oauth_accounts.go
+@@ -0,0 +1,623 @@
++package ai
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"errors"
++	"io"
++	"net/mail"
++	"os"
++	"path/filepath"
++	"slices"
++	"strings"
++	"unicode"
++
++	"github.com/MichaelKinsy/PiG/extensions/sdk/json"
++	"github.com/MichaelKinsy/PiG/internal/ownerfile"
++	"github.com/MichaelKinsy/PiG/internal/pilock"
++	"github.com/MichaelKinsy/PiG/internal/text"
++)
++
++const oauthAccountsMaxBytes = 4 << 20
++const oauthAccountsMaxCount = 256
++
++// OAuthAccount contains display metadata only. ID is an opaque local identity,
++// not a bearer token or the provider's account identifier.
++type OAuthAccount struct {
++	ID       string  `json:"id"`
++	Provider string  `json:"provider"`
++	Label    string  `json:"label"`
++	Active   bool    `json:"active"`
++	Expires  float64 `json:"expires"`
++}
++
++type oauthAccountRecord struct {
++	ID         string     `json:"id"`
++	Provider   string     `json:"provider"`
++	Label      string     `json:"label"`
++	Credential Credential `json:"credential"`
++}
++
++type oauthAccountData struct {
++	Version        int                  `json:"version"`
++	LegacyMigrated bool                 `json:"legacyMigrated"`
++	LegacyRevision string               `json:"legacyRevision,omitempty"`
++	Migrated       map[string]bool      `json:"migrated"`
++	Selected       map[string]string    `json:"selected"`
++	Accounts       []oauthAccountRecord `json:"accounts"`
++}
++
++func (a *AuthStorage) OAuthAccountsPath() string {
++	return filepath.Join(filepath.Dir(a.path), "oauth-accounts.json")
++}
++
++func readOAuthBounded(path string) ([]byte, error) {
++	info, err := os.Stat(path)
++	if err != nil {
++		return nil, err
++	}
++	if !info.Mode().IsRegular() {
++		return nil, errors.New("oauth accounts: store is not a regular file")
++	}
++	if info.Size() > oauthAccountsMaxBytes {
++		return nil, errors.New("oauth accounts: store exceeds size limit")
++	}
++	file, err := os.Open(path)
++	if err != nil {
++		return nil, err
++	}
++	defer file.Close()
++	info, err = file.Stat()
++	if err != nil {
++		return nil, err
++	}
++	if !info.Mode().IsRegular() {
++		return nil, errors.New("oauth accounts: store is not a regular file")
++	}
++	if info.Size() > oauthAccountsMaxBytes {
++		return nil, errors.New("oauth accounts: store exceeds size limit")
++	}
++	data, err := io.ReadAll(io.LimitReader(file, oauthAccountsMaxBytes+1))
++	if err != nil {
++		return nil, err
++	}
++	if len(data) > oauthAccountsMaxBytes {
++		return nil, errors.New("oauth accounts: store exceeds size limit")
++	}
++	return data, nil
++}
++
++func validOAuthDisplay(value string, maxBytes int) bool {
++	return value != "" && len(value) <= maxBytes && !strings.ContainsFunc(value, func(r rune) bool { return !unicode.IsPrint(r) })
++}
++
++func validateOAuthAccountData(data *oauthAccountData) error {
++	if data.Version != 1 || data.Migrated == nil || data.Selected == nil || data.Accounts == nil || len(data.Accounts) > oauthAccountsMaxCount {
++		return errors.New("oauth accounts: invalid store structure or version")
++	}
++	ids := make(map[string]string, len(data.Accounts))
++	for _, account := range data.Accounts {
++		if len(account.ID) != 67 || !strings.HasPrefix(account.ID, "oa_") {
++			return errors.New("oauth accounts: invalid account identity")
++		}
++		if _, err := hex.DecodeString(account.ID[3:]); err != nil {
++			return errors.New("oauth accounts: invalid account identity")
++		}
++		if _, exists := ids[account.ID]; exists || !validOAuthDisplay(account.Provider, 256) || !validOAuthDisplay(account.Label, 256) || account.Credential.Type != CredentialOAuth || account.Credential.Access == "" || !data.Migrated[account.Provider] {
++			return errors.New("oauth accounts: invalid account record")
++		}
++		ids[account.ID] = account.Provider
++	}
++	for provider, id := range data.Selected {
++		if ids[id] != provider {
++			return errors.New("oauth accounts: invalid selected account")
++		}
++	}
++	return nil
++}
++
++// The account lock is always acquired before the legacy lock, and both cover
++// the complete transaction, including callbacks and the durable native write.
++// Malformed stores fail closed without replacing bytes.
++func (a *AuthStorage) withOAuthAccounts(ctx context.Context, fn func(*oauthAccountData) (bool, error)) error {
++	return a.withOAuthAccountsLocked(ctx, func(data *oauthAccountData, _ *pilock.Lock) (bool, error) {
++		return fn(data)
++	})
++}
++
++func (a *AuthStorage) withOAuthAccountsLocked(ctx context.Context, fn func(*oauthAccountData, *pilock.Lock) (bool, error)) (err error) {
++	if err := context.Cause(ctx); err != nil {
++		return err
++	}
++	if err := a.accountsMu.LockContext(ctx); err != nil {
++		return err
++	}
++	defer a.accountsMu.Unlock()
++	path := a.OAuthAccountsPath()
++	lock, err := pilock.Acquire(ctx, path)
++	if err != nil {
++		return err
++	}
++	defer func() { err = errors.Join(err, lock.Release()) }()
++	return a.withFileLock(lock.Context(), true, func(legacyLock *pilock.Lock) error {
++		var data *oauthAccountData
++		if info, err := os.Lstat(path); err == nil {
++			if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
++				return errors.New("oauth accounts: store must be a regular owner-only file (0600)")
++			}
++		} else if !errors.Is(err, os.ErrNotExist) {
++			return err
++		}
++		revision, hasRevision := authFileRevision(path)
++		if hasRevision && a.accountsData != nil && a.accountsRevision == revision {
++			data = a.accountsData
++		} else {
++			raw, readErr := readOAuthBounded(path)
++			if readErr == nil {
++				data = new(oauthAccountData)
++				if json.Unmarshal(raw, data) != nil {
++					return errors.New("oauth accounts: invalid JSON")
++				}
++				if err := validateOAuthAccountData(data); err != nil {
++					return err
++				}
++			} else if errors.Is(readErr, os.ErrNotExist) {
++				data = &oauthAccountData{Version: 1, Migrated: map[string]bool{}, Selected: map[string]string{}, Accounts: []oauthAccountRecord{}}
++			} else {
++				return readErr
++			}
++		}
++		// Do not retain an uncommitted mutation after any failure.
++		a.accountsData = nil
++		a.accountsRevision = ""
++		changed := false
++		legacyRevision, hasLegacyRevision := authFileRevision(a.path)
++		if !data.LegacyMigrated || !hasLegacyRevision || data.LegacyRevision != legacyRevision {
++			if err := legacyLock.Check(); err != nil {
++				return err
++			}
++			legacy, err := readOAuthBounded(a.path)
++			if err != nil {
++				return err
++			}
++			credentials := map[string]rawCredential{}
++			if json.Unmarshal(text.StripBomBytes(legacy), &credentials) != nil || credentials == nil {
++				return errors.New("oauth accounts: invalid legacy auth store")
++			}
++			providers := make([]string, 0, len(credentials))
++			for provider := range credentials {
++				providers = append(providers, provider)
++			}
++			slices.Sort(providers)
++			for _, provider := range providers {
++				credential := credentials[provider].normalize()
++				// Legacy CredentialStore accepts partial OAuth values. They stay in
++				// auth.json and are not valid inputs to the strict native store.
++				if credential.Type != CredentialOAuth || credential.Access == "" {
++					continue
++				}
++				if !data.Migrated[provider] {
++					if _, err := upsertOAuthAccount(data, provider, credential); err != nil {
++						return err
++					}
++				}
++			}
++			var ok bool
++			data.LegacyRevision, ok = authFileRevision(a.path)
++			if !ok {
++				return errors.New("oauth accounts: cannot identify legacy store revision")
++			}
++			if err := legacyLock.Check(); err != nil {
++				return err
++			}
++			data.LegacyMigrated = true
++			changed = true
++		}
++		if err := legacyLock.Check(); err != nil {
++			return err
++		}
++		mutated, err := fn(data, legacyLock)
++		if err != nil {
++			return err
++		}
++		if err := legacyLock.Check(); err != nil {
++			return err
++		}
++		if !changed && !mutated {
++			a.accountsData, a.accountsRevision = data, revision
++			return nil
++		}
++		if err := validateOAuthAccountData(data); err != nil {
++			return err
++		}
++		encoded, err := json.MarshalIndent(data, "", "  ")
++		if err != nil {
++			return errors.New("oauth accounts: cannot encode store")
++		}
++		if len(encoded) > oauthAccountsMaxBytes {
++			return errors.New("oauth accounts: store exceeds size limit")
++		}
++		if err := lock.Check(); err != nil {
++			return err
++		}
++		if err := legacyLock.Check(); err != nil {
++			return err
++		}
++		if err := writeOAuthAccountFile(path, encoded, lock); err != nil {
++			return err
++		}
++		a.accountsData = data
++		a.accountsRevision, _ = authFileRevision(path)
++		return nil
++	})
++}
++
++func writeOAuthAccountFile(path string, encoded []byte, lock *pilock.Lock) (err error) {
++	file, err := ownerfile.CreateTemp(filepath.Dir(path), ".oauth-accounts-*")
++	if err != nil {
++		return err
++	}
++	name := file.Name()
++	defer func() {
++		if file != nil {
++			err = errors.Join(err, file.Close())
++		}
++		if removeErr := os.Remove(name); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
++			err = errors.Join(err, removeErr)
++		}
++	}()
++	if _, err := file.Write(encoded); err != nil {
++		return err
++	}
++	if err := file.Sync(); err != nil {
++		return err
++	}
++	if err := file.Close(); err != nil {
++		file = nil
++		return err
++	}
++	file = nil
++	if err := lock.Check(); err != nil {
++		return err
++	}
++	if err := os.Rename(name, path); err != nil {
++		return err
++	}
++	if err := lock.Compromised(); err != nil {
++		return err
++	}
++	dir, err := os.Open(filepath.Dir(path))
++	if err != nil {
++		return err
++	}
++	return errors.Join(dir.Sync(), dir.Close())
++}
++
++// JWT identity claims are hints for deduplication and labels, never auth proof.
++// Tokens remain the exact credentials returned by the native provider login.
++func oauthAccountIdentity(provider string, credential Credential) (string, string) {
++	identity := credential.AccountID
++	label := ""
++	parts := strings.Split(credential.Access, ".")
++	if len(parts) == 3 && len(parts[1]) <= 64<<10 {
++		payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
++		if err != nil {
++			payload, err = base64.RawStdEncoding.DecodeString(strings.TrimRight(parts[1], "="))
++		}
++		claims := map[string]any{}
++		if err == nil && json.Unmarshal(payload, &claims) == nil {
++			if auth, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
++				if id, ok := auth["chatgpt_account_id"].(string); ok && id != "" {
++					identity = id
++				}
++			}
++			email, _ := claims["email"].(string)
++			if profile, ok := claims["https://api.openai.com/profile"].(map[string]any); ok && email == "" {
++				email, _ = profile["email"].(string)
++			}
++			if validOAuthDisplay(email, 254) {
++				if address, err := mail.ParseAddress(email); err == nil && address.Address == email {
++					label = email
++				}
++			}
++			if identity == "" {
++				identity, _ = claims["sub"].(string)
++			}
++		}
++	}
++	if identity == "" {
++		identity = credential.ProjectID
++	}
++	if identity == "" && label == "" {
++		identity = "singleton"
++	}
++	digest := sha256.Sum256([]byte(provider + "\x00" + identity + "\x00" + strings.ToLower(label)))
++	id := "oa_" + hex.EncodeToString(digest[:])
++	if label == "" {
++		label = provider + " account " + id[3:15]
++	}
++	return id, label
++}
++
++// Only matching, present token claims establish a refresh identity constraint.
++// Provider metadata can change during refresh, and opaque tokens have no claims.
++func oauthRefreshChangesIdentity(previous, next string) bool {
++	type identityClaims struct {
++		Subject string `json:"sub"`
++		Email   string `json:"email"`
++		Auth    struct {
++			Account string `json:"chatgpt_account_id"`
++		} `json:"https://api.openai.com/auth"`
++		Profile struct {
++			Email string `json:"email"`
++		} `json:"https://api.openai.com/profile"`
++	}
++	claims := func(token string) identityClaims {
++		_, remainder, ok := strings.Cut(token, ".")
++		payloadText, signature, hasSignature := strings.Cut(remainder, ".")
++		if !ok || !hasSignature || strings.Contains(signature, ".") || len(payloadText) > 64<<10 {
++			return identityClaims{}
++		}
++		payloadText = strings.TrimRight(payloadText, "=")
++		payload, err := base64.RawURLEncoding.DecodeString(payloadText)
++		if err != nil {
++			payload, err = base64.RawStdEncoding.DecodeString(payloadText)
++		}
++		var values identityClaims
++		if err != nil || json.Unmarshal(payload, &values) != nil {
++			return identityClaims{}
++		}
++		if values.Email == "" {
++			values.Email = values.Profile.Email
++		}
++		return values
++	}
++	oldClaims, newClaims := claims(previous), claims(next)
++	changed := func(old, next string) bool { return old != "" && next != "" && old != next }
++	return changed(oldClaims.Subject, newClaims.Subject) ||
++		changed(oldClaims.Auth.Account, newClaims.Auth.Account) ||
++		(oldClaims.Email != "" && newClaims.Email != "" && !strings.EqualFold(oldClaims.Email, newClaims.Email))
++}
++
++func upsertOAuthAccount(data *oauthAccountData, provider string, credential Credential) (string, error) {
++	if credential.Type != CredentialOAuth || credential.Access == "" || !validOAuthDisplay(provider, 256) {
++		return "", errors.New("oauth accounts: invalid login credential")
++	}
++	id, label := oauthAccountIdentity(provider, credential)
++	index := slices.IndexFunc(data.Accounts, func(account oauthAccountRecord) bool { return account.ID == id })
++	record := oauthAccountRecord{ID: id, Provider: provider, Label: label, Credential: cloneCredential(credential)}
++	if index >= 0 {
++		data.Accounts[index] = record
++	} else {
++		if len(data.Accounts) >= oauthAccountsMaxCount {
++			return "", errors.New("oauth accounts: account limit reached")
++		}
++		data.Accounts = append(data.Accounts, record)
++	}
++	data.Selected[provider] = id
++	data.Migrated[provider] = true
++	return id, nil
++}
++
++// UpsertOAuthAccount persists a native login and selects that identity. Refresh
++// must use Modify instead, which updates only the selected record under lock.
++func (a *AuthStorage) UpsertOAuthAccount(ctx context.Context, provider string, credential Credential) (string, error) {
++	var id string
++	err := a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		var err error
++		id, err = upsertOAuthAccount(data, provider, credential)
++		return err == nil, err
++	})
++	return id, err
++}
++
++func (a *AuthStorage) OAuthAccounts(ctx context.Context) ([]OAuthAccount, error) {
++	accounts := []OAuthAccount{}
++	err := a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		for _, account := range data.Accounts {
++			accounts = append(accounts, OAuthAccount{ID: account.ID, Provider: account.Provider, Label: account.Label, Active: data.Selected[account.Provider] == account.ID, Expires: account.Credential.ExpiresMillis()})
++		}
++		return false, nil
++	})
++	return accounts, err
++}
++
++// OAuthAccountAuth explicitly returns secrets for one opaque ID. It does not
++// refresh or alter selection; enumeration never calls this method.
++func (a *AuthStorage) OAuthAccountAuth(ctx context.Context, id string) (map[string]any, error) {
++	var result map[string]any
++	err := a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		for _, account := range data.Accounts {
++			if account.ID == id {
++				credential := account.Credential
++				result = map[string]any{"type": "oauth", "access": credential.Access, "expires": credential.ExpiresMillis(), "accountId": credential.AccountID}
++				if credential.AccountID == "" {
++					result["accountId"] = CodexAccountID(credential.Access)
++				}
++				return false, nil
++			}
++		}
++		return false, errors.New("oauth accounts: account not found")
++	})
++	return result, err
++}
++
++func (a *AuthStorage) SelectOAuthAccount(ctx context.Context, id string) error {
++	return a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		for _, account := range data.Accounts {
++			if account.ID == id {
++				changed := data.Selected[account.Provider] != id
++				data.Selected[account.Provider] = id
++				return changed, nil
++			}
++		}
++		return false, errors.New("oauth accounts: account not found")
++	})
++}
++
++// API-key-only callers retain the singleton store's existing read behavior.
++// Native account operations themselves still validate both stores strictly.
++func (a *AuthStorage) nativeOAuthNeeded(ctx context.Context, provider string) (bool, error) {
++	if _, err := os.Lstat(a.OAuthAccountsPath()); err == nil {
++		return true, nil
++	} else if !errors.Is(err, os.ErrNotExist) {
++		return false, err
++	}
++	legacy, err := a.readCredentialData(ctx)
++	if err != nil {
++		return false, err
++	}
++	if provider != "" {
++		credential := legacy.values[provider]
++		return credential.Type == CredentialOAuth && credential.Access != "", nil
++	}
++	for _, credential := range legacy.values {
++		if credential.Type == CredentialOAuth && credential.Access != "" {
++			return true, nil
++		}
++	}
++	return false, nil
++}
++
++func (a *AuthStorage) selectedOAuthCredential(ctx context.Context, provider string) (*Credential, bool, error) {
++	needed, needErr := a.nativeOAuthNeeded(ctx, provider)
++	if needErr != nil || !needed {
++		return nil, false, needErr
++	}
++	var result *Credential
++	var handled bool
++	err := a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		handled = data.Migrated[provider]
++		for _, account := range data.Accounts {
++			if account.ID == data.Selected[provider] {
++				result = new(cloneCredential(account.Credential))
++				break
++			}
++		}
++		return false, nil
++	})
++	return result, handled, err
++}
++
++func (a *AuthStorage) modifySelectedOAuth(ctx context.Context, provider string, fn func(*Credential) (*Credential, error)) (*Credential, bool, error) {
++	needed, needErr := a.nativeOAuthNeeded(ctx, provider)
++	if needErr != nil || !needed {
++		return nil, false, needErr
++	}
++	var result *Credential
++	var handled bool
++	err := a.withOAuthAccountsLocked(ctx, func(data *oauthAccountData, legacyLock *pilock.Lock) (bool, error) {
++		handled = true
++		index := slices.IndexFunc(data.Accounts, func(account oauthAccountRecord) bool { return account.ID == data.Selected[provider] })
++		if index >= 0 {
++			result = new(cloneCredential(data.Accounts[index].Credential))
++		} else {
++			credentials, err := a.loadLocked()
++			if err != nil {
++				return false, err
++			}
++			if credential, exists := credentials.values[provider]; exists && !(data.Migrated[provider] && credential.Type == CredentialOAuth && credential.Access != "") {
++				result = new(cloneCredential(credential))
++			}
++		}
++		next, err := fn(result)
++		if err != nil || next == nil {
++			return false, err
++		}
++		if index < 0 && next.Type == CredentialOAuth && next.Access != "" {
++			if _, err := upsertOAuthAccount(data, provider, *next); err != nil {
++				return false, err
++			}
++			result = new(cloneCredential(*next))
++			return true, nil
++		}
++		if next.Type != CredentialOAuth || next.Access == "" {
++			// CredentialStore mutations remain permissive; incomplete OAuth
++			// values and API keys belong to the singleton, not native records.
++			if err := legacyLock.Check(); err != nil {
++				return false, err
++			}
++			credentials, err := a.loadLocked()
++			if err != nil {
++				return false, err
++			}
++			credentials.set(provider, cloneCredential(*next))
++			if err := a.writeLocked(credentials, legacyLock); err != nil {
++				return false, err
++			}
++			delete(data.Selected, provider)
++			result = new(cloneCredential(*next))
++			return true, nil
++		}
++		if oauthRefreshChangesIdentity(data.Accounts[index].Credential.Access, next.Access) {
++			return false, errors.New("oauth accounts: refresh changed account identity")
++		}
++		data.Accounts[index].Credential = cloneCredential(*next)
++		result = new(cloneCredential(*next))
++		return true, nil
++	})
++	return result, handled, err
++}
++
++func (a *AuthStorage) deleteSelectedOAuth(ctx context.Context, provider string) (bool, error) {
++	needed, needErr := a.nativeOAuthNeeded(ctx, provider)
++	if needErr != nil || !needed {
++		return false, needErr
++	}
++	var handled bool
++	err := a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		handled = data.Selected[provider] != ""
++		if !handled {
++			return false, nil
++		}
++		id := data.Selected[provider]
++		data.Accounts = slices.DeleteFunc(data.Accounts, func(account oauthAccountRecord) bool { return account.ID == id })
++		delete(data.Selected, provider)
++		return id != "", nil
++	})
++	return handled, err
++}
++
++func (a *AuthStorage) overlayOAuthAccounts(ctx context.Context, credentials map[string]Credential) error {
++	needed, needErr := a.nativeOAuthNeeded(ctx, "")
++	if needErr != nil || !needed {
++		return needErr
++	}
++	return a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		for provider := range data.Migrated {
++			if credentials[provider].Type == CredentialOAuth && credentials[provider].Access != "" {
++				delete(credentials, provider)
++			}
++		}
++		for _, account := range data.Accounts {
++			if data.Selected[account.Provider] == account.ID {
++				credentials[account.Provider] = cloneCredential(account.Credential)
++			}
++		}
++		return false, nil
++	})
++}
++
++// StoreLoginCredential separates login identity upserts from request refreshes.
++func (native *AuthStorage) StoreLoginCredential(ctx context.Context, provider string, credential Credential) error {
++	if credential.Type == CredentialOAuth {
++		_, err := native.UpsertOAuthAccount(ctx, provider, credential)
++		return err
++	}
++	_, err := native.Modify(ctx, provider, func(*Credential) (*Credential, error) { return new(credential), nil })
++	return err
++}
++
++type loginCredentialStore interface {
++	StoreLoginCredential(context.Context, string, Credential) error
++}
++
++func StoreLoginCredential(ctx context.Context, store CredentialStore, provider string, credential Credential) error {
++	if native, ok := store.(loginCredentialStore); ok {
++		return native.StoreLoginCredential(ctx, provider, credential)
++	}
++	_, err := store.Modify(ctx, provider, func(*Credential) (*Credential, error) { return new(credential), nil })
++	return err
++}
+diff --git a/ai/oauth_accounts_lock_test.go b/ai/oauth_accounts_lock_test.go
+new file mode 100644
+--- /dev/null
++++ b/ai/oauth_accounts_lock_test.go
+@@ -0,0 +1,258 @@
++package ai
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"fmt"
++	"os"
++	"path/filepath"
++	"testing"
++	"testing/synctest"
++
++	"github.com/MichaelKinsy/PiG/internal/pilock"
++)
++
++func TestNativeOAuthRefreshAndSelectSerialize(t *testing.T) {
++	store := nativeAccountStorage(t)
++	first := nativeAccountCredential(t, "first", "one@example.test", "first-refresh", 0)
++	second := nativeAccountCredential(t, "second", "two@example.test", "second-refresh", 0)
++	id1, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", first)
++	if err != nil {
++		t.Fatal(err)
++	}
++	id2, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := store.SelectOAuthAccount(t.Context(), id1); err != nil {
++		t.Fatal(err)
++	}
++	started := make(chan struct{})
++	release := make(chan struct{})
++	refreshed := make(chan error, 1)
++	go func() {
++		_, err := store.Modify(t.Context(), "openai-codex", func(current *Credential) (*Credential, error) {
++			close(started)
++			<-release
++			current.Refresh = "first-rotated"
++			return current, nil
++		})
++		refreshed <- err
++	}()
++	<-started
++	// A separate instance must use the same cross-process account lock.
++	other, err := NewAuthStorage(store.Path())
++	if err != nil {
++		close(release)
++		t.Fatal(err)
++	}
++	cancelled, cancel := context.WithCancel(t.Context())
++	cancel()
++	if err := other.SelectOAuthAccount(cancelled, id2); !errors.Is(err, context.Canceled) {
++		close(release)
++		t.Fatal("cancelled selection did not stop", err)
++	}
++	selected := make(chan error, 1)
++	go func() { selected <- other.SelectOAuthAccount(t.Context(), id2) }()
++	close(release)
++	if err := <-refreshed; err != nil {
++		t.Fatal(err)
++	}
++	if err := <-selected; err != nil {
++		t.Fatal(err)
++	}
++	current, err := store.Read(t.Context(), "openai-codex")
++	if err != nil || current == nil || current.Refresh != second.Refresh {
++		t.Fatal("selection did not observe refreshed transaction", err)
++	}
++	if err := store.SelectOAuthAccount(t.Context(), id1); err != nil {
++		t.Fatal(err)
++	}
++	current, err = store.Read(t.Context(), "openai-codex")
++	if err != nil || current == nil || current.Refresh != "first-rotated" {
++		t.Fatal("selection lost the previous account refresh", err)
++	}
++}
++
++func TestNativeOAuthAccountLimit(t *testing.T) {
++	data := &oauthAccountData{Version: 1, LegacyMigrated: true, Migrated: map[string]bool{}, Selected: map[string]string{}, Accounts: []oauthAccountRecord{}}
++	for i := range oauthAccountsMaxCount {
++		credential := nativeAccountCredential(t, fmt.Sprintf("account-%d", i), fmt.Sprintf("user%d@example.test", i), "fixture", 0)
++		if _, err := upsertOAuthAccount(data, "openai-codex", credential); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if _, err := upsertOAuthAccount(data, "openai-codex", nativeAccountCredential(t, "extra", "extra@example.test", "fixture", 0)); err == nil {
++		t.Fatal("account limit was not enforced")
++	}
++	if len(data.Accounts) != oauthAccountsMaxCount {
++		t.Fatal("failed account insertion changed records")
++	}
++}
++
++func TestNativeOAuthRejectsMalformedLegacyWithoutWritingAccounts(t *testing.T) {
++	store := nativeAccountStorage(t)
++	malformed := []byte(`{"openai-codex":`)
++	if err := os.WriteFile(store.Path(), malformed, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.OAuthAccounts(t.Context()); err == nil {
++		t.Fatal("malformed legacy store was accepted")
++	}
++	if _, err := os.Stat(store.OAuthAccountsPath()); !errors.Is(err, os.ErrNotExist) {
++		t.Fatal("failed migration created an account store", err)
++	}
++	preserved, err := os.ReadFile(store.Path())
++	if err != nil || !bytes.Equal(preserved, malformed) {
++		t.Fatal("failed migration changed legacy bytes", err)
++	}
++}
++
++func TestNativeOAuthAccountStoreRejectsSymlink(t *testing.T) {
++	store := nativeAccountStorage(t)
++	outside := filepath.Join(t.TempDir(), "outside.json")
++	original := []byte("outside fixture")
++	if err := os.WriteFile(outside, original, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, store.OAuthAccountsPath()); err != nil {
++		t.Skip("symlink unavailable", err)
++	}
++	if _, err := store.OAuthAccounts(t.Context()); err == nil {
++		t.Fatal("symlink account store was accepted")
++	}
++	preserved, err := os.ReadFile(outside)
++	if err != nil || !bytes.Equal(preserved, original) {
++		t.Fatal("symlink target changed", err)
++	}
++}
++
++func TestNativeOAuthAPIKeyLoginRetainsAccounts(t *testing.T) {
++	store := nativeAccountStorage(t)
++	id, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", nativeAccountCredential(t, "account", "one@example.test", "refresh", 0))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := StoreLoginCredential(t.Context(), NewRuntimeCredentials(store), "openai-codex", Credential{Type: CredentialAPIKey, Key: "fixture-key"}); err != nil {
++		t.Fatal(err)
++	}
++	current, err := store.Read(t.Context(), "openai-codex")
++	if err != nil || current == nil || current.Type != CredentialAPIKey {
++		t.Fatal("API-key login did not replace request auth", err)
++	}
++	accounts, err := store.OAuthAccounts(t.Context())
++	if err != nil || len(accounts) != 1 || accounts[0].Active {
++		t.Fatal("API-key login discarded OAuth accounts", err)
++	}
++	if err := store.Delete(t.Context(), "openai-codex"); err != nil {
++		t.Fatal(err)
++	}
++	current, err = store.Read(t.Context(), "openai-codex")
++	if err != nil || current != nil {
++		t.Fatal("API-key logout did not remove singleton key", err)
++	}
++	if err := store.SelectOAuthAccount(t.Context(), id); err != nil {
++		t.Fatal(err)
++	}
++	current, err = store.Read(t.Context(), "openai-codex")
++	if err != nil || current == nil || current.Type != CredentialOAuth {
++		t.Fatal("retained OAuth account could not be selected", err)
++	}
++}
++
++func TestNativeOAuthImportsLaterSingletonWithoutResurrection(t *testing.T) {
++	store := nativeAccountStorage(t)
++	if accounts, err := store.OAuthAccounts(t.Context()); err != nil || len(accounts) != 0 {
++		t.Fatal("empty initial store failed", err)
++	}
++	credential := nativeAccountCredential(t, "later", "later@example.test", "later-refresh", 0)
++	// A legacy writer can add a previously unseen provider after startup.
++	if _, err := store.Modify(t.Context(), "openai-codex", func(*Credential) (*Credential, error) { return &credential, nil }); err != nil {
++		t.Fatal(err)
++	}
++	accounts, err := store.OAuthAccounts(t.Context())
++	if err != nil || len(accounts) != 1 {
++		t.Fatal("later singleton was not imported", err)
++	}
++	if err := store.Delete(t.Context(), "openai-codex"); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.Modify(t.Context(), "other", func(*Credential) (*Credential, error) {
++		return &Credential{Type: CredentialAPIKey, Key: "fixture"}, nil
++	}); err != nil {
++		t.Fatal(err)
++	}
++	accounts, err = store.OAuthAccounts(t.Context())
++	if err != nil || len(accounts) != 0 {
++		t.Fatal("legacy revision change resurrected a deleted account", err)
++	}
++}
++
++func TestNativeOAuthOperationsHonorHeldLegacyLock(t *testing.T) {
++	for _, operation := range []string{"read", "list", "modify", "delete", "accounts", "select", "accountAuth"} {
++		t.Run(operation, func(t *testing.T) {
++			synctest.Test(t, func(t *testing.T) {
++				store := nativeAccountStorage(t)
++				id, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", nativeAccountCredential(t, "one", "one@example.test", "refresh", 0))
++				if err != nil {
++					t.Fatal(err)
++				}
++				before, err := os.ReadFile(store.OAuthAccountsPath())
++				if err != nil {
++					t.Fatal(err)
++				}
++				legacyLock, err := pilock.Acquire(t.Context(), store.Path())
++				if err != nil {
++					t.Fatal(err)
++				}
++				defer func() {
++					if err := legacyLock.Release(); err != nil {
++						t.Error(err)
++					}
++				}()
++				ctx, cancel := context.WithCancelCause(t.Context())
++				defer cancel(nil)
++				cause := errors.New("cancel native operation waiting for legacy lock")
++				done := make(chan error, 1)
++				called := false
++				go func() {
++					var err error
++					switch operation {
++					case "read":
++						_, err = store.Read(ctx, "openai-codex")
++					case "list":
++						_, err = store.List(ctx)
++					case "modify":
++						_, err = store.Modify(ctx, "openai-codex", func(current *Credential) (*Credential, error) {
++							called = true
++							current.Refresh = "should-not-commit"
++							return current, nil
++						})
++					case "delete":
++						err = store.Delete(ctx, "openai-codex")
++					case "accounts":
++						_, err = store.OAuthAccounts(ctx)
++					case "select":
++						err = store.SelectOAuthAccount(ctx, id)
++					case "accountAuth":
++						_, err = store.OAuthAccountAuth(ctx, id)
++					}
++					done <- err
++				}()
++				synctest.Wait()
++				cancel(cause)
++				if err := <-done; !errors.Is(err, cause) {
++					t.Errorf("operation ignored held legacy lock: %v", err)
++				}
++				if called {
++					t.Error("cancelled native modifier ran its callback")
++				}
++				after, err := os.ReadFile(store.OAuthAccountsPath())
++				if err != nil || !bytes.Equal(before, after) {
++					t.Error("cancelled operation changed native credentials", err)
++				}
++			})
++		})
++	}
++}
+diff --git a/ai/oauth_accounts_test.go b/ai/oauth_accounts_test.go
+new file mode 100644
+--- /dev/null
++++ b/ai/oauth_accounts_test.go
+@@ -0,0 +1,437 @@
++package ai
++
++import (
++	"bytes"
++	"context"
++	"encoding/base64"
++	"encoding/json"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++)
++
++func nativeAccountCredential(t *testing.T, account, email, refresh string, expires int64) Credential {
++	t.Helper()
++	payload, err := json.Marshal(map[string]any{"https://api.openai.com/auth": map[string]string{"chatgpt_account_id": account}, "https://api.openai.com/profile": map[string]string{"email": email}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return Credential{Type: CredentialOAuth, AccountID: account, Access: "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature", Refresh: refresh, Expires: expires}
++}
++
++func nativeAccountStorage(t *testing.T) *AuthStorage {
++	t.Helper()
++	store, err := NewAuthStorage(filepath.Join(t.TempDir(), "auth.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	return store
++}
++
++func TestNativeOAuthTwoAccountLifecycle(t *testing.T) {
++	ctx := t.Context()
++	store := nativeAccountStorage(t)
++	expires := time.Now().Add(time.Hour).UnixMilli()
++	first := nativeAccountCredential(t, "shared-workspace", "one@example.test", "first-refresh", expires)
++	second := nativeAccountCredential(t, "shared-workspace", "two@example.test", "second-refresh", expires)
++	id1, err := store.UpsertOAuthAccount(ctx, "openai-codex", first)
++	if err != nil {
++		t.Fatal(err)
++	}
++	id2, err := store.UpsertOAuthAccount(ctx, "openai-codex", second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if id1 == id2 {
++		t.Fatal("distinct user identities were merged")
++	}
++	first.Refresh = "first-relogin"
++	if id, err := store.UpsertOAuthAccount(ctx, "openai-codex", first); err != nil || id != id1 {
++		t.Fatal("relogin did not upsert the same durable identity", err)
++	}
++	if err := store.SelectOAuthAccount(ctx, id2); err != nil {
++		t.Fatal(err)
++	}
++	reopened, err := NewAuthStorage(store.Path())
++	if err != nil {
++		t.Fatal(err)
++	}
++	accounts, err := reopened.OAuthAccounts(ctx)
++	if err != nil || len(accounts) != 2 {
++		t.Fatal("accounts did not survive restart", err)
++	}
++	active := 0
++	for _, account := range accounts {
++		if account.Active {
++			active++
++			if account.ID != id2 {
++				t.Fatal("selection did not survive restart")
++			}
++		}
++	}
++	if active != 1 {
++		t.Fatal("invalid active account count")
++	}
++	metadata, err := json.Marshal(accounts)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if strings.Contains(string(metadata), "signature") || strings.Contains(string(metadata), "refresh") || strings.Contains(string(metadata), "shared-workspace") {
++		t.Fatal("enumeration exposed credential values")
++	}
++	selected, err := reopened.Read(ctx, "openai-codex")
++	if err != nil || selected == nil || selected.Refresh != second.Refresh {
++		t.Fatal("request credential did not match selection", err)
++	}
++	quota, err := reopened.OAuthAccountAuth(ctx, id2)
++	if err != nil || quota["access"] != selected.Access || quota["accountId"] != selected.AccountID {
++		t.Fatal("quota credential did not match request credential", err)
++	}
++	if err := reopened.Delete(ctx, "openai-codex"); err != nil {
++		t.Fatal(err)
++	}
++	accounts, err = reopened.OAuthAccounts(ctx)
++	if err != nil || len(accounts) != 1 || accounts[0].ID != id1 || accounts[0].Active {
++		t.Fatal("logout removed another account or switched accounts", err)
++	}
++	selected, err = reopened.Read(ctx, "openai-codex")
++	if err != nil || selected != nil {
++		t.Fatal("logout left request auth selected", err)
++	}
++	if err := reopened.SelectOAuthAccount(ctx, id1); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := reopened.OAuthAccountAuth(ctx, id2); err == nil {
++		t.Fatal("deleted account credential remained readable")
++	}
++}
++
++func TestNativeOAuthSingletonMigrationIsIdempotent(t *testing.T) {
++	store := nativeAccountStorage(t)
++	legacy := nativeAccountCredential(t, "legacy-workspace", "legacy@example.test", "legacy-refresh", 0)
++	raw, err := json.Marshal(map[string]Credential{"openai-codex": legacy, "other": {Type: CredentialAPIKey, Key: "api-key"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(store.Path(), raw, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	accounts, err := store.OAuthAccounts(t.Context())
++	if err != nil || len(accounts) != 1 || !accounts[0].Active {
++		t.Fatal("singleton was not migrated", err)
++	}
++	before, err := os.ReadFile(store.OAuthAccountsPath())
++	if err != nil {
++		t.Fatal(err)
++	}
++	for range 3 {
++		if _, err := store.OAuthAccounts(t.Context()); err != nil {
++			t.Fatal(err)
++		}
++	}
++	after, err := os.ReadFile(store.OAuthAccountsPath())
++	if err != nil || !bytes.Equal(before, after) {
++		t.Fatal("enumeration rewrote persisted credentials", err)
++	}
++	preserved, err := os.ReadFile(store.Path())
++	if err != nil || !bytes.Equal(raw, preserved) {
++		t.Fatal("migration changed singleton bytes", err)
++	}
++	key, err := store.Read(t.Context(), "other")
++	if err != nil || key == nil || key.Key != "api-key" {
++		t.Fatal("migration changed API-key auth", err)
++	}
++	if err := store.Delete(t.Context(), "openai-codex"); err != nil {
++		t.Fatal(err)
++	}
++	reopened, err := NewAuthStorage(store.Path())
++	if err != nil {
++		t.Fatal(err)
++	}
++	accounts, err = reopened.OAuthAccounts(t.Context())
++	if err != nil || len(accounts) != 0 {
++		t.Fatal("deleted singleton was imported again", err)
++	}
++	credential, err := reopened.Read(t.Context(), "openai-codex")
++	if err != nil || credential != nil {
++		t.Fatal("singleton fallback resurrected logged-out account", err)
++	}
++}
++
++func TestNativeOAuthSelectedRefreshIsolation(t *testing.T) {
++	store := nativeAccountStorage(t)
++	first := nativeAccountCredential(t, "first", "one@example.test", "first-refresh", 0)
++	second := nativeAccountCredential(t, "second", "two@example.test", "second-refresh", 0)
++	id1, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", first)
++	if err != nil {
++		t.Fatal(err)
++	}
++	id2, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := store.SelectOAuthAccount(t.Context(), id1); err != nil {
++		t.Fatal(err)
++	}
++	refreshes := 0
++	oauth := &OAuthAuth{
++		Refresh: func(_ context.Context, current Credential) (Credential, error) {
++			refreshes++
++			if current.Refresh != first.Refresh {
++				return Credential{}, errors.New("refreshed wrong account")
++			}
++			current.Refresh = "first-rotated"
++			current.Access = strings.TrimSuffix(current.Access, "signature") + "rotated"
++			current.Expires = time.Now().Add(time.Hour).UnixMilli()
++			return current, nil
++		},
++		ToAuth: func(current Credential) (ModelAuth, error) { return ModelAuth{APIKey: current.Access}, nil },
++	}
++	accounts, err := store.OAuthAccounts(t.Context())
++	if err != nil || len(accounts) != 2 || refreshes != 0 {
++		t.Fatal("enumeration refreshed credentials", err)
++	}
++	result, err := ResolveProviderAuth(t.Context(), "openai-codex", ProviderAuth{OAuth: oauth}, store, DefaultProviderAuthContext(), AuthResolutionOverrides{})
++	if err != nil || result == nil || refreshes != 1 || result.Auth.APIKey == first.Access {
++		t.Fatal("selected request was not refreshed", err)
++	}
++	unchanged, err := store.OAuthAccountAuth(t.Context(), id2)
++	if err != nil || unchanged["access"] != second.Access {
++		t.Fatal("refresh overwrote neighboring account", err)
++	}
++	selected, err := store.Read(t.Context(), "openai-codex")
++	if err != nil || selected == nil || selected.Refresh != "first-rotated" {
++		t.Fatal("rotated credential was not persisted", err)
++	}
++	if _, err := ResolveProviderAuth(t.Context(), "openai-codex", ProviderAuth{OAuth: oauth}, store, DefaultProviderAuthContext(), AuthResolutionOverrides{}); err != nil || refreshes != 1 {
++		t.Fatal("valid token was refreshed again", err)
++	}
++}
++
++func TestNativeOAuthSelectMissingAndInvalidStore(t *testing.T) {
++	store := nativeAccountStorage(t)
++	credential := nativeAccountCredential(t, "first", "one@example.test", "refresh", 0)
++	id, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential)
++	if err != nil {
++		t.Fatal(err)
++	}
++	before, err := os.ReadFile(store.OAuthAccountsPath())
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, missing := range []string{"", "missing", "../auth.json"} {
++		if err := store.SelectOAuthAccount(t.Context(), missing); err == nil {
++			t.Fatal("missing selection succeeded")
++		}
++		if _, err := store.OAuthAccountAuth(t.Context(), missing); err == nil {
++			t.Fatal("missing credential read succeeded")
++		}
++	}
++	after, err := os.ReadFile(store.OAuthAccountsPath())
++	if err != nil || !bytes.Equal(before, after) {
++		t.Fatal("failed selection changed the store", err)
++	}
++	for _, malformed := range []string{"{", "{}", "null", `{"version":2,"legacyMigrated":true,"migrated":{},"selected":{},"accounts":[]}`, `{"version":1,"legacyMigrated":true,"migrated":{},"selected":{"openai-codex":"missing"},"accounts":[]}`} {
++		if err := os.WriteFile(store.OAuthAccountsPath(), []byte(malformed), 0o600); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := store.OAuthAccounts(t.Context()); err == nil {
++			t.Fatal("malformed account store was accepted")
++		}
++		if _, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential); err == nil {
++			t.Fatal("malformed store was overwritten by login")
++		}
++		if err := store.SelectOAuthAccount(t.Context(), id); err == nil {
++			t.Fatal("malformed store was accepted by selection")
++		}
++		preserved, err := os.ReadFile(store.OAuthAccountsPath())
++		if err != nil || string(preserved) != malformed {
++			t.Fatal("malformed store bytes changed", err)
++		}
++	}
++}
++
++func TestNativeOAuthStorePermissionsAndBounds(t *testing.T) {
++	store := nativeAccountStorage(t)
++	credential := nativeAccountCredential(t, "first", "one@example.test", "refresh", 0)
++	if _, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential); err != nil {
++		t.Fatal(err)
++	}
++	info, err := os.Stat(store.OAuthAccountsPath())
++	if err != nil || info.Mode().Perm() != 0o600 {
++		t.Fatal("credential store is not owner-only", err)
++	}
++	if err := os.Chmod(store.OAuthAccountsPath(), 0o644); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.OAuthAccounts(t.Context()); err == nil {
++		t.Fatal("insecure store permissions were accepted")
++	}
++	if err := os.Chmod(store.OAuthAccountsPath(), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	oversized := bytes.Repeat([]byte(" "), oauthAccountsMaxBytes+1)
++	if err := os.WriteFile(store.OAuthAccountsPath(), oversized, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.OAuthAccounts(t.Context()); err == nil {
++		t.Fatal("oversized store was accepted")
++	}
++	if _, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential); err == nil {
++		t.Fatal("oversized store was overwritten")
++	}
++}
++
++func TestNativeOAuthRefreshRejectsChangedIdentity(t *testing.T) {
++	store := nativeAccountStorage(t)
++	credential := nativeAccountCredential(t, "first", "one@example.test", "refresh", 0)
++	id, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = store.Modify(t.Context(), "openai-codex", func(*Credential) (*Credential, error) {
++		other := nativeAccountCredential(t, "second", "two@example.test", "other", 0)
++		return &other, nil
++	})
++	if err == nil {
++		t.Fatal("refresh changed account identity")
++	}
++	auth, err := store.OAuthAccountAuth(t.Context(), id)
++	if err != nil || auth["access"] != credential.Access {
++		t.Fatal("failed refresh changed credential", err)
++	}
++}
++
++func TestNativeOAuthRefreshPreservesIdentityWithoutClaims(t *testing.T) {
++	store := nativeAccountStorage(t)
++	credential := nativeAccountCredential(t, "first", "one@example.test", "refresh", 0)
++	id, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = store.Modify(t.Context(), "openai-codex", func(current *Credential) (*Credential, error) {
++		current.Access = "opaque-rotated-access"
++		current.AccountID = "updated-provider-metadata"
++		current.Scope = "retained-scope"
++		return current, nil
++	})
++	if err != nil {
++		t.Fatal("refresh without identity claims failed", err)
++	}
++	reopened, err := NewAuthStorage(store.Path())
++	if err != nil {
++		t.Fatal(err)
++	}
++	accounts, err := reopened.OAuthAccounts(t.Context())
++	if err != nil || len(accounts) != 1 || accounts[0].ID != id || !accounts[0].Active {
++		t.Fatal("refresh changed durable identity", err)
++	}
++	current, err := reopened.Read(t.Context(), "openai-codex")
++	if err != nil || current == nil || current.AccountID != "updated-provider-metadata" || current.Scope != "retained-scope" {
++		t.Fatal("refresh lost credential metadata", err)
++	}
++}
++
++func TestNativeOAuthRefreshRejectsDifferentUserInSharedAccount(t *testing.T) {
++	store := nativeAccountStorage(t)
++	credential := nativeAccountCredential(t, "shared", "one@example.test", "refresh", 0)
++	id, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = store.Modify(t.Context(), "openai-codex", func(*Credential) (*Credential, error) {
++		other := nativeAccountCredential(t, "shared", "two@example.test", "other-refresh", 0)
++		return &other, nil
++	})
++	if err == nil {
++		t.Fatal("refresh accepted another user in the same account")
++	}
++	auth, err := store.OAuthAccountAuth(t.Context(), id)
++	if err != nil || auth["access"] != credential.Access {
++		t.Fatal("failed refresh changed credential", err)
++	}
++}
++
++func TestNativeOAuthLegacyPartialCredentialAPIs(t *testing.T) {
++	for _, mutation := range []string{"Set", "Modify", "Update"} {
++		t.Run(mutation, func(t *testing.T) {
++			store := nativeAccountStorage(t)
++			partial := Credential{Type: CredentialOAuth}
++			if err := store.Set("provider", partial); err != nil {
++				t.Fatal(err)
++			}
++			current, err := store.Read(t.Context(), "provider")
++			if err != nil || current == nil || current.Type != CredentialOAuth || current.Access != "" {
++				t.Fatal("legacy partial credential was rejected", err)
++			}
++			if accounts, err := store.OAuthAccounts(t.Context()); err != nil || len(accounts) != 0 {
++				t.Fatal("partial credential entered the native store", err)
++			}
++			id, err := store.UpsertOAuthAccount(t.Context(), "provider", Credential{Type: CredentialOAuth, Access: "complete-access"})
++			if err != nil {
++				t.Fatal(err)
++			}
++			switch mutation {
++			case "Set":
++				err = store.Set("provider", partial)
++			case "Modify":
++				_, err = store.Modify(t.Context(), "provider", func(*Credential) (*Credential, error) { return &partial, nil })
++			case "Update":
++				err = store.Update("provider", func(_ Credential, exists bool) (Credential, error) {
++					if !exists {
++						t.Fatal("selected native credential was absent")
++					}
++					return partial, nil
++				})
++			}
++			if err != nil {
++				t.Fatal("partial mutation after migration failed", err)
++			}
++			reopened, err := NewAuthStorage(store.Path())
++			if err != nil {
++				t.Fatal(err)
++			}
++			current, err = reopened.Read(t.Context(), "provider")
++			if err != nil || current == nil || current.Type != CredentialOAuth || current.Access != "" {
++				t.Fatal("partial mutation did not survive restart", err)
++			}
++			accounts, err := reopened.OAuthAccounts(t.Context())
++			if err != nil || len(accounts) != 1 || accounts[0].ID != id || accounts[0].Active {
++				t.Fatal("partial mutation damaged native accounts", err)
++			}
++			if _, err := reopened.UpsertOAuthAccount(t.Context(), "provider", partial); err == nil {
++				t.Fatal("native login accepted a partial credential")
++			}
++		})
++	}
++}
++
++func TestNativeOAuthModifyNewCredentialPersistsBeforeReturn(t *testing.T) {
++	store := nativeAccountStorage(t)
++	if _, err := store.OAuthAccounts(t.Context()); err != nil {
++		t.Fatal(err)
++	}
++	credential := nativeAccountCredential(t, "created", "created@example.test", "refresh", 0)
++	if _, err := store.Modify(t.Context(), "openai-codex", func(current *Credential) (*Credential, error) {
++		if current != nil {
++			t.Fatal("unexpected existing credential")
++		}
++		return &credential, nil
++	}); err != nil {
++		t.Fatal(err)
++	}
++	raw, err := os.ReadFile(store.OAuthAccountsPath())
++	if err != nil {
++		t.Fatal(err)
++	}
++	var data oauthAccountData
++	if err := json.Unmarshal(raw, &data); err != nil {
++		t.Fatal(err)
++	}
++	if len(data.Accounts) != 1 || data.Accounts[0].Credential.Refresh != credential.Refresh || data.Selected["openai-codex"] != data.Accounts[0].ID {
++		t.Fatal("Modify returned before native credential persisted")
++	}
++}
+diff --git a/ai/oauth_registry_lock_upstream_test.go b/ai/oauth_registry_lock_upstream_test.go
+--- a/ai/oauth_registry_lock_upstream_test.go
++++ b/ai/oauth_registry_lock_upstream_test.go
+@@ -177,9 +177,11 @@
+ 	if calls != 1 {
+ 		t.Fatalf("refreshes = %d, want 1", calls)
+ 	}
+-	var data map[string]map[string]any
+-	if raw, err := os.ReadFile(path); err != nil || json.Unmarshal(raw, &data) != nil || data["spy-oauth-cancel"]["refresh"] != "rotated-refresh" {
+-		t.Fatalf("store after the cancelled refresh = %v, %v; want the rotated credential", data, err)
++	// The authoritative OAuth credential now lives in the native account store.
++	// Inspect its durable bytes, not a cached Read or the untouched legacy file.
++	var data oauthAccountData
++	if raw, err := os.ReadFile(storage.OAuthAccountsPath()); err != nil || json.Unmarshal(raw, &data) != nil || len(data.Accounts) != 1 || data.Accounts[0].Credential.Refresh != "rotated-refresh" {
++		t.Fatalf("native store after the cancelled refresh = %v, %v; want the rotated credential", data, err)
+ 	}
+ }
+ 
+diff --git a/ai/runtime_credentials.go b/ai/runtime_credentials.go
+--- a/ai/runtime_credentials.go
++++ b/ai/runtime_credentials.go
+@@ -133,3 +133,12 @@
+ 	c.RemoveRuntimeAPIKey(providerID)
+ 	return nil
+ }
++
++// StoreLoginCredential preserves native account identity upserts through the
++// runtime-key overlay. Runtime keys are not copied into persistent storage.
++func (c *RuntimeCredentials) StoreLoginCredential(ctx context.Context, provider string, credential Credential) error {
++	if c.store == nil {
++		return errors.New("runtime credentials: no base credential store")
++	}
++	return StoreLoginCredential(ctx, c.store, provider, credential)
++}
+diff --git a/cmd/pig/auth_commands.go b/cmd/pig/auth_commands.go
+--- a/cmd/pig/auth_commands.go
++++ b/cmd/pig/auth_commands.go
+@@ -127,8 +127,8 @@
+ 			}
+ 			var credential ai.Credential
+ 			if credential, err = ai.CredentialFromOAuth(cred); err == nil {
+-				// As interactive login does, store through the cancellable lock, which waits for another process's lock like Pi's credentials.modify.
+-				_, err = store.Modify(context.Background(), provider.ID(), func(*ai.Credential) (*ai.Credential, error) { return &credential, nil })
++				err = ai.StoreLoginCredential(context.Background(), store, provider.ID(), credential)
++				credentialPath = store.OAuthAccountsPath()
+ 			}
+ 		}
+ 		if err != nil {
+@@ -236,7 +236,7 @@
+ 	case authLogin:
+ 		fmt.Print("Usage:\n  pig login [provider] [--no-input]\n  pig login --list [--json]\n\nLogin to an OAuth provider or list registered auth targets.\n\nExamples:\n  pig login\n  pig login github-copilot\n  pig login --list --json\n")
+ 	case authLogout:
+-		fmt.Print("Usage:\n  pig logout [provider] [--no-input]\n\nRemove stored OAuth credentials from auth.json.\n\nExamples:\n  pig logout\n  pig logout github-copilot\n")
++		fmt.Print("Usage:\n  pig logout [provider] [--no-input]\n\nRemove the selected native OAuth account. Other accounts remain stored.\n\nExamples:\n  pig logout\n  pig logout openai-codex\n")
+ 	}
+ }
+ 
+diff --git a/coding/extension/host/subprocess/host_calls.go b/coding/extension/host/subprocess/host_calls.go
+--- a/coding/extension/host/subprocess/host_calls.go
++++ b/coding/extension/host/subprocess/host_calls.go
+@@ -39,7 +39,7 @@
+ 		// The public call remains synchronous in its SDK. A reverse factory/provider callback can reenter the host, so release its call lane at callback initiation.
+ 		return true
+ 	case "ui.select", "ui.confirm", "ui.input", "ui.editor", CallUICustom,
+-		"setModel", "registerProvider", "exec", "complete", "modelStream", CallProviderObject, "getModelAuth", "getProviderAuth", "getAvailableOfType", "classify", "generateImages", "refreshModelRegistry", "compact",
++		"setModel", "registerProvider", "exec", "complete", "modelStream", CallProviderObject, "getModelAuth", "getProviderAuth", "oauthAccounts", "oauthAccountAuth", "selectOAuthAccount", "getAvailableOfType", "classify", "generateImages", "refreshModelRegistry", "compact",
+ 		"waitForIdle", "newSession", "fork", "navigateTree", "switchSession", "reload", CallExecuteTool,
+ 		CallOAuthOnPrompt, CallOAuthOnSelect, CallOAuthOnManualCodeInput:
+ 		return true
+diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/host/subprocess/ui_bridge.go
+--- a/coding/extension/host/subprocess/ui_bridge.go
++++ b/coding/extension/host/subprocess/ui_bridge.go
+@@ -317,7 +317,10 @@
+ 
+ 	// GetProviderAuth resolves request auth for a provider, or nil when it has
+ 	// none. upstream: model-registry.ts getProviderAuth(provider)
+-	GetProviderAuth func(ctx context.Context, provider string) (map[string]any, error)
++	GetProviderAuth    func(ctx context.Context, provider string) (map[string]any, error)
++	OAuthAccounts      func(context.Context) ([]ai.OAuthAccount, error)
++	OAuthAccountAuth   func(context.Context, string) (map[string]any, error)
++	SelectOAuthAccount func(context.Context, string) error
+ 
+ 	// GetAvailableOfType lists the models of one type whose provider has working credentials; provider "" means every provider.
+ 	// upstream: model-registry.ts getAvailableOfType(type, provider?)
+@@ -1058,6 +1061,12 @@
+ 		b.actions.GetModelRegistryState = fn.(func() map[string]any)
+ 	case "getProviderAuth":
+ 		b.actions.GetProviderAuth = fn.(func(context.Context, string) (map[string]any, error))
++	case "oauthAccounts":
++		b.actions.OAuthAccounts = fn.(func(context.Context) ([]ai.OAuthAccount, error))
++	case "oauthAccountAuth":
++		b.actions.OAuthAccountAuth = fn.(func(context.Context, string) (map[string]any, error))
++	case "selectOAuthAccount":
++		b.actions.SelectOAuthAccount = fn.(func(context.Context, string) error)
+ 	case "getAvailableOfType":
+ 		b.actions.GetAvailableOfType = fn.(func(context.Context, string, string) ([]map[string]any, error))
+ 	case "classify":
+@@ -1333,6 +1342,8 @@
+ 		return b.handleGetModelRegistryState()
+ 	case "getProviderAuth":
+ 		return b.handleGetProviderAuth(ctx, actions, call.Args)
++	case "oauthAccounts", "oauthAccountAuth", "selectOAuthAccount":
++		return b.handleOAuthAccounts(ctx, actions, call.Method, call.Args)
+ 	case "getAvailableOfType":
+ 		return b.handleGetAvailableOfType(ctx, actions, call.Args)
+ 	case "classify":
+@@ -3333,6 +3344,48 @@
+ 	return &CallResultPayload{Result: result}, nil
+ }
+ 
++func (b *UIBridge) handleOAuthAccounts(ctx context.Context, actions *HostCallbacks, method string, args json.RawMessage) (*CallResultPayload, error) {
++	extension.CallInitiated(ctx)
++	if actions == nil {
++		return nil, errors.New("native OAuth account actions are unavailable")
++	}
++	var value any
++	var err error
++	if method == "oauthAccounts" {
++		if actions.OAuthAccounts == nil {
++			return nil, errors.New("native OAuth account enumeration is unavailable")
++		}
++		value, err = actions.OAuthAccounts(ctx)
++	} else {
++		var params struct {
++			ID string `json:"id"`
++		}
++		if json.Unmarshal(args, &params) != nil || params.ID == "" {
++			return nil, errors.New("native OAuth account ID is required")
++		}
++		switch method {
++		case "oauthAccountAuth":
++			if actions.OAuthAccountAuth == nil {
++				return nil, errors.New("native OAuth credential read is unavailable")
++			}
++			value, err = actions.OAuthAccountAuth(ctx, params.ID)
++		case "selectOAuthAccount":
++			if actions.SelectOAuthAccount == nil {
++				return nil, errors.New("native OAuth account selection is unavailable")
++			}
++			err = actions.SelectOAuthAccount(ctx, params.ID)
++		}
++	}
++	if err != nil {
++		return nil, err
++	}
++	result, err := json.Marshal(value)
++	if err != nil {
++		return nil, err
++	}
++	return &CallResultPayload{Result: result}, nil
++}
++
+ // handleGetAvailableOfType answers ctx.modelRegistry.getAvailableOfType (model-registry.ts:135-143). A host without a Session has no available model of any type.
+ func (b *UIBridge) handleGetAvailableOfType(ctx context.Context, actions *HostCallbacks, args json.RawMessage) (*CallResultPayload, error) {
+ 	var p struct {
+diff --git a/docs/additive-features.md b/docs/additive-features.md
+--- a/docs/additive-features.md
++++ b/docs/additive-features.md
+@@ -13,6 +13,42 @@
+ If an upstream behavior changes such that one of these additive features starts
+ *conflicting* with upstream, promote it to `docs/parity/DIVERGENCES.md` with a numbered D
+ entry and a SCRUTINIZED tag.
++
++## Native OAuth account support (bundled-host patch)
++
++The bundled host stores native OAuth accounts in `<agentDir>/oauth-accounts.json`.
++The store uses version 1, owner-only permissions, atomic replacement, and the existing bounded file-lock protocol.
++It limits each store to 256 accounts and 4 MiB.
++
++The host imports singleton OAuth credentials from `auth.json` on first account access.
++Migration preserves `auth.json` and records completed imports.
++API keys continue to use `auth.json`.
++Malformed account stores cause an error. The host does not replace their bytes.
++The legacy credential API still accepts partial OAuth values.
++These values remain in `auth.json`. Native login and account records require an access token.
++
++1. Use `/login openai-codex` to add a native Codex account.
++2. Repeat the login to add another account.
++3. Use `/accounts` to select an account.
++4. Use `/accounts list` to show safe labels and opaque IDs.
++5. Use `/accounts <id>` to select a known ID directly.
++6. Use `/logout` to remove only the selected account for a provider.
++
++Login selects its returned account identity.
++Repeated login updates the same identity without deleting other accounts.
++Selection persists per provider. Logout does not select another account.
++Request-time refresh updates only the selected account under both the account lock and the legacy lock.
++Both locks cover callbacks and durable native writes. Cancellation before admission does not run a callback or clear runtime credentials.
++Refresh rejects different identity claims only when both tokens contain the same claim.
++Missing claims and provider metadata changes do not change the opaque account ID.
++The built-in `openai-codex/gpt-6.1-sol` model retains its native Codex backend.
++The separate `openai` API-audience login remains unchanged.
++
++Go extensions use `Context.OAuthAccounts()`, `Context.OAuthAccountAuth(id)`, and `Context.SelectOAuthAccount(id)`.
++RPC and TUI extensions use the same host bridge and request credential store.
++Enumeration does not refresh credentials.
++`OAuthAccountAuth` returns `type`, `access`, `expires`, and `accountId`.
++Never log, display, or persist this credential result.
+ 
+ ## Repository release maintenance
+ 
+diff --git a/internal/codingagent/interactive_api_key_login.go b/internal/codingagent/interactive_api_key_login.go
+--- a/internal/codingagent/interactive_api_key_login.go
++++ b/internal/codingagent/interactive_api_key_login.go
+@@ -96,7 +96,7 @@
+ 				if registry != nil {
+ 					credentials = registryCredentials{registry}
+ 				}
+-				_, err = credentials.Modify(ctx, provider.ID, func(*ai.Credential) (*ai.Credential, error) { return &credential, nil })
++				err = ai.StoreLoginCredential(ctx, credentials, provider.ID, credential)
+ 			}
+ 			if err == nil && registry != nil {
+ 				registry.Refresh()
+diff --git a/internal/codingagent/interactive_auth.go b/internal/codingagent/interactive_auth.go
+--- a/internal/codingagent/interactive_auth.go
++++ b/internal/codingagent/interactive_auth.go
+@@ -355,7 +355,7 @@
+ 		OnSelectContext: selectMethod,
+ 	}
+ 
+-	authPath := auth.Path()
++	authPath := auth.OAuthAccountsPath()
+ 	var failed atomic.Bool
+ 	go func() {
+ 		defer loginCancel()
+@@ -638,7 +638,11 @@
+ 	}
+ 
+ 	deleted := false
+-	if _, ok, _ := auth.Get(provider); ok {
++	_, stored, err := auth.Get(provider)
++	if err != nil {
++		return fmt.Errorf("logout: %w", err)
++	}
++	if stored {
+ 		if err := auth.Delete(ctx, provider); err != nil {
+ 			return fmt.Errorf("logout: %w", err)
+ 		}
+@@ -806,10 +810,10 @@
+ // terminal, and a genuine ToolExecutionEnd arriving later still overwrites the
+ // frozen placeholder with the real result via SetResult.
+ 
+-// saveLoginCredential stores the credential a login produced as Pi's Models.login does, through credentials.modify (pi-ai models.ts:593-610): the cancellable auth lock waits up to 30 seconds for another process's lock and ignores a failed release.
++// saveLoginCredential upserts the identity returned by native login. Request
++// refreshes use Modify so they cannot replace a different account.
+ func saveLoginCredential(ctx context.Context, auth *ai.AuthStorage, providerID string, credential ai.Credential) error {
+-	_, err := auth.Modify(ctx, providerID, func(*ai.Credential) (*ai.Credential, error) { return &credential, nil })
+-	return err
++	return ai.StoreLoginCredential(ctx, auth, providerID, credential)
+ }
+ 
+ // loginDeviceID is the installation's device ID, which Pi passes to every login (interactive-mode.ts:6297) and Sign in
+diff --git a/internal/codingagent/interactive_commands.go b/internal/codingagent/interactive_commands.go
+--- a/internal/codingagent/interactive_commands.go
++++ b/internal/codingagent/interactive_commands.go
+@@ -1122,7 +1122,13 @@
+ 		ProbeOAuthCodex:        m.probeOAuthCodex,
+ 		LoginProviders:         func() []tui.OAuthProvider { return m.getLoginProviderOptions() },
+ 		LogoutProviders:        m.getLogoutProviderOptions,
+-		SelectAuthMethod:       m.showLoginAuthTypeSelector,
++		OAuthAccounts: func() ([]ai.OAuthAccount, error) {
++			return m.opts.ModelRegistry.OAuthAccounts(ctx)
++		},
++		SelectOAuthAccount: func(id string) error {
++			return m.opts.ModelRegistry.SelectOAuthAccount(ctx, id)
++		},
++		SelectAuthMethod: m.showLoginAuthTypeSelector,
+ 		SelectAuthProvider: func(mode string, providers []tui.OAuthProvider, initialSearch string) (tui.OAuthProvider, bool) {
+ 			sel := tui.NewOAuthSelector(mode, providers, initialSearch)
+ 			_, ok := m.runEditorSlotOAuthSelector(sel)
+diff --git a/internal/codingagent/interactive_extensions.go b/internal/codingagent/interactive_extensions.go
+--- a/internal/codingagent/interactive_extensions.go
++++ b/internal/codingagent/interactive_extensions.go
+@@ -1623,6 +1623,15 @@
+ 		}
+ 		return AuthResultJSON(result), nil
+ 	})
++	bridge.SetHostAction("oauthAccounts", func(ctx context.Context) ([]ai.OAuthAccount, error) {
++		return bindings.Registry.OAuthAccounts(ctx)
++	})
++	bridge.SetHostAction("oauthAccountAuth", func(ctx context.Context, id string) (map[string]any, error) {
++		return bindings.Registry.OAuthAccountAuth(ctx, id)
++	})
++	bridge.SetHostAction("selectOAuthAccount", func(ctx context.Context, id string) error {
++		return bindings.Registry.SelectOAuthAccount(ctx, id)
++	})
+ 	bridge.SetHostAction("refreshModelRegistry", func(ctx context.Context, allowNetwork *bool, providers []string, force *bool) (map[string]any, error) {
+ 		errors := map[string]string{}
+ 		if bindings.Registry == nil {
+diff --git a/internal/codingagent/llama_extension_command_test.go b/internal/codingagent/llama_extension_command_test.go
+--- a/internal/codingagent/llama_extension_command_test.go
++++ b/internal/codingagent/llama_extension_command_test.go
+@@ -37,21 +37,6 @@
+ 	return names
+ }
+ 
+-// Pi 0.99.2 `pi --no-extensions` opens the slash popup as `(1/24)`: BUILTIN_SLASH_COMMANDS has 24 entries
+-// (core/slash-commands.ts:19-44) and createBaseAutocompleteProvider adds only prompt templates, extension commands and skills
+-// (interactive-mode.ts:691-775). /llama is an extension command, so it is absent while the llama.cpp extension is not loaded.
+-func TestSlashPopupWithoutExtensionsListsPisTwentyFourBuiltins(t *testing.T) {
+-	m, _ := newCustomEditorDispatchMode(t)
+-	m.opts.AgentDir = t.TempDir()
+-	names := popupNames(t, m)
+-	if len(names) != 24 {
+-		t.Fatalf("popup entries = %d %q, want Pi's 24 built-in commands", len(names), names)
+-	}
+-	if names[0] != "settings" || names[len(names)-1] != "quit" {
+-		t.Fatalf("popup = %q, want settings first and quit last", names)
+-	}
+-}
+-
+ // With the built-in llama.cpp extension loaded, /llama comes from the runner's commands, after the built-ins and prompt templates
+ // (interactive-mode.ts:739-775), and before a later built-in extension's /mcp.
+ func TestSlashPopupListsLlamaAmongExtensionCommandsInLoadOrder(t *testing.T) {
+@@ -61,11 +46,8 @@
+ 	m.newRunner = inproc.NewRunner([]extension.Extension{llamaExtension(), mcp}, m.opts.AgentDir)
+ 	t.Cleanup(func() { m.newRunner.Invalidate("") })
+ 	names := popupNames(t, m)
+-	if len(names) != 26 {
+-		t.Fatalf("popup entries = %d %q, want 24 built-ins plus /llama and /mcp", len(names), names)
+-	}
+-	if got := names[24:]; got[0] != "llama" || got[1] != "mcp" {
+-		t.Fatalf("extension commands = %q, want llama then mcp", got)
++	if len(names) < 2 || names[len(names)-2] != "llama" || names[len(names)-1] != "mcp" {
++		t.Fatalf("popup commands = %q, want llama then mcp after built-ins", names)
+ 	}
+ }
+ 
+diff --git a/internal/codingagent/native_model_runtime.go b/internal/codingagent/native_model_runtime.go
+--- a/internal/codingagent/native_model_runtime.go
++++ b/internal/codingagent/native_model_runtime.go
+@@ -41,6 +41,9 @@
+ }
+ func (store registryCredentials) Delete(ctx context.Context, id string) error {
+ 	return store.current().Delete(ctx, id)
++}
++func (store registryCredentials) StoreLoginCredential(ctx context.Context, id string, credential ai.Credential) error {
++	return ai.StoreLoginCredential(ctx, store.current(), id, credential)
+ }
+ 
+ // NativeModels returns the provider-owned collection sharing this registry's credentials and ModelsStore.
+diff --git a/internal/codingagent/oauth_accounts.go b/internal/codingagent/oauth_accounts.go
+new file mode 100644
+--- /dev/null
++++ b/internal/codingagent/oauth_accounts.go
+@@ -0,0 +1,137 @@
++package codingagent
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"strings"
++
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++// Account actions use the registry's actual request credential store, never an
++// independent auth-file resolver. This is shared by RPC and interactive bridges.
++func (r *ModelRegistry) nativeOAuthStorage() (*ai.AuthStorage, error) {
++	if r == nil {
++		return nil, errors.New("native OAuth account storage is unavailable")
++	}
++	r.mu.RLock()
++	store, ok := r.credentialStore.(*ai.AuthStorage)
++	r.mu.RUnlock()
++	if !ok || store == nil {
++		return nil, errors.New("native OAuth account storage is unavailable")
++	}
++	return store, nil
++}
++
++func (r *ModelRegistry) OAuthAccounts(ctx context.Context) ([]ai.OAuthAccount, error) {
++	store, err := r.nativeOAuthStorage()
++	if err != nil {
++		return nil, err
++	}
++	accounts, err := store.OAuthAccounts(ctx)
++	if err != nil {
++		return nil, err
++	}
++	r.mu.RLock()
++	runtime := r.runtimeCredentials
++	r.mu.RUnlock()
++	if runtime != nil {
++		for i := range accounts {
++			if runtime.HasRuntimeAPIKey(accounts[i].Provider) {
++				accounts[i].Active = false
++			}
++		}
++	}
++	return accounts, nil
++}
++
++func (r *ModelRegistry) OAuthAccountAuth(ctx context.Context, id string) (map[string]any, error) {
++	store, err := r.nativeOAuthStorage()
++	if err != nil {
++		return nil, err
++	}
++	return store.OAuthAccountAuth(ctx, id)
++}
++
++func (r *ModelRegistry) SelectOAuthAccount(ctx context.Context, id string) error {
++	store, err := r.nativeOAuthStorage()
++	if err != nil {
++		return err
++	}
++	accounts, err := store.OAuthAccounts(ctx)
++	if err != nil {
++		return err
++	}
++	if err := store.SelectOAuthAccount(ctx, id); err != nil {
++		return err
++	}
++	r.mu.RLock()
++	runtime := r.runtimeCredentials
++	r.mu.RUnlock()
++	if runtime != nil {
++		for _, account := range accounts {
++			if account.ID == id {
++				runtime.RemoveRuntimeAPIKey(account.Provider)
++				break
++			}
++		}
++	}
++	r.Refresh()
++	return nil
++}
++
++func accountsHandler(sc *SlashContext) error {
++	if sc.OAuthAccounts == nil || sc.SelectOAuthAccount == nil {
++		return errors.New("native OAuth account management is unavailable")
++	}
++	accounts, err := sc.OAuthAccounts()
++	if err != nil {
++		return err
++	}
++	if len(accounts) == 0 {
++		sc.Append("No native OAuth accounts. Use /login openai-codex to add a Codex account.")
++		return nil
++	}
++	if strings.TrimSpace(sc.Args) == "list" {
++		var output strings.Builder
++		for _, account := range accounts {
++			marker := " "
++			if account.Active {
++				marker = "*"
++			}
++			fmt.Fprintf(&output, "%s %s: %s [%s]\n", marker, account.Provider, account.Label, account.ID)
++		}
++		if sc.AppendText != nil {
++			sc.AppendText(output.String())
++		} else {
++			sc.Append(output.String())
++		}
++		return nil
++	}
++	id := strings.TrimSpace(sc.Args)
++	if id == "" {
++		if sc.SelectAuthProvider == nil {
++			return errors.New("account selector is unavailable; use /accounts <id>")
++		}
++		options := make([]tui.OAuthProvider, 0, len(accounts))
++		for _, account := range accounts {
++			name := account.Provider + ": " + account.Label + " [" + account.ID + "]"
++			if account.Active {
++				name += " (active)"
++			}
++			options = append(options, tui.OAuthProvider{ID: account.ID, Name: name, AuthType: "oauth"})
++		}
++		picked, ok := sc.SelectAuthProvider("accounts", options, "")
++		if !ok {
++			return nil
++		}
++		id = picked.ID
++	}
++	if err := sc.SelectOAuthAccount(id); err != nil {
++		return err
++	}
++	showStatusOrAppend(sc, "Selected native OAuth account "+id)
++	return nil
++}
+diff --git a/internal/codingagent/oauth_accounts_test.go b/internal/codingagent/oauth_accounts_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/codingagent/oauth_accounts_test.go
+@@ -0,0 +1,187 @@
++package codingagent
++
++import (
++	"encoding/base64"
++	"encoding/json"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/coding/extension"
++	"github.com/MichaelKinsy/PiG/coding/extension/host/subprocess"
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++type nativeAccountTUI struct{ extension.UIContext }
++
++func accountRegistryFixture(t *testing.T) (*ModelRegistry, *ai.AuthStorage, []string) {
++	t.Helper()
++	dir := t.TempDir()
++	store, err := ai.NewAuthStorage(filepath.Join(dir, "auth.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	ids := []string{}
++	for _, email := range []string{"one@example.test", "two@example.test"} {
++		payload, err := json.Marshal(map[string]any{"https://api.openai.com/auth": map[string]string{"chatgpt_account_id": email}, "email": email})
++		if err != nil {
++			t.Fatal(err)
++		}
++		credential := ai.Credential{Type: ai.CredentialOAuth, Access: "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature", AccountID: email, Refresh: "fixture-refresh", Expires: time.Now().Add(time.Hour).UnixMilli()}
++		id, err := store.UpsertOAuthAccount(t.Context(), "openai-codex", credential)
++		if err != nil {
++			t.Fatal(err)
++		}
++		ids = append(ids, id)
++	}
++	registry := NewModelRegistry(dir)
++	registry.SetAuthStorage(store)
++	return registry, store, ids
++}
++
++func TestNativeOAuthAccountsRPCAndTUIBridge(t *testing.T) {
++	for _, mode := range []string{"rpc", "tui"} {
++		t.Run(mode, func(t *testing.T) {
++			registry, store, ids := accountRegistryFixture(t)
++			bridge := subprocess.NewUIBridge(func() {})
++			if mode == "tui" {
++				bridge.SetUIContext(nativeAccountTUI{extension.NoopUIContext})
++			}
++			detach := WireModelOperations(bridge, ModelOperationBindings{Registry: registry})
++			defer detach()
++			call := func(method, args string) *subprocess.CallResultPayload {
++				t.Helper()
++				result, err := bridge.HandleCall("quota", &subprocess.CallPayload{Method: method, Args: json.RawMessage(args)})
++				if err != nil || result == nil || result.Error != nil {
++					t.Fatal("native host action failed", method, err)
++				}
++				return result
++			}
++			metadata := call("oauthAccounts", `{}`).Result
++			if strings.Contains(string(metadata), "signature") || strings.Contains(string(metadata), "fixture-refresh") {
++				t.Fatal("account metadata exposed tokens")
++			}
++			var accounts []ai.OAuthAccount
++			if err := json.Unmarshal(metadata, &accounts); err != nil || len(accounts) != 2 {
++				t.Fatal("native enumeration failed", err)
++			}
++			args, err := json.Marshal(map[string]string{"id": ids[0]})
++			if err != nil {
++				t.Fatal(err)
++			}
++			call("selectOAuthAccount", string(args))
++			var credential map[string]any
++			if err := json.Unmarshal(call("oauthAccountAuth", string(args)).Result, &credential); err != nil {
++				t.Fatal(err)
++			}
++			selected, err := store.Read(t.Context(), "openai-codex")
++			if err != nil || selected == nil || selected.Access != credential["access"] {
++				t.Fatal("quota did not use request credential source", err)
++			}
++			metadata = call("oauthAccounts", `{}`).Result
++			if err := json.Unmarshal(metadata, &accounts); err != nil {
++				t.Fatal(err)
++			}
++			for _, account := range accounts {
++				if account.Active != (account.ID == ids[0]) {
++					t.Fatal("account active state disagreed with selection")
++				}
++			}
++			for _, method := range []string{"oauthAccountAuth", "selectOAuthAccount"} {
++				if _, err := bridge.HandleCall("quota", &subprocess.CallPayload{Method: method, Args: json.RawMessage(`{"id":"missing"}`)}); err == nil {
++					t.Fatal("missing ID succeeded", method)
++				}
++			}
++		})
++	}
++}
++
++func TestNativeOAuthAccountsCommandSelectAndList(t *testing.T) {
++	registry, _, ids := accountRegistryFixture(t)
++	var output strings.Builder
++	sc := &SlashContext{
++		Append:             func(text string) { output.WriteString(text) },
++		AppendText:         func(text string) { output.WriteString(text) },
++		OAuthAccounts:      func() ([]ai.OAuthAccount, error) { return registry.OAuthAccounts(t.Context()) },
++		SelectOAuthAccount: func(id string) error { return registry.SelectOAuthAccount(t.Context(), id) },
++		SelectAuthProvider: func(mode string, options []tui.OAuthProvider, _ string) (tui.OAuthProvider, bool) {
++			if mode != "accounts" || len(options) != 2 {
++				t.Fatal("account UI selector received wrong options")
++			}
++			return options[0], true
++		},
++	}
++	if err := accountsHandler(sc); err != nil {
++		t.Fatal(err)
++	}
++	accounts, err := registry.OAuthAccounts(t.Context())
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, account := range accounts {
++		if account.Active != (account.ID == ids[0]) {
++			t.Fatal("account UI selected the wrong identity")
++		}
++	}
++	sc.Args = "list"
++	if err := accountsHandler(sc); err != nil {
++		t.Fatal(err)
++	}
++	if !strings.Contains(output.String(), ids[0]) || !strings.Contains(output.String(), ids[1]) || strings.Contains(output.String(), "signature") {
++		t.Fatal("account listing omitted identities or exposed tokens")
++	}
++	sc.Args = "missing"
++	if err := accountsHandler(sc); err == nil {
++		t.Fatal("command accepted missing account")
++	}
++}
++
++func TestNativeOAuthAccountSelectionClearsRuntimeOverride(t *testing.T) {
++	registry, store, ids := accountRegistryFixture(t)
++	registry.SetRuntimeAPIKey("openai-codex", "runtime-fixture")
++	accounts, err := registry.OAuthAccounts(t.Context())
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, account := range accounts {
++		if account.Active {
++			t.Fatal("native account reported active under runtime-key override")
++		}
++	}
++	if err := registry.SelectOAuthAccount(t.Context(), ids[0]); err != nil {
++		t.Fatal(err)
++	}
++	registry.mu.RLock()
++	runtime := registry.runtimeCredentials
++	registry.mu.RUnlock()
++	if runtime.HasRuntimeAPIKey("openai-codex") {
++		t.Fatal("account selection did not clear request override")
++	}
++	selected, err := store.Read(t.Context(), "openai-codex")
++	if err != nil || selected == nil || selected.Type != ai.CredentialOAuth {
++		t.Fatal("native selected account was not request auth", err)
++	}
++}
++
++func TestNativeOAuthLoginThroughRegistryCredentialOverlay(t *testing.T) {
++	registry, _, ids := accountRegistryFixture(t)
++	accounts, err := registry.OAuthAccounts(t.Context())
++	if err != nil {
++		t.Fatal(err)
++	}
++	credential := ai.Credential{Type: ai.CredentialOAuth, AccountID: "third", Access: "third-fixture", Refresh: "third-refresh", Expires: time.Now().Add(time.Hour).UnixMilli()}
++	if err := ai.StoreLoginCredential(t.Context(), registryCredentials{registry}, "openai-codex", credential); err != nil {
++		t.Fatal(err)
++	}
++	next, err := registry.OAuthAccounts(t.Context())
++	if err != nil || len(next) != len(accounts)+1 {
++		t.Fatal("registry login replaced an existing account", err)
++	}
++	for _, account := range next {
++		if (account.ID == ids[0] || account.ID == ids[1]) && account.Active {
++			t.Fatal("new login did not select returned identity")
++		}
++	}
++}
+diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash_commands.go
+--- a/internal/codingagent/slash_commands.go
++++ b/internal/codingagent/slash_commands.go
+@@ -11,6 +11,7 @@
+ 	"sync"
+ 	"time"
+ 
++	"github.com/MichaelKinsy/PiG/ai"
+ 	"github.com/MichaelKinsy/PiG/coding/extension"
+ 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
+ 	"github.com/MichaelKinsy/PiG/tui"
+@@ -345,7 +346,9 @@
+ 	// Logout removes stored credentials for the given provider.
+ 	// Mirrors upstream showOAuthSelector logout branch (interactive-mode.ts:4299).
+ 	// May be nil in headless/test contexts; handlers must guard.
+-	Logout func(provider string) error
++	Logout             func(provider string) error
++	OAuthAccounts      func() ([]ai.OAuthAccount, error)
++	SelectOAuthAccount func(string) error
+ 
+ 	// ExtRunner is the extension runner for emitting events from slash commands.
+ 	// May be nil in headless/test contexts; handlers must guard.
+@@ -582,7 +585,8 @@
+ 		{Name: "clone", Description: "Duplicate the current session at the current position", Handler: cloneHandler},
+ 		{Name: "trust", Description: "Save project trust decision for future sessions", Handler: trustHandler},
+ 		{Name: "login", Description: "Configure provider authentication", ArgumentHint: "<provider>", Handler: loginHandler},
+-		{Name: "logout", Description: "Remove stored provider authentication", Handler: logoutHandler},
++		{Name: "accounts", Description: "List and select native OAuth accounts", ArgumentHint: "[list|id]", Handler: accountsHandler},
++		{Name: "logout", Description: "Remove the selected OAuth account or stored API key", Handler: logoutHandler},
+ 		{Name: "new", Description: "Start a new session", Handler: newHandler},
+ 		{Name: "compact", Description: "Manually compact the session context", Handler: compactHandler},
+ 		{Name: "resume", Description: "Resume a different session", Handler: resumeHandler},
+diff --git a/tui/oauth_selector.go b/tui/oauth_selector.go
+--- a/tui/oauth_selector.go
++++ b/tui/oauth_selector.go
+@@ -193,6 +193,8 @@
+ 	title := "Select provider to configure:"
+ 	if s.mode == "logout" {
+ 		title = "Select provider to logout:"
++	} else if s.mode == "accounts" {
++		title = "Select native OAuth account:"
+ 	}
+ 	lines = append(lines, truncated(t.Accent+"\x1b[1m"+title+SGRBoldDimReset+t.Reset))
+ 	lines = append(lines, "")

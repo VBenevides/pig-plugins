@@ -16,6 +16,7 @@ import (
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
+	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
@@ -36,6 +37,7 @@ type extension struct {
 	requestProvider   string
 	quotaAt           time.Time
 	quotaProvider     string
+	quotaAccount      string
 	autoEnabled       bool
 	loadErr           error
 	life              context.Context
@@ -195,25 +197,25 @@ func (x *extension) reconcile(ctx sdk.Context) {
 	provider, model := ctx.ModelProvider(), ctx.Model()
 	switch {
 	case provider == primary.Provider && model == primary.Model:
-		x.selected(ctx, true, primary)
+		x.selected(ctx, true)
 	case provider == fallback.Provider && model == fallback.Model:
-		x.selected(ctx, false, fallback)
+		x.selected(ctx, false)
 	default:
 		x.mu.Lock()
 		x.usingPrimary = false
 		x.mu.Unlock()
-		ctx.SetStatus("auto-model", "")
+		footerstatus.Set(ctx, "auto-model", "")
 	}
 }
-func (x *extension) selected(ctx sdk.Context, primary bool, slot quota.Slot) {
+func (x *extension) selected(ctx sdk.Context, primary bool) {
 	x.mu.Lock()
 	x.usingPrimary = primary
 	x.mu.Unlock()
-	symbol, color := "⚡ ", "warning"
+	label, color := "⚡ fallback", "warning"
 	if primary {
-		symbol, color = "🧠 ", "success"
+		label, color = "🧠 primary", "success"
 	}
-	ctx.SetStatus("auto-model", ctx.UITheme().Fg(color, symbol+clean(slot.Model)))
+	footerstatus.Set(ctx, "auto-model", ctx.UITheme().Fg(color, label))
 }
 func (x *extension) startup(ctx sdk.Context) error {
 	primary, fallback := x.slots()
@@ -226,11 +228,11 @@ func (x *extension) startup(ctx sdk.Context) error {
 		left = passive
 	}
 	if left > 0 && primary.Provider == "anthropic" {
-		auth, err := x.store.LoadAuth()
+		entry, ok, err := selectedAuth(ctx, primary.Provider)
 		if err != nil {
 			return err
 		}
-		if entry, ok := auth[primary.Provider]; ok && validOAuth(entry, now) {
+		if ok && validOAuth(entry, now) {
 			run, cancel := sdkctx.Request(ctx)
 			usage, fetchErr := x.client.FetchClaude(run, entry)
 			cancel()
@@ -256,7 +258,7 @@ func (x *extension) startup(ctx sdk.Context) error {
 			return err
 		}
 		if ok, err := x.choose(ctx, fallback); ok {
-			x.selected(ctx, false, fallback)
+			x.selected(ctx, false)
 			ctx.Notify("Primary rate-limited, using "+clean(fallback.Model), "info")
 			return nil
 		} else {
@@ -264,13 +266,13 @@ func (x *extension) startup(ctx sdk.Context) error {
 		}
 	}
 	if ok, err := x.choose(ctx, primary); ok {
-		x.selected(ctx, true, primary)
+		x.selected(ctx, true)
 		return nil
 	} else if err != nil {
 		x.report(ctx, err)
 	}
 	if ok, err := x.choose(ctx, fallback); ok {
-		x.selected(ctx, false, fallback)
+		x.selected(ctx, false)
 		return nil
 	} else {
 		return err
@@ -326,20 +328,26 @@ func (x *extension) status(ctx sdk.Context, status *quota.StatusQuota) {
 			color = "warning"
 		}
 	}
-	ctx.SetStatus("auto-model-quota", ctx.UITheme().Fg(color, text))
+	footerstatus.Set(ctx, "auto-model-quota", ctx.UITheme().Fg(color, text))
 }
 func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
 	provider := ctx.ModelProvider()
 	if provider == "" {
 		return
 	}
+	account, hasAccount, err := selectedAccount(ctx, provider)
+	if err != nil {
+		x.report(ctx, err)
+		x.status(ctx, nil)
+		return
+	}
 	x.mu.Lock()
-	changed := provider != x.quotaProvider
+	changed := provider != x.quotaProvider || account.ID != x.quotaAccount
 	if !force && !changed && time.Since(x.quotaAt) < time.Minute {
 		x.mu.Unlock()
 		return
 	}
-	x.quotaAt, x.quotaProvider = time.Now(), provider
+	x.quotaAt, x.quotaProvider, x.quotaAccount = time.Now(), provider, account.ID
 	x.mu.Unlock()
 	if changed {
 		x.status(ctx, nil)
@@ -351,47 +359,26 @@ func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
 	}
 	if !oauth {
 		if ctx.ModelProvider() == provider {
-			ctx.SetStatus("auto-model-quota", ctx.UITheme().Fg("dim", "∞ (API key)"))
+			footerstatus.Set(ctx, "auto-model-quota", ctx.UITheme().Fg("dim", "∞ (API key)"))
 		}
 		return
 	}
-	auth, err := x.store.LoadAuth()
 	var status *quota.StatusQuota
-	if err == nil {
-		entry, ok := auth[provider]
-		if ok && validOAuth(entry, time.Now()) {
-			switch provider {
-			case "anthropic":
-				var usage *quota.ClaudeUsage
-				usage, err = x.client.FetchClaude(x.life, entry)
-				if err == nil {
-					status = quota.ClaudeStatusQuota(usage)
-				}
-			case "openai-codex", "openai":
-				if provider == "openai" && !quota.CodexQuotaSupported(entry) {
-					break // API-audience token: ChatGPT usage endpoint answers 401; rely on response headers.
-				}
-				var usage *quota.CodexUsage
-				usage, err = x.client.FetchCodex(x.life, entry)
-				if err == nil {
-					status = quota.CodexStatusQuota(usage)
-				}
-			}
-		}
+	if hasAccount {
+		status, err = x.accountStatus(x.life, ctx, account)
 	}
 	if err != nil {
 		if x.life.Err() != nil {
 			return
 		}
 		x.report(ctx, err)
-		cached := x.rate(provider)
-		if cached != nil && !quota.IsStale(cached, time.Now()) && cached.Utilization != "" {
-			if n, parseErr := strconv.ParseFloat(cached.Utilization, 64); parseErr == nil && !math.IsNaN(n) && !math.IsInf(n, 0) {
-				status = &quota.StatusQuota{Label: "5h", Percent: int(math.Round(n * 100))}
-			}
-		}
 	}
-	if ctx.ModelProvider() == provider && x.life.Err() == nil {
+	current, _, lookupErr := selectedAccount(ctx, provider)
+	if lookupErr != nil {
+		x.report(ctx, lookupErr)
+		return
+	}
+	if ctx.ModelProvider() == provider && current.ID == account.ID && x.life.Err() == nil {
 		x.status(ctx, status)
 	}
 }
@@ -416,7 +403,7 @@ func (x *extension) fallbackOnLimit(ctx sdk.Context, provider string, left time.
 	if !ok {
 		return err
 	}
-	x.selected(ctx, false, fallback)
+	x.selected(ctx, false)
 	ctx.Notify(fmt.Sprintf("Primary rate-limited, switched to %s, retry in %dmin", clean(fallback.Model), int(math.Round(left.Minutes()))), "warning")
 	return nil
 }
