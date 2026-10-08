@@ -92,3 +92,18 @@ done
 # 4. Build the fused executable. The builder needs the git checkout; its inputs match the copy above.
 binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins")
 echo "install: built $binary"
+
+# 5. Link the executable into the user bin directory so `pig-plugins` is on PATH.
+link_dir=${PIG_PLUGINS_LINK_DIR:-"$HOME/.local/bin"}
+link="$link_dir/pig-plugins"
+mkdir -p -- "$link_dir"
+if [ -e "$link" ] && [ ! -L "$link" ]; then
+    echo "install: '$link' exists and is not a symlink; not replacing it" >&2
+else
+    ln -sfn -- "$binary" "$link"
+    echo "install: linked $link -> $binary"
+    case ":$PATH:" in
+        *":$link_dir:"*) ;;
+        *) echo "install: $link_dir is not on PATH; add it to run 'pig-plugins' directly" >&2 ;;
+    esac
+fi
