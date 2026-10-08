@@ -1,0 +1,3 @@
+- create a simple plugin that finds out if there is .git and includes the following in .git/info/exclude if they are not there: ".agent-work/", ".ouro/", ".curator/"
+- Include ".local/APPEND_SYSTEM.md" and "./local/AGENTS.md" as the default files
+- Create a plugin for local/adhd-plugin.md

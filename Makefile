@@ -23,6 +23,6 @@ validate:
 
 check: fmt-check vet test validate
 
-# Copy the repository, local/ prompts and a fused binary into ~/.pig (see scripts/install.sh).
+# Copy the repository, prompts/agent prompts and a fused binary into ~/.pig (see scripts/install.sh).
 install:
 	./scripts/install.sh

@@ -3,7 +3,7 @@
 #
 #   <home>/pig-plugins/            tracked repository files, including every extension and prompts/
 #   <home>/bin/pig-plugins         fused PiG executable built from that copy
-#   <agent>/{SYSTEM,APPEND_SYSTEM,AGENTS}.md   copied from local/; a differing existing file is
+#   <agent>/{SYSTEM,APPEND_SYSTEM,AGENTS}.md   copied from prompts/agent/; a differing existing file is
 #                                              kept as <file>.pig-plugins-backup-<timestamp>
 #
 # <home> is $PIG_HOME or ~/.pig; <agent> is $PIG_CODING_AGENT_DIR or <home>/agent.
@@ -20,7 +20,7 @@ for tool in git tar; do
 done
 [ -d "$root/.git" ] || [ -f "$root/.git" ] || { echo "install: run from a git checkout of pig-plugins" >&2; exit 1; }
 for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
-    [ -f "$root/local/$f" ] || { echo "install: missing local/$f" >&2; exit 1; }
+    [ -f "$root/prompts/agent/$f" ] || { echo "install: missing prompts/agent/$f" >&2; exit 1; }
 done
 
 mkdir -p -- "$pig_home" "$agent_dir" "$pig_home/bin"
@@ -29,9 +29,6 @@ mkdir -p -- "$pig_home" "$agent_dir" "$pig_home/bin"
 stage=$(mktemp -d "$pig_home/.pig-plugins-stage.XXXXXX")
 trap 'rm -rf "$stage"' 0
 git -C "$root" ls-files -z | tar -C "$root" --null -T - -cf - | tar -C "$stage" -xf -
-# Untracked local prompts are still installed from the working tree.
-mkdir -p "$stage/local"
-for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do cp -- "$root/local/$f" "$stage/local/$f"; done
 rm -rf -- "$dest.old"
 [ ! -e "$dest" ] || mv -- "$dest" "$dest.old"
 mv -- "$stage" "$dest"
@@ -43,11 +40,11 @@ echo "install: copied repository to $dest"
 stamp=$(date +%s)
 for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
     target="$agent_dir/$f"
-    if [ -e "$target" ] && ! cmp -s "$dest/local/$f" "$target"; then
+    if [ -e "$target" ] && ! cmp -s "$dest/prompts/agent/$f" "$target"; then
         cp -- "$target" "$target.pig-plugins-backup-$stamp"
         echo "install: backed up $target"
     fi
-    cp -- "$dest/local/$f" "$target.tmp.$$"
+    cp -- "$dest/prompts/agent/$f" "$target.tmp.$$"
     mv -- "$target.tmp.$$" "$target"
     echo "install: wrote $target"
 done
