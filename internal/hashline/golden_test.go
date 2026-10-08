@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// testdata/ts-golden.json was produced by running the TypeScript harness-hashline extension
+// testdata/ts-golden.json was produced by running the original TypeScript hashline extension
 // (.agent-work/scripts/hashline-golden/generate.mjs); these tests require byte-identical Go behavior.
 
 type goldenOutcome struct {

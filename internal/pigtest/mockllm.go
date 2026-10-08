@@ -1,6 +1,5 @@
 // Package pigtest runs the real `pig` binary against a scripted model inside an isolated HOME, so extension
-// tests observe behavior through PiG itself. It is the Go counterpart of zed-pi-harness's mock_llm.py and
-// pig_harness.py.
+// tests observe behavior through PiG itself.
 package pigtest
 
 import (

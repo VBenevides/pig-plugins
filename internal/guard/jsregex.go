@@ -1,6 +1,6 @@
 // Package guard is the policy of the smart-approve-lancet extension: dangerous-command analysis, protected paths,
 // the approval settings file and the gate that turns them into allow, ask or block decisions. It ports
-// smart-approve-lancet's src/{behaviors,paths}.ts and the harness-guard extension of zed-pi-harness, and has no
+// smart-approve-lancet's src/{behaviors,paths}.ts, and has no
 // dependency on the PiG SDK.
 package guard
 

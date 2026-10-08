@@ -111,7 +111,7 @@ Use these settings in the normal PiG agent directory's `settings.json`:
 }
 ```
 
-These match the existing zed-pi-harness image settings.
+These are the recommended image settings.
 The upstream draft gallery uses Kitty graphics and Unicode placeholders.
 Use a terminal that supports both, such as Kitty or Ghostty.
 The upstream gallery shows text labels instead of thumbnails in other terminals, including iTerm2-only terminals.
@@ -221,7 +221,7 @@ Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate
 ## hashline-edit
 
 Replaces the built-in `read` and `edit` with anchored read (`<line>#<hash>|text`, four hex digits of SHA-1) and strict
-anchored edit. It ports the `harness-hashline` twin from zed-pi-harness, not the upstream npm `pi-hashline-edit`
+anchored edit. It does not match the upstream npm `pi-hashline-edit`
 0.8.3, which uses a different anchor format (`LINE#HASH:` with two-character hashes) and extra ops. The outline for
 large source files uses the same regular expressions as the original; `internal/hashline/testdata/ts-golden.json` holds
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
@@ -249,15 +249,15 @@ continues, and an unavailable model blocks. A damaged settings file (`smart-appr
 directory) means `strict` and is reported. Commands: `/smart-approve-lancet [interactive|strict|status]` (no argument
 toggles) and `/smart-approve-lancet lancet [status|setup|on|off|check <command>]`.
 
-The pattern tables are a port of the `behaviors.ts` and `paths.ts` of zed-pi-harness `smart-approve`;
+The pattern tables are a port of the `behaviors.ts` and `paths.ts` of `smart-approve`;
 `internal/guard/testdata/ts-golden.json` holds the TypeScript verdicts for 402 commands, 93 delete targets, 27
 normalizer inputs and 81 paths (`.agent-work/scripts/smart-approve-golden/generate.mjs` regenerates it). JavaScript
 regexps run in `regexp2` with its ECMAScript mode, a 2 s match timeout, and `\s` widened to the JavaScript whitespace set.
 
 Differences from the TypeScript original:
 
-- Block reasons start with `smart-approve-lancet: ` instead of `harness-guard: `.
-- No LLM risk analysis and no `auto` mode, as in the TypeScript twin `harness-guard`.
+- Block reasons start with `smart-approve-lancet: `.
+- No LLM risk analysis and no `auto` mode.
 - `.` in a path glob also matches a line break, so a newline in a path cannot dodge a `**` pattern.
 - The ONNX Runtime library is not bundled. `lancet setup` downloads the pinned model (LANCET Nano v0.4.3) and the pinned
   ONNX Runtime 1.30.0 archive for linux/amd64, linux/arm64 or darwin/arm64 into `<agent dir>/smart-approve-lancet/`;
@@ -265,7 +265,7 @@ Differences from the TypeScript original:
   `LANCET_ORT_LIBRARY` to use another library (and on other platforms).
 - A native scoring call cannot be interrupted once it started; scoring is bounded by a 60 s timeout between steps.
 
-Do not enable `harness-guard`, the TypeScript twin, at the same time.
+Do not enable another smart-approve extension at the same time.
 
 ## pi-curator
 
@@ -452,7 +452,7 @@ Real PiG runs verify persisted resume, tree navigation to an earlier todo result
 clear/reset, and factory replacement on a new session.
 A native TUI smoke verifies sequential batch IDs, themed cards, the collapsed list,
 all seven items in `/todos`, Escape closure and clean exit.
-Do not enable `harness-interact` or the TypeScript todo twin at the same time.
+Do not enable another todo extension at the same time.
 
 ## project-prompt
 
@@ -465,8 +465,6 @@ Missing files are optional; content already loaded by the host is not repeated.
 Files must be regular UTF-8 files within the project, at most 256 KiB each.
 `local/APPEND_SYSTEM.md` is not substituted for `.local/APPEND_SYSTEM.md`.
 
-The original Pi Harness addendum is preserved in
-`prompts/sources/zed-pi-harness-APPEND_SYSTEM.md` for provenance, not execution.
 The adaptation follows PiG v0.4.1 prompt composition and the user's local
 hashline guidance. ADHD main points come from
 [i-have-adhd revision 723af7d9afaf43eb871dbcce6129e2bf80de90d5](https://github.com/ayghri/i-have-adhd/blob/723af7d9afaf43eb871dbcce6129e2bf80de90d5/skills/i-have-adhd/SKILL.md);

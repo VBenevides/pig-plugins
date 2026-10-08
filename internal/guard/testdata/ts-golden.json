@@ -1,5 +1,5 @@
 {
- "source": "smart-approve-lancet src/behaviors.ts and src/paths.ts, installed copy under ~/.local/share/zed-pi-harness/smart-approve",
+ "source": "smart-approve-lancet src/behaviors.ts and src/paths.ts",
  "analyze": [
   {
    "command": "",

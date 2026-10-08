@@ -1,7 +1,7 @@
 <pig_plugins_project_rules>
 # Project operating guidance
 
-These rules adapt the original Pi Harness guidance to this project's native PiG tools.
+These rules adapt earlier Pi guidance to this project's native PiG tools.
 Repository instructions in AGENTS.md still apply. Preserve the host's base prompt, project context, skills, and tool guidance.
 
 ## Hashline-only file changes

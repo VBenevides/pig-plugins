@@ -1,5 +1,5 @@
-// Package hashline implements anchored `read` and strict anchored `edit`: the logic of the TypeScript
-// harness-hashline extension, without any dependency on the PiG SDK.
+// Package hashline implements anchored `read` and strict anchored `edit`, without any
+// dependency on the PiG SDK.
 //
 // Anchor format: `<line>#<hash>`, shown by read as `<line>#<hash>|<text>`.
 //   - line is the 1-based line number in the file as read.

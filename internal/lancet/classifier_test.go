@@ -14,7 +14,7 @@ import (
 )
 
 // The real model and the ONNX Runtime library are large, separately downloaded files. Point at them with
-// LANCET_MODEL_DIR and LANCET_ORT_LIBRARY; the defaults are where zed-pi-harness installs them.
+// LANCET_MODEL_DIR and LANCET_ORT_LIBRARY.
 func realModel(t *testing.T) (dir, library string) {
 	t.Helper()
 	home, _ := os.UserHomeDir()
@@ -23,13 +23,6 @@ func realModel(t *testing.T) (dir, library string) {
 		dir = filepath.Join(home, ".pig", "agent", "smart-approve-lancet", ModelID)
 	}
 	library = os.Getenv("LANCET_ORT_LIBRARY")
-	if library == "" {
-		matches, _ := filepath.Glob(filepath.Join(home, ".local", "share", "zed-pi-harness", "smart-approve",
-			"node_modules", "onnxruntime-node", "bin", "napi-v6", "linux", "x64", "libonnxruntime.so.*"))
-		if len(matches) > 0 {
-			library = matches[0]
-		}
-	}
 	if _, err := os.Stat(filepath.Join(dir, "encoder-int8.onnx")); err != nil {
 		t.Skipf("LANCET model not installed in %s (set LANCET_MODEL_DIR)", dir)
 	}
