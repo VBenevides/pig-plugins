@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// ThirdRowStatusKeys are the status badges shown on a third footer row, in display order.
+var ThirdRowStatusKeys = []string{"smart-approve-lancet", "pi-curator"}
+
 // RenderState is a snapshot; the renderer does not perform IO or mutate it.
 type RenderState struct {
 	Cwd, Home, Branch, Version          string
@@ -204,7 +207,9 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 	}
 	keys := make([]string, 0, len(s.Statuses))
 	for k := range s.Statuses {
-		keys = append(keys, k)
+		if !slices.Contains(ThirdRowStatusKeys, k) {
+			keys = append(keys, k)
+		}
 	}
 	slices.Sort(keys)
 	texts := make([]string, 0, len(keys))
@@ -260,5 +265,15 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 		cost = t.fg("accent", "$") + muted(toFixed(s.Totals.Cost, 3))
 	}
 	variants := []string{segments(sep, compact(input, output, hit), cost, window), segments(sep, compact(input, output), cost, window), window}
-	return []string{Truncate(project, width), Truncate(fitSessionLine(width, variants, speed, models, sep), width)}
+	lines := []string{Truncate(project, width), Truncate(fitSessionLine(width, variants, speed, models, sep), width)}
+	var guards []string
+	for _, k := range ThirdRowStatusKeys {
+		if v := Sanitize(s.Statuses[k]); v != "" {
+			guards = append(guards, v)
+		}
+	}
+	if len(guards) > 0 {
+		lines = append(lines, Truncate(dim("["+strings.Join(guards, "][")+"]"), width))
+	}
+	return lines
 }

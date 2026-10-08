@@ -80,6 +80,18 @@ func TestSessionStatsAppendReplaceAndSideUsage(t *testing.T) {
 		t.Fatalf("replacement retained totals: %+v", totals)
 	}
 }
+func TestGuardStatusesUseThirdRow(t *testing.T) {
+	state := RenderState{Cwd: "/p", Statuses: map[string]string{"auto-model": "am", "smart-approve-lancet": "sal", "pi-curator": "pc"}}
+	lines := RenderFooter(state, 120, Theme{}, time.Unix(1000, 0))
+	if len(lines) != 3 || !strings.Contains(lines[0], "am") || strings.Contains(lines[0], "sal") || !strings.Contains(lines[2], "[sal][pc]") {
+		t.Fatalf("rows = %q", lines)
+	}
+	state.Statuses = map[string]string{"auto-model": "am"}
+	if got := len(RenderFooter(state, 120, Theme{}, time.Unix(1000, 0))); got != 2 {
+		t.Fatalf("empty third row must be omitted, got %d rows", got)
+	}
+}
+
 func TestRendererFieldsStatusesAndWidths(t *testing.T) {
 	now := time.Unix(1000, 0)
 	tokens := 5000

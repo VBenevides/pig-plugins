@@ -51,6 +51,7 @@ cwd, Git branch/change counts, project version, model, thinking, and quota.
 Narrow terminals hide throughput first to keep the model visible.
 Auto-models badges show `🧠 primary` or `⚡ fallback`; the model name appears only
 in the footer's model field.
+The `smart-approve-lancet` and `pi-curator` badges share a third footer row, shown only when one is set.
 `/better-footer` toggles recent-model persistence and skipping confirmed exhausted
 providers during scoped model cycling. Settings live in `better-footer.json`.
 Explicit CLI selections and resumed sessions take precedence over restoration;
