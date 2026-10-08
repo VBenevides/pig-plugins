@@ -104,7 +104,7 @@ func TestBashDecisionTable(t *testing.T) {
 func TestConfirmationDialogText(t *testing.T) {
 	d := &dialog{answer: true}
 	check(newGate(Interactive, false, nil), d, "bash", bash("git push --force origin dev"), true)
-	want := "Dangerous command: git force / mirror push\ngit push --force origin dev\n\nAllow this command to run?"
+	want := "Dangerous command: git force / mirror push\nRisk Description: git force / mirror push\n\ngit push --force origin dev\n\nAllow this command to run?"
 	if len(d.asked) != 1 || d.asked[0] != want {
 		t.Errorf("dialog = %q, want %q", d.asked, want)
 	}
@@ -294,7 +294,7 @@ func g(mode Mode) *Gate { return newGate(mode, false, nil) }
 func TestProtectedPathDialogText(t *testing.T) {
 	d := &dialog{answer: true}
 	g(Interactive).Check(context.Background(), Call{Tool: "write", Input: map[string]any{"path": "/x/.env"}, Cwd: "/", HasUI: true, Confirm: d.confirm})
-	want := "Protected path: /x/.env\nwrite wants to modify a protected file.\n\nPath: /x/.env\n\nAllow this change?"
+	want := "Protected path: /x/.env\nRisk Description: write modifies a protected file.\n\nwrite wants to modify a protected file.\n\nPath: /x/.env\n\nAllow this change?"
 	if len(d.asked) != 1 || d.asked[0] != want {
 		t.Errorf("dialog = %q, want %q", d.asked, want)
 	}

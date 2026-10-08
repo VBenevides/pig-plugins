@@ -201,7 +201,7 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 	if why := g.cannotAsk(call); why != "" {
 		return block("blocked dangerous command (%s); %s.", joined, why), nil
 	}
-	if !confirm(call, "Dangerous command: "+joined, command+"\n\nAllow this command to run?") {
+	if !confirm(call, "Dangerous command: "+joined, "Risk Description: "+joined+"\n\n"+command+"\n\nAllow this command to run?") {
 		return block("user denied dangerous command (%s).", joined), nil
 	}
 	return allow, nil
@@ -234,7 +234,7 @@ func (g *Gate) checkWrite(call Call) (Decision, error) {
 	if why := g.cannotAsk(call); why != "" {
 		return block("blocked %s to protected path %s; %s.", call.Tool, absolute, why), nil
 	}
-	body := fmt.Sprintf("%s wants to modify a protected file.\n\nPath: %s\n\nAllow this change?", call.Tool, absolute)
+	body := fmt.Sprintf("Risk Description: %s modifies a protected file.\n\n%s wants to modify a protected file.\n\nPath: %s\n\nAllow this change?", call.Tool, call.Tool, absolute)
 	if !confirm(call, "Protected path: "+absolute, body) {
 		return block("user denied %s to protected path %s.", call.Tool, absolute), nil
 	}
