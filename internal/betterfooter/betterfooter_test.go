@@ -34,16 +34,29 @@ func TestSpeedExcludesTTFTReasoningAndEndDelay(t *testing.T) {
 		t.Fatalf("next reply included tool/idle time: %v", tracker.Speed)
 	}
 }
-func TestToolRepliesKeepFlushedLiveEstimate(t *testing.T) {
+func TestToolRepliesKeepTextEstimateAndIgnoreToolArguments(t *testing.T) {
 	tracker := SpeedTracker{Live: true}
 	tracker.MessageStart()
-	tracker.Delta("toolcall_start", "", time.Second)
-	tracker.Delta("toolcall_delta", "initial", 2*time.Second)
-	tracker.Delta("toolcall_delta", "abcd", 3*time.Second)
-	tracker.Delta("toolcall_delta", "中文", 3100*time.Millisecond)
+	tracker.Delta("text_delta", "initial", 2*time.Second)
+	tracker.Delta("text_delta", "abcd", 3*time.Second)
+	tracker.Delta("text_delta", "中文", 3100*time.Millisecond)
+	tracker.Delta("toolcall_start", "", 4*time.Second)
+	tracker.Delta("toolcall_delta", strings.Repeat("x", 40000), 4010*time.Millisecond)
 	tracker.MessageEnd(StreamUsage{Output: 1000}, true)
 	if !tracker.Estimated || tracker.Speed < 2.72 || tracker.Speed > 2.73 {
 		t.Fatalf("tool estimate = %v estimated=%v", tracker.Speed, tracker.Estimated)
+	}
+}
+
+func TestToolOnlyReplyKeepsPreviousSpeed(t *testing.T) {
+	tracker := SpeedTracker{Live: true, Speed: 60}
+	tracker.MessageStart()
+	tracker.Delta("toolcall_start", "", time.Second)
+	tracker.Delta("toolcall_delta", "a", 2*time.Second)
+	tracker.Delta("toolcall_delta", strings.Repeat("x", 40000), 2010*time.Millisecond)
+	tracker.MessageEnd(StreamUsage{Output: 10000}, true)
+	if tracker.Speed != 60 {
+		t.Fatalf("tool arguments changed speed: %v", tracker.Speed)
 	}
 }
 func TestSessionStatsAppendReplaceAndSideUsage(t *testing.T) {

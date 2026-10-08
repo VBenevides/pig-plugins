@@ -56,7 +56,8 @@ func estimateRate(e *estimate, end time.Duration) (float64, bool) {
 // when the shown rate changed and the footer should render again.
 func (t *SpeedTracker) Delta(kind, delta string, now time.Duration) bool {
 	changed := false
-	if kind == "text_delta" || kind == "thinking_delta" || kind == "toolcall_delta" {
+	// Tool-call arguments are left out: providers often deliver them in bursts or whole, and they would spike the rate.
+	if kind == "text_delta" || kind == "thinking_delta" {
 		changed = t.live(delta, now)
 	}
 	// Even a tool-call start without argument deltas disqualifies this reply (an aborted call, or a provider that
