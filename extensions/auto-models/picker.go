@@ -21,6 +21,8 @@ type picker struct {
 	query      string
 	searchable bool
 	theme      sdk.UITheme
+	// swappable makes "r" finish the picker with swapValue instead of a selection.
+	swappable bool
 }
 
 func (p *picker) filter() {
@@ -86,6 +88,9 @@ func (p *picker) Render(width int) []string {
 		lines = append(lines, p.theme.Fg("dim", fmt.Sprintf("%d/%d", p.index+1, len(p.matches))))
 	}
 	help := "↑↓ select • enter confirm • esc cancel"
+	if p.swappable {
+		help = "↑↓ select • r swap • enter confirm • esc cancel"
+	}
 	if p.searchable {
 		help = "↑↓ select • type to search • enter confirm • esc cancel"
 	}
@@ -108,6 +113,9 @@ func (p *picker) HandleInput(data string) (sdk.RemoteComponentResult, error) {
 	defer p.mu.Unlock()
 	if tui.Released(data) {
 		return sdk.RemoteComponentResult{}, nil
+	}
+	if p.swappable && tui.Key(data) == "r" {
+		return sdk.RemoteComponentResult{Done: true, Value: swapValue}, nil
 	}
 	// tui.Key normalizes legacy and Kitty-protocol sequences (e.g. "\x1b[27u" for esc).
 	switch tui.Key(data) {
@@ -139,7 +147,14 @@ func (p *picker) HandleInput(data string) (sdk.RemoteComponentResult, error) {
 	}
 	return sdk.RemoteComponentResult{}, nil
 }
+// swapValue is returned by a swappable picker when the user presses "r".
+const swapValue = "\x00swap"
+
 func pick(ctx sdk.Context, title string, items []choice, searchable bool) (string, bool, error) {
+	return pickWith(ctx, title, items, searchable, false)
+}
+
+func pickWith(ctx sdk.Context, title string, items []choice, searchable, swappable bool) (string, bool, error) {
 	if ctx.Mode() == "rpc" {
 		labels := make([]string, len(items))
 		for i, item := range items {
@@ -159,7 +174,7 @@ func pick(ctx sdk.Context, title string, items []choice, searchable bool) (strin
 		}
 		return "", false, fmt.Errorf("model selection returned an unknown option")
 	}
-	p := &picker{title: title, items: items, searchable: searchable, theme: ctx.UITheme()}
+	p := &picker{title: title, items: items, searchable: searchable, swappable: swappable, theme: ctx.UITheme()}
 	p.filter()
 	result, err := ctx.Custom(p, sdk.RemoteOverlayOptions{Title: title})
 	if err != nil || result == nil {
@@ -168,6 +183,9 @@ func pick(ctx sdk.Context, title string, items []choice, searchable bool) (strin
 	value, ok := result.(string)
 	if !ok {
 		return "", false, fmt.Errorf("model selection returned an invalid result")
+	}
+	if swappable && value == swapValue {
+		return value, true, nil
 	}
 	for _, item := range items {
 		if value == item.value {

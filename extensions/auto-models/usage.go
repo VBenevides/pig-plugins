@@ -145,17 +145,43 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 	return lines, nil
 }
 
+// swapSlots exchanges the primary and fallback models and persists the result.
+func (x *extension) swapSlots(ctx sdk.Context) error {
+	x.mu.Lock()
+	// Read again so swapping preserves changes from another process.
+	config, err := x.store.LoadConfig()
+	if err == nil {
+		primary, fallback := quota.Defaults(config)
+		config.Primary, config.Fallback = &fallback, &primary
+		err = x.store.SaveConfig(config)
+		if err == nil {
+			x.config = config
+			x.primary, x.fallback = quota.Defaults(config)
+		}
+	}
+	x.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("swap auto models: %w", err)
+	}
+	ctx.Notify("Primary and fallback models swapped", "info")
+	x.queueRefresh(ctx, true)
+	return nil
+}
+
 func (x *extension) configure(ctx sdk.Context, _ string) error {
 	if !ctx.HasUI() {
 		return fmt.Errorf("/auto-model requires an interactive UI")
 	}
 	primary, fallback := x.slots()
-	slot, ok, err := pick(ctx, "Configure Auto Model", []choice{
+	slot, ok, err := pickWith(ctx, "Configure Auto Model", []choice{
 		{"primary", "Primary model", primary.Provider + "/" + primary.Model + " (" + primary.Thinking + ")"},
 		{"fallback", "Fallback model", fallback.Provider + "/" + fallback.Model + " (" + fallback.Thinking + ")"},
-	}, false)
+	}, false, true)
 	if err != nil || !ok {
 		return err
+	}
+	if slot == swapValue {
+		return x.swapSlots(ctx)
 	}
 	// A configured scope (--models or enabledModels) limits the choices; with no scope, offer every authenticated model.
 	scoped, err := ctx.ScopedModels()
