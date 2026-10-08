@@ -4,6 +4,8 @@ Go extensions for [PiG](https://github.com/MichaelKinsy/PiG) (the Go port of Pi)
 Node/TypeScript `pi-image-view` extension. Each native folder under `extensions/<name>/`
 exports `func Extension() *sdk.Extension`. The repository uses one Go module for shared `internal/` packages.
 
+Upstream authors, repositories and licences for the ported extensions are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Port status
 
 Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
