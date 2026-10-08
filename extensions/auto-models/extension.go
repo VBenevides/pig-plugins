@@ -38,6 +38,7 @@ type extension struct {
 	quotaAt           time.Time
 	quotaProvider     string
 	quotaAccount      string
+	primaryQuotaAt    time.Time
 	autoEnabled       bool
 	loadErr           error
 	life              context.Context
@@ -227,30 +228,19 @@ func (x *extension) startup(ctx sdk.Context) error {
 	if passive := quota.PassiveCooldown(x.rate(primary.Provider), now); passive > left {
 		left = passive
 	}
-	if left > 0 && primary.Provider == "anthropic" {
-		entry, ok, err := selectedAuth(ctx, primary.Provider)
-		if err != nil {
-			return err
-		}
-		if ok && validOAuth(entry, now) {
-			run, cancel := sdkctx.Request(ctx)
-			usage, fetchErr := x.client.FetchClaude(run, entry)
-			cancel()
-			if fetchErr != nil {
-				x.report(ctx, fetchErr)
-			} else if available := quota.ClaudeAvailable(usage); available != nil && *available {
-				x.mu.Lock()
-				err = x.store.ClearRateLimit(primary.Provider)
-				if err == nil {
-					delete(x.rates, primary.Provider)
-					err = x.store.SaveRateLimits(x.rates)
-				}
-				x.mu.Unlock()
-				if err != nil {
-					return err
-				}
-				left = 0
+	run, cancel := sdkctx.Request(ctx)
+	available, err := x.primaryAvailable(run, ctx, primary.Provider)
+	cancel()
+	if err != nil {
+		x.report(ctx, err)
+	} else if available != nil {
+		if *available {
+			if err := x.clearPrimaryCooldown(primary.Provider); err != nil {
+				return err
 			}
+			left = 0
+		} else if left <= 0 {
+			left = quota.Cooldown(nil, now)
 		}
 	}
 	if left > 0 {
@@ -308,12 +298,20 @@ func (x *extension) queueRefresh(ctx sdk.Context, force bool) {
 }
 func (x *extension) refreshLoop() {
 	defer close(x.done)
+	ticker := time.NewTicker(primaryQuotaInterval)
+	defer ticker.Stop()
+	var latest *sdk.Context
 	for {
 		select {
 		case <-x.life.Done():
 			return
 		case request := <-x.refresh:
+			latest = &request.ctx
 			x.refreshQuota(request.ctx, request.force)
+		case <-ticker.C:
+			if latest != nil {
+				x.refreshQuota(*latest, false)
+			}
 		}
 	}
 }
@@ -331,6 +329,11 @@ func (x *extension) status(ctx sdk.Context, status *quota.StatusQuota) {
 	footerstatus.Set(ctx, "auto-model-quota", ctx.UITheme().Fg(color, text))
 }
 func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
+	if err := x.recoverPrimary(ctx); err != nil {
+		if x.life.Err() == nil {
+			x.report(ctx, err)
+		}
+	}
 	provider := ctx.ModelProvider()
 	if provider == "" {
 		return

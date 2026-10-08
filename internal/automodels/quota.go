@@ -82,13 +82,52 @@ func ClaudeAvailable(usage *ClaudeUsage) *bool {
 	if usage == nil || len(usage.Limits) == 0 {
 		return nil
 	}
-	available := true
+	known := false
 	for _, limit := range usage.Limits {
-		if limit.Percent != nil && !(*limit.Percent < 100) {
-			available = false
-			break
+		if limit.Percent == nil || !finite(*limit.Percent) {
+			continue
+		}
+		known = true
+		if *limit.Percent >= 100 {
+			available := false
+			return &available
 		}
 	}
+	if !known {
+		return nil
+	}
+	available := true
+	return &available
+}
+
+// CodexAvailable considers both the short and weekly windows. A display badge
+// for one window alone is not evidence that the account can serve a request.
+func CodexAvailable(usage *CodexUsage) *bool {
+	if usage == nil || usage.RateLimit == nil {
+		return nil
+	}
+	limit := usage.RateLimit
+	available := false
+	if limit.LimitReached {
+		return &available
+	}
+	known := false
+	for _, window := range []*CodexWindow{limit.PrimaryWindow, limit.SecondaryWindow} {
+		if window == nil {
+			continue
+		}
+		if !finite(window.UsedPercent) || window.UsedPercent < 0 {
+			return nil
+		}
+		known = true
+		if window.UsedPercent >= 100 {
+			return &available
+		}
+	}
+	if !known {
+		return nil
+	}
+	available = limit.Allowed
 	return &available
 }
 
