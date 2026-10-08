@@ -21,6 +21,8 @@ extensions:
     origins: [local:./extensions/better-footer]
   - name: pi-image-view
     origins: [local:./extensions/pi-image-view]
+  - name: project-prompt
+    origins: [local:./extensions/project-prompt]
 discovery:
   extensions: []
   skills: []

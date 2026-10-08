@@ -453,3 +453,17 @@ clear/reset, and factory replacement on a new session.
 A native TUI smoke verifies sequential batch IDs, themed cards, the collapsed list,
 all seven items in `/todos`, Escape closure and clean exit.
 Do not enable `harness-interact` or the TypeScript todo twin at the same time.
+
+## project-prompt
+
+The bundled native extension appends `prompts/project-system.md` on
+`before_agent_start`, preserving the entire host prompt and adding the rules once.
+It requires hashline edits for existing files, reserves `write` for new paths,
+and includes concise ADHD-friendly presentation guidance without the full skill.
+
+The original Pi Harness addendum is preserved in
+`prompts/sources/zed-pi-harness-APPEND_SYSTEM.md` for provenance, not execution.
+The adaptation follows PiG v0.4.1 prompt composition and the user's local
+hashline guidance. ADHD main points come from
+[i-have-adhd revision 723af7d9afaf43eb871dbcce6129e2bf80de90d5](https://github.com/ayghri/i-have-adhd/blob/723af7d9afaf43eb871dbcce6129e2bf80de90d5/skills/i-have-adhd/SKILL.md);
+the MIT notice is under `prompts/sources/`.
