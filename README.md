@@ -178,6 +178,17 @@ it with the version-matched staged SDK at build time; `go.work` does the same fo
 
 Tests that start `pig` skip when it is not on `PATH`.
 
+### Install into `~/.pig`
+
+```sh
+./scripts/install.sh   # or: make install
+```
+
+Copies (no symlinks) the tracked repository, including every extension and `prompts/`, to `~/.pig/pig-plugins`.
+Copies `local/SYSTEM.md`, `local/APPEND_SYSTEM.md` and `local/AGENTS.md` into `~/.pig/agent/`; an existing different file is first saved as `<file>.pig-plugins-backup-<timestamp>`.
+Builds the fused executable at `~/.pig/bin/pig-plugins`; run it instead of `pig`.
+`PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
+
 ### Build a bundled development binary
 
 Requires `pig`, Go, and Node.js 22.13 or newer on `PATH`. Run:

@@ -1,4 +1,4 @@
-.PHONY: gowork fmt-check vet test validate check
+.PHONY: gowork fmt-check vet test validate check install
 
 # Plain `go` commands need the ignored go.work that points at PiG's staged SDK.
 gowork:
@@ -22,3 +22,7 @@ validate:
 	done
 
 check: fmt-check vet test validate
+
+# Copy the repository, local/ prompts and a fused binary into ~/.pig (see scripts/install.sh).
+install:
+	./scripts/install.sh
