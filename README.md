@@ -467,19 +467,13 @@ Do not enable another todo extension at the same time.
 
 ## project-prompt
 
-The bundled native extension appends `prompts/project-system.md` on
-`before_agent_start`, preserving the entire host prompt and adding the rules once.
-It requires hashline edits for existing files and reserves `write` for new paths.
+The bundled native extension loads project-specific instructions on `before_agent_start` and preserves the entire host prompt.
+The global prompts (`SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`) are the ones in `prompts/agent/`; the installer copies them to the agent directory.
 For trusted projects, it also loads the literal `.local/APPEND_SYSTEM.md` and
 `local/AGENTS.md` paths from the current working directory on each request.
 Missing files are optional; content already loaded by the host is not repeated.
 Files must be regular UTF-8 files within the project, at most 256 KiB each.
 `local/APPEND_SYSTEM.md` is not substituted for `.local/APPEND_SYSTEM.md`.
-
-The adaptation follows PiG v0.4.1 prompt composition and the user's local
-hashline guidance. ADHD main points come from
-[i-have-adhd revision 723af7d9afaf43eb871dbcce6129e2bf80de90d5](https://github.com/ayghri/i-have-adhd/blob/723af7d9afaf43eb871dbcce6129e2bf80de90d5/skills/i-have-adhd/SKILL.md);
-the MIT notice is under `prompts/sources/`.
 
 ## adhd-output
 
@@ -487,6 +481,9 @@ the MIT notice is under `prompts/sources/`.
 The default is off. State belongs to the current session branch; enabled rules
 are invisible context messages, not extra model turns. The shared footer shows
 `● ADHD ON`. See `extensions/adhd-output/README.md` for launch and configuration.
+ADHD main points come from
+[i-have-adhd revision 723af7d9afaf43eb871dbcce6129e2bf80de90d5](https://github.com/ayghri/i-have-adhd/blob/723af7d9afaf43eb871dbcce6129e2bf80de90d5/skills/i-have-adhd/SKILL.md);
+the MIT notice is under `prompts/sources/`.
 
 ## repo-excludes
 

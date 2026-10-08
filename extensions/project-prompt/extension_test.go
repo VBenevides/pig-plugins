@@ -17,29 +17,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/pigtest"
-	"github.com/VBenevides/pig-plugins/prompts"
 )
-
-func TestAppendPreservesBaseAndIsIdempotent(t *testing.T) {
-	base := "host base\n<tools>live tools</tools>\n<skills>loaded skills</skills>"
-	result, err := appendPrompt(base, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := result.(map[string]any)["systemPrompt"].(string)
-	if got != base+"\n\n"+prompts.ProjectSystem {
-		t.Fatal("base prompt was not preserved exactly")
-	}
-	result, err = appendPrompt(got, "", false)
-	if err != nil || result != nil {
-		t.Fatalf("already appended prompt changed: %v, %v", result, err)
-	}
-	// A new run must receive guidance even when the host starts from its base again.
-	result, err = appendPrompt(base, "", false)
-	if err != nil || result == nil {
-		t.Fatalf("new base did not receive rules: %v, %v", result, err)
-	}
-}
 
 func TestMissingBaseFailsVisibly(t *testing.T) {
 	for _, data := range []map[string]any{nil, {"systemPrompt": 12}} {
@@ -98,17 +76,14 @@ func TestEffectivePrompt(t *testing.T) {
 	}
 	for i, request := range requests[1:] {
 		got := systemText(t, request)
-		if got != base+"\n\n"+prompts.ProjectSystem {
-			t.Fatalf("run %d did not preserve exact baseline and append rules", i+1)
-		}
-		if strings.Count(got, "<pig_plugins_project_rules>") != 1 {
-			t.Fatalf("run %d has duplicate rules", i+1)
+		if got != base {
+			t.Fatalf("run %d changed the prompt without project instructions", i+1)
 		}
 		if names := toolNames(t, request); !slices.Equal(names, baseNames) {
 			t.Fatalf("tools changed: %v, baseline %v", names, baseNames)
 		}
 	}
-	t.Logf("2 effective requests preserved all %d baseline bytes, appended rules exactly once, and retained tools %v", len(base), baseNames)
+	t.Logf("2 effective requests preserved all %d baseline bytes and retained tools %v", len(base), baseNames)
 }
 
 func systemText(t *testing.T, request map[string]any) string {
@@ -217,8 +192,8 @@ func TestLocalDefaultsAtProviderBoundary(t *testing.T) {
 			}
 			for _, request := range requests[1:] {
 				got := systemText(t, request)
-				if !strings.HasPrefix(got, base+"\n\n"+prompts.ProjectSystem) {
-					t.Fatal("host base or bundled project rules changed")
+				if !strings.HasPrefix(got, base) {
+					t.Fatal("host base changed")
 				}
 				if strings.Contains(got, "WRONG_SPELLING_MUST_NOT_LOAD") {
 					t.Fatal("silently substituted local for .local")

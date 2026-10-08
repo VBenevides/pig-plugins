@@ -1,4 +1,4 @@
-// Package projectprompt appends bundled project rules without replacing host guidance.
+// Package projectprompt appends trusted project instructions without replacing host guidance.
 package projectprompt
 
 import (
@@ -9,8 +9,6 @@ import (
 	"unicode/utf8"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
-
-	"github.com/VBenevides/pig-plugins/prompts"
 )
 
 // Extension adds no tools and preserves the base prompt on each agent start.
@@ -37,30 +35,27 @@ const maxLocalInstructionBytes = 256 << 10
 // appendPrompt reads the literal defaults on every request. It does not cache
 // instructions or substitute local/APPEND_SYSTEM.md for .local/APPEND_SYSTEM.md.
 func appendPrompt(base, cwd string, trusted bool) (any, error) {
-	var additions strings.Builder
-	if !strings.Contains(base, prompts.ProjectSystem) {
-		additions.WriteString("\n\n")
-		additions.WriteString(prompts.ProjectSystem)
+	if !trusted {
+		return nil, nil
 	}
-	if trusted {
-		root, err := os.OpenRoot(cwd)
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("project-prompt: open workspace: %w", err)
+	}
+	defer root.Close()
+	var additions strings.Builder
+	for _, path := range []string{".local/APPEND_SYSTEM.md", "local/AGENTS.md"} {
+		content, err := readLocalInstructions(root, path)
 		if err != nil {
-			return nil, fmt.Errorf("project-prompt: open workspace: %w", err)
+			return nil, fmt.Errorf("project-prompt: read %s: %w", path, err)
 		}
-		defer root.Close()
-		for _, path := range []string{".local/APPEND_SYSTEM.md", "local/AGENTS.md"} {
-			content, err := readLocalInstructions(root, path)
-			if err != nil {
-				return nil, fmt.Errorf("project-prompt: read %s: %w", path, err)
-			}
-			if strings.TrimSpace(content) == "" || strings.Contains(base, content) || strings.Contains(additions.String(), content) {
-				continue
-			}
-			additions.WriteString("\n\n# Trusted project instructions: ")
-			additions.WriteString(path)
-			additions.WriteString("\n\n")
-			additions.WriteString(content)
+		if strings.TrimSpace(content) == "" || strings.Contains(base, content) || strings.Contains(additions.String(), content) {
+			continue
 		}
+		additions.WriteString("\n\n# Trusted project instructions: ")
+		additions.WriteString(path)
+		additions.WriteString("\n\n")
+		additions.WriteString(content)
 	}
 	if additions.Len() == 0 {
 		return nil, nil
