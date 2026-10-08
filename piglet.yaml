@@ -25,6 +25,8 @@ extensions:
     origins: [local:./extensions/project-prompt]
   - name: adhd-output
     origins: [local:./extensions/adhd-output]
+  - name: repo-excludes
+    origins: [local:./extensions/repo-excludes]
 discovery:
   extensions: []
   skills: []
