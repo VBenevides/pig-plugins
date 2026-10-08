@@ -71,6 +71,10 @@ The bundled build applies pinned PiG 0.4.1 host and SDK patches under `patches/p
 It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.
+
+`patches/pig/0004-mid-prompt-skill-autocomplete.patch` lets you type `/` after prompt text to complete a skill, as in Oh My Pi.
+The popup lists skills only and matches the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting inserts `/skill:name` and does not submit.
+Submitting a prompt that holds `/skill:name` tokens adds each known skill's block once, before the unchanged text. Commands still work only at the start of the message.
 Select `openai-codex/gpt-6.1-sol` with `/model`; `/usage` shows the actual active
 model plus every native OAuth account, with labels, selection markers, and
 individual quota windows. A failed account does not hide successful neighbors.
