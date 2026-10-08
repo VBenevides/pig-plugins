@@ -2,8 +2,11 @@ package betterfooter
 
 import "time"
 
-// minSpeedWindow is the shortest streaming span a rate is computed over.
-const minSpeedWindow = 50 * time.Millisecond
+// minSpeedWindow is the shortest streaming span a rate is computed over; shorter spans give bursty rates.
+const minSpeedWindow = 500 * time.Millisecond
+
+// minSpeedTokens is the fewest tokens a rate is computed from; tiny samples give unstable rates.
+const minSpeedTokens = 16
 
 // liveRenderGap is the least time between two live estimate refreshes: at most ten a second.
 const liveRenderGap = 100 * time.Millisecond
@@ -45,7 +48,7 @@ func (t *SpeedTracker) MessageStart() {
 
 func estimateRate(e *estimate, end time.Duration) (float64, bool) {
 	sec := (end - e.startedAt).Seconds()
-	if e.tokens > 0 && end-e.startedAt > minSpeedWindow {
+	if e.tokens >= minSpeedTokens && end-e.startedAt > minSpeedWindow {
 		return e.tokens / sec, true
 	}
 	return 0, false
@@ -125,7 +128,7 @@ func (t *SpeedTracker) measure(usage StreamUsage) (float64, bool) {
 	if usage.Reasoning > 0 {
 		start = t.firstAnswerDelta
 	}
-	if start == nil || t.lastModelUpdate == nil || tokens <= 0 {
+	if start == nil || t.lastModelUpdate == nil || tokens < minSpeedTokens {
 		return 0, false
 	}
 	// End at the last model delta, not at a delayed message_end callback.
