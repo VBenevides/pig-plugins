@@ -20,6 +20,10 @@ if ! command -v git >/dev/null 2>&1; then
     echo "dev_build: git is required on PATH" >&2
     exit 1
 fi
+if ! command -v node >/dev/null 2>&1; then
+    echo "dev_build: Node.js 22.13 or newer is required on PATH" >&2
+    exit 1
+fi
 
 out=${1:-"$root/build/pig-plugins"}
 case "$out" in
@@ -61,6 +65,7 @@ cp -R "$source/." "$stage/source"
 chmod -R u+w "$stage/source"
 # The native account extension requires the pinned host and SDK patches.
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0001-native-oauth-accounts-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0003-node-piglet-source-cells.patch" >&2
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
 sdk_ref="$sdk_module@v0.4.1"
 GOWORK=off go mod download "$sdk_ref" >&2
@@ -74,12 +79,15 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/000
     rm -f go.work go.work.sum
     GOWORK=off go work init . "$root"
     GOWORK="$stage/source/go.work" go work edit -replace "github.com/MichaelKinsy/PiG/extensions/sdk=$stage/sdk"
+    # Planning runs in the builder process, not the target source tree.
+    # Use the patched host for both planning and the bundled executable.
+    GOWORK="$stage/source/go.work" go build -buildvcs=false -o "$stage/pig-builder" ./cmd/pig >&2
 )
 
 # PiG refuses existing outputs. Build beside the destination, then replace it
 # only after verification; a failed rebuild leaves the previous binary usable.
 artifact_dir=$(mktemp -d "$(dirname -- "$out")/.pig-dev-build.XXXXXX")
-PIG_SOURCE_ROOT="$stage/source" pig piglet build "$root/piglet.yaml" --format binary --out "$artifact_dir/pig-plugins" >&2
+PIG_SOURCE_ROOT="$stage/source" "$stage/pig-builder" piglet build "$root/piglet.yaml" --format binary --out "$artifact_dir/pig-plugins" >&2
 if [ ! -x "$artifact_dir/pig-plugins" ]; then
     echo "dev_build: builder did not produce an executable" >&2
     exit 1

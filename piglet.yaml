@@ -19,6 +19,8 @@ extensions:
     origins: [local:./extensions/auto-models]
   - name: better-footer
     origins: [local:./extensions/better-footer]
+  - name: pi-image-view
+    origins: [local:./extensions/pi-image-view]
 discovery:
   extensions: []
   skills: []

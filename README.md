@@ -1,8 +1,8 @@
 # pig-plugins
 
-Native Go extensions for [PiG](https://github.com/MichaelKinsy/PiG) (the Go port of Pi). Each folder under
-`extensions/<name>/` is one conventional factory, `func Extension() *sdk.Extension`, whose registered identity
-equals the folder name. The repository is one Go module so extensions share `internal/` packages.
+Go extensions for [PiG](https://github.com/MichaelKinsy/PiG) (the Go port of Pi), plus the original
+Node/TypeScript `pi-image-view` extension. Each native folder under `extensions/<name>/`
+exports `func Extension() *sdk.Extension`. The repository uses one Go module for shared `internal/` packages.
 
 ## Port status
 
@@ -71,6 +71,90 @@ installed; targeted native lifecycle, refresh, cancellation and bridge tests
 are covered independently.
 
 
+### Numbered images (Node, not a Go port)
+
+The development binary includes [`pi-image-view@0.4.0`](https://www.npmjs.com/package/pi-image-view/v/0.4.0),
+the [alchemistklk fork](https://github.com/alchemistklk/pi-image-view) of
+[RielJ/pi-image-preview](https://github.com/RielJ/pi-image-preview).
+It replaces pasted image paths with stable `[Image #N]` references.
+The original extension builds 480-pixel PNG thumbnails for the draft gallery and model attachments.
+`/pi-image-view detail` requests a 1280-pixel image batch.
+`/pi-image-view clear` removes earlier images from future model context, but preserves session history.
+
+The package source and MIT license are under `extensions/pi-image-view/`.
+`upstream-lock.json` records the exact npm archive, version, and SHA-512 integrity.
+No `node_modules` directory or npm installation is required.
+PiG's Node loader supplies the package's peer APIs and Photon WASM image resizer.
+The small host adapter numbers native `read` image results and pathless RPC image inputs.
+It also restores numbering from saved user and tool-result messages.
+The blob store uses PiG's agent-directory API instead of the original `~/.pi/agent` fallback.
+Submitted previews persist under `<agent-dir>/image-view/blobs/`.
+All other package files retain the published implementation.
+The extension registers no tools. The existing native `read` and `edit` remain active.
+
+The binary mixes fused Go extensions with one Node subprocess.
+PiG derives each extension's realization from its language. The manifest does not accept a per-extension runtime declaration.
+Node.js 22.13 or newer must remain on `PATH` when you build and run this binary.
+The build applies `patches/pig/0003-node-piglet-source-cells.patch` to PiG 0.4.1.
+This patch records the Node runtime requirement and embeds the extension source with its relative imports.
+At startup, PiG extracts those files and uses its existing Node loader.
+The runtime comes from `PATH`, not from the binary.
+
+#### Image settings and terminal support
+
+Use these settings in the normal PiG agent directory's `settings.json`:
+
+```json
+{
+  "terminal": { "showImages": true, "images": "auto" },
+  "images": { "autoResize": true, "blockImages": false }
+}
+```
+
+These match the existing zed-pi-harness image settings.
+The upstream draft gallery uses Kitty graphics and Unicode placeholders.
+Use a terminal that supports both, such as Kitty or Ghostty.
+The upstream gallery shows text labels instead of thumbnails in other terminals, including iTerm2-only terminals.
+PiG's stock image renderer can separately use the iTerm2 protocol.
+Print, JSON, and RPC modes retain numbered references and model attachments, but do not display the draft gallery.
+
+PiG disables automatic image protocol detection inside tmux and screen.
+The upstream gallery can detect a Kitty-capable outer terminal and emit tmux passthrough sequences.
+This requires working passthrough and Unicode-placeholder support in the multiplexer and outer terminal.
+For a known-compatible setup, use `terminal.images: "kitty"` or `PI_IMAGE_PROTOCOL=kitty`.
+The setting takes precedence over the environment variable.
+Use PiG outside the multiplexer if forwarding fails.
+Stock `showImages` and `blockImages` settings control the transcript, not the upstream gallery.
+Do not use `blockImages` as a privacy boundary: PiG 0.4.1 still sends those images to the model.
+
+#### Host smoke test
+
+1. Build the mixed-language development binary:
+
+   ```sh
+   binary=$(./scripts/dev_build.sh)
+   ```
+
+2. Run the deterministic host integration test:
+
+   ```sh
+   PIG_IMAGE_SMOKE_BINARY="$binary" go test ./testfixtures/image-view -run TestBundledImageView -count=1 -v
+   ```
+
+   This test starts the actual bundled host with an isolated HOME and a local mock model.
+   It checks Node and Go commands, pathless image input, image paths, native image reads, and sequential references.
+   It also checks model attachments, actual 480-pixel resizing, and absence of duplicate tools.
+   Without `PIG_IMAGE_SMOKE_BINARY`, the test skips. A skip is not smoke-test evidence.
+
+3. Start `"$binary"` in a Kitty-compatible terminal.
+4. Paste an image path and wait for `[Image #1]` and its thumbnail above the editor.
+5. Submit the image, then ask the model to read another PNG with `read`.
+
+   Expect the next numbered reference and an inline image result, without another `read` tool.
+   Use `/pi-image-view detail` before the next image to inspect small text.
+   A headless test cannot prove that terminal pixels display correctly.
+   Record the terminal, image protocol, multiplexer, and visible result when you run this TUI check.
+
 ## Layout
 
 | Path | Purpose |
@@ -96,7 +180,7 @@ Tests that start `pig` skip when it is not on `PATH`.
 
 ### Build a bundled development binary
 
-Requires `pig` and Go on `PATH`. Run:
+Requires `pig`, Go, and Node.js 22.13 or newer on `PATH`. Run:
 
 ```sh
 binary=$(./scripts/dev_build.sh)
@@ -112,13 +196,16 @@ Build diagnostics go to stderr. To choose another output path:
 
 Relative output paths are relative to the invoking directory; the script can run from outside the repository.
 Successful builds replace an existing output binary. A failed build leaves the previous binary intact.
-`piglet.yaml` bundles all seven implemented extensions and disables ambient extension and skill discovery.
-The executable does not need Go or the extension source tree to run. It uses normal PiG model selection and credentials.
+`piglet.yaml` bundles all nine native extensions plus `pi-image-view` and disables ambient extension and skill discovery.
+The executable does not need Go or the source tree to run. Its image subprocess needs Node.js.
+It uses normal PiG model selection and credentials.
 Curator, language servers, and the optional LANCET model and ONNX Runtime library remain external prerequisites.
 The script does not install extensions into your default configuration.
 
 The first build downloads the source and dependencies for the installed PiG release.
 It uses a temporary workspace to resolve the extensions' dependency checksums and placeholder SDK version.
+The script applies the pinned host and SDK patches, then builds a temporary patched builder.
+Both the builder and the output binary use the Node source-cell fix.
 Cached source and repository Go files are not modified; the temporary source copy is removed on exit.
 For a development PiG checkout, set `PIG_SOURCE_ROOT` to its absolute path before running the script.
 Build artifacts are ignored by Git.

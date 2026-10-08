@@ -1,0 +1,23 @@
+{
+  "name": "pi-image-view",
+  "version": "0.4.0",
+  "registryMetadata": "https://registry.npmjs.org/pi-image-view/0.4.0",
+  "archive": "https://registry.npmjs.org/pi-image-view/-/pi-image-view-0.4.0.tgz",
+  "integrity": "sha512-iryRa2G843XLhPnWIq5voRCRbNerNV9BqCs1FJY6MNhldK3fpNpK//Ldb58xMPxyLSYYhtMav3Y7AnuJAV9stQ==",
+  "archiveSha512": "8abc916b61bce375cb84f9d622ae6fa110916cd7ab355f41a82b3514963a30d86574addfa4da4afff2dd6f9f3130fc722d261886d31abf763b027b89015f6cb5",
+  "repository": "https://github.com/alchemistklk/pi-image-view",
+  "original": "https://github.com/RielJ/pi-image-preview",
+  "license": "MIT",
+  "vendored": ["index.ts", "src/", "package.json", "LICENSE"],
+  "host": "PiG v0.4.1 provides both peer packages and Photon WASM through its Node loader",
+  "adapted": {
+    "src/blob-store.ts": [
+      "Use the host agent-directory API instead of a hardcoded ~/.pi fallback"
+    ],
+    "src/extension-runtime.ts": [
+      "Number and thumbnail native read image results without registering a tool",
+      "Number RPC image attachments that have no clipboard path",
+      "Restore numbering from user and toolResult session messages"
+    ]
+  }
+}

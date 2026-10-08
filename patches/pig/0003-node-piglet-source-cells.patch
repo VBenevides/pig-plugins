@@ -1,0 +1,382 @@
+--- a/coding/pigletbuild/component_plan.go
++++ b/coding/pigletbuild/component_plan.go
+@@ -47,8 +47,8 @@
+ 				component.Fusible = true
+ 			case DecisionSidecar:
+ 				component.Materialization = sidecarMaterialization(cell.Language, extension)
+-				if cell.Language == string(Python) {
+-					component.Runtime = &pigletartifact.RuntimeRequirement{Name: "python"}
++				if cell.Language == string(Python) || cell.Language == "node" {
++					component.Runtime = &pigletartifact.RuntimeRequirement{Name: cell.Language}
+ 				}
+ 			default:
+ 				return pigletartifact.Plan{}, fmt.Errorf("component plan: extension %q has unsupported delivery decision %q", config.Name, extension.Decision)
+--- a/coding/pigletbuild/component_plan_test.go
++++ b/coding/pigletbuild/component_plan_test.go
+@@ -252,6 +252,10 @@
+ 			Strategy: subprocess.CellStrategyPackedPython, Language: "python",
+ 			Extensions: []subprocess.ExtConfig{{Name: "analysis"}},
+ 		},
++		{
++			Strategy: subprocess.CellStrategyPackedNode, Language: "node",
++			Extensions: []subprocess.ExtConfig{{Name: "viewer"}},
++		},
+ 	}
+ 	target := Target{OS: runtime.GOOS, Arch: runtime.GOARCH}
+ 	delivery := BuildPlan(extensionInputsFromCells(cells), Options{
+@@ -260,12 +264,13 @@
+ 	plan, err := buildPigletComponentPlan(cells, delivery, []buildInput{
+ 		{Kind: "extension", Name: "review", Source: "package:base", Package: "base", Digest: digest},
+ 		{Kind: "extension", Name: "analysis", Source: "content-addressed", Digest: digest},
++		{Kind: "extension", Name: "viewer", Source: "content-addressed", Digest: digest},
+ 	})
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if len(plan.Components) != 2 {
+-		t.Fatalf("component count = %d, want 2", len(plan.Components))
++	if len(plan.Components) != 3 {
++		t.Fatalf("component count = %d, want 3", len(plan.Components))
+ 	}
+ 	if plan.Components[0].Name != "analysis" || plan.Components[0].Realization != pigletartifact.RealizationSubprocess || plan.Components[0].Materialization != pigletartifact.MaterializationExternal {
+ 		t.Fatalf("analysis component = %#v", plan.Components[0])
+@@ -273,4 +278,7 @@
+ 	if plan.Components[1].Name != "review" || plan.Components[1].Realization != pigletartifact.RealizationFused || plan.Components[1].Materialization != pigletartifact.MaterializationBinary || plan.Components[1].Origin.Package != "base" {
+ 		t.Fatalf("review component = %#v", plan.Components[1])
+ 	}
++	if component := plan.Components[2]; component.Name != "viewer" || component.Realization != pigletartifact.RealizationSubprocess || component.Materialization != pigletartifact.MaterializationBinary || component.Runtime == nil || component.Runtime.Name != "node" {
++		t.Fatalf("viewer component = %#v", component)
++	}
+ }
+--- a/coding/pigletbuild/native_build.go
++++ b/coding/pigletbuild/native_build.go
+@@ -71,6 +71,8 @@
+ 		buildprogress.Phase(ctx, "Building "+cell.Language+" members", members)
+ 		var sc stagedCell
+ 		switch cell.Strategy {
++		case subprocess.CellStrategyPackedNode:
++			sc, err = buildNodeSourceCell(cell, cacheRoot, host)
+ 		case subprocess.CellStrategyPackedGo:
+ 			sc, err = buildGoCell(cellCtx, cell, cacheRoot, host)
+ 		case subprocess.CellStrategyPackedRust:
+--- a/coding/extension/host/cellpack/embed.go
++++ b/coding/extension/host/cellpack/embed.go
+@@ -110,6 +110,12 @@
+ 			return fmt.Errorf("read embedded cell %s: %w", c.Binary, err)
+ 		}
+ 		out := extractedBinaryPath(dest, c.Binary)
++		if c.Language == "node" {
++			if err := extractNodeSources(data, out); err != nil {
++				return fmt.Errorf("extract Node cell %s: %w", c.Binary, err)
++			}
++			continue
++		}
+ 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+ 			return err
+ 		}
+@@ -125,7 +131,7 @@
+ // so there the binary is written as <binary>.exe unless it already ends in .exe.
+ func extractedBinaryPath(dest, binary string) string {
+ 	out := filepath.Join(dest, filepath.FromSlash(binary))
+-	if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(out), ".exe") {
++	if runtime.GOOS == "windows" && !strings.HasSuffix(binary, ".zip") && !strings.EqualFold(filepath.Ext(out), ".exe") {
+ 		out += ".exe"
+ 	}
+ 	return out
+--- a/coding/extension/host/subprocess/embedded_cells.go
++++ b/coding/extension/host/subprocess/embedded_cells.go
+@@ -103,6 +103,29 @@
+ 		return []stagedManagedExt{{name: cfg.Name, me: managed}}, []extension.Extension{*ext}, nil
+ 	}
+ 	switch strategy {
++	case string(CellStrategyPackedNode):
++		spec := CellSpec{Key: cell.Key, Strategy: CellStrategyPackedNode}
++		for _, member := range cell.Extensions {
++			spec.Extensions = append(spec.Extensions, ExtConfig{
++				Name: member.Name, Source: filepath.Join(cell.BinaryPath, member.Name),
++				ContentHash: member.Hash, Enabled: true,
++				RuntimeKind: "subprocess", RuntimeLanguage: "node", EntrypointKind: "factory",
++			})
++		}
++		exts, err := spec.NodeExtensions()
++		if err != nil {
++			return nil, nil, err
++		}
++		packed, err := buildNodePackedCell(ctx, filepath.Dir(h.builder.cacheDir), cell.Key, exts)
++		if err != nil {
++			return nil, nil, err
++		}
++		staged, registered, err := h.startNodePackedCell(ctx, packed, h.nextPackedCellGeneration(cell.Key))
++		if err != nil {
++			h.rollbackEmbeddedAcceptError(staged, err)
++			return nil, nil, err
++		}
++		return staged, registered, nil
+ 	case string(CellStrategyPackedGo):
+ 		exts := make([]runtimecell.GoExtension, len(cell.Extensions))
+ 		for i, e := range cell.Extensions {
+--- a/coding/pigletbuild/node_sources.go
++++ b/coding/pigletbuild/node_sources.go
+@@ -0,0 +1,103 @@
++package pigletbuild
++
++import (
++	"archive/zip"
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"io"
++	"io/fs"
++	"os"
++	"path/filepath"
++
++	"github.com/MichaelKinsy/PiG/coding/extension/host/cellpack"
++	"github.com/MichaelKinsy/PiG/coding/extension/host/subprocess"
++)
++
++// pig additive (D20): interpreted Node cells carry their selected source bytes,
++// while the host supplies its existing loader and the target supplies Node.
++func buildNodeSourceCell(cell subprocess.CellSpec, cacheRoot string, host Target) (stagedCell, error) {
++	file, err := os.CreateTemp(cacheRoot, "node-sources-*.zip")
++	if err != nil {
++		return stagedCell{}, err
++	}
++	defer file.Close()
++	archive := zip.NewWriter(file)
++	extensions := make([]cellpack.ExtEntry, 0, len(cell.Extensions))
++	var size int64
++	for _, cfg := range cell.Extensions {
++		if !fs.ValidPath(cfg.Name) || filepath.Base(cfg.Name) != cfg.Name {
++			return stagedCell{}, fmt.Errorf("invalid Node member name %q", cfg.Name)
++		}
++		info, err := os.Stat(cfg.Source)
++		if err != nil {
++			return stagedCell{}, err
++		}
++		root := cfg.Source
++		if !info.IsDir() {
++			root = filepath.Dir(root)
++		}
++		err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
++			if walkErr != nil {
++				return walkErr
++			}
++			if entry.IsDir() {
++				if path != root && (entry.Name() == ".git" || entry.Name() == "node_modules") {
++					return filepath.SkipDir
++				}
++				return nil
++			}
++			info, err := entry.Info()
++			if err != nil {
++				return err
++			}
++			if !info.Mode().IsRegular() {
++				return fmt.Errorf("Node source %s is not a regular file", path)
++			}
++			size += info.Size()
++			if size > 64<<20 {
++				return fmt.Errorf("Node cell %q exceeds 64 MiB", cell.Key)
++			}
++			relative, err := filepath.Rel(root, path)
++			if err != nil {
++				return err
++			}
++			writer, err := archive.Create(cfg.Name + "/" + filepath.ToSlash(relative))
++			if err != nil {
++				return err
++			}
++			source, err := os.Open(path)
++			if err != nil {
++				return err
++			}
++			_, copyErr := io.Copy(writer, io.LimitReader(source, info.Size()+1))
++			closeErr := source.Close()
++			if copyErr != nil {
++				return copyErr
++			}
++			return closeErr
++		})
++		if err != nil {
++			return stagedCell{}, err
++		}
++		extensions = append(extensions, cellpack.ExtEntry{Name: cfg.Name, Hash: cfg.ContentHash})
++	}
++	if err := archive.Close(); err != nil {
++		return stagedCell{}, err
++	}
++	if _, err := file.Seek(0, io.SeekStart); err != nil {
++		return stagedCell{}, err
++	}
++	digest := sha256.New()
++	if _, err := io.Copy(digest, file); err != nil {
++		return stagedCell{}, err
++	}
++	return stagedCell{
++		entry: cellpack.CellEntry{
++			Language: "node", Key: cell.Key, Strategy: string(subprocess.CellStrategyPackedNode),
++			OS: host.OS, Arch: host.Arch, Extensions: extensions,
++			Binary: "node/" + hex.EncodeToString(digest.Sum(nil)) + ".zip",
++		},
++		binaryPath: file.Name(),
++	}, nil
++}
+--- a/coding/pigletbuild/node_sources_test.go
++++ b/coding/pigletbuild/node_sources_test.go
+@@ -0,0 +1,49 @@
++package pigletbuild
++
++import (
++	"archive/zip"
++	"io"
++	"os"
++	"path/filepath"
++	"runtime"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/coding/extension/host/subprocess"
++)
++
++func TestNodeSourceCellPackagesRelativeImports(t *testing.T) {
++	source := t.TempDir()
++	if err := os.Mkdir(filepath.Join(source, "src"), 0o755); err != nil {
++		t.Fatal(err)
++	}
++	for name, contents := range map[string]string{
++		"index.ts":      "import './src/helper.ts'; export default function () {}",
++		"src/helper.ts": "export const value = 42;",
++	} {
++		if err := os.WriteFile(filepath.Join(source, name), []byte(contents), 0o644); err != nil {
++			t.Fatal(err)
++		}
++	}
++	cell := subprocess.CellSpec{Key: "node:test", Extensions: []subprocess.ExtConfig{{Name: "viewer", Source: source}}}
++	built, err := buildNodeSourceCell(cell, t.TempDir(), Target{OS: runtime.GOOS, Arch: runtime.GOARCH})
++	if err != nil {
++		t.Fatal(err)
++	}
++	archive, err := zip.OpenReader(built.binaryPath)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer archive.Close()
++	file, err := archive.Open("viewer/src/helper.ts")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer file.Close()
++	data, err := io.ReadAll(file)
++	if err != nil || string(data) != "export const value = 42;" {
++		t.Fatalf("relative import = %q, error = %v", data, err)
++	}
++	if built.entry.Language != "node" || built.entry.Strategy != string(subprocess.CellStrategyPackedNode) {
++		t.Fatalf("entry = %#v", built.entry)
++	}
++}
+--- a/coding/extension/host/cellpack/node_sources.go
++++ b/coding/extension/host/cellpack/node_sources.go
+@@ -0,0 +1,58 @@
++package cellpack
++
++import (
++	"archive/zip"
++	"bytes"
++	"fmt"
++	"io"
++	"io/fs"
++	"os"
++	"path/filepath"
++)
++
++func extractNodeSources(data []byte, dest string) error {
++	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
++	if err != nil {
++		return err
++	}
++	if len(archive.File) > 8192 {
++		return fmt.Errorf("Node source archive exceeds 8192 files")
++	}
++	seen := make(map[string]bool, len(archive.File))
++	var total uint64
++	for _, file := range archive.File {
++		if !fs.ValidPath(file.Name) || !file.Mode().IsRegular() || seen[file.Name] {
++			return fmt.Errorf("invalid Node source archive member %q", file.Name)
++		}
++		seen[file.Name] = true
++		if file.UncompressedSize64 > 64<<20 || total > (64<<20)-file.UncompressedSize64 {
++			return fmt.Errorf("Node source archive exceeds 64 MiB")
++		}
++		total += file.UncompressedSize64
++	}
++	for _, file := range archive.File {
++		reader, err := file.Open()
++		if err != nil {
++			return err
++		}
++		contents, readErr := io.ReadAll(io.LimitReader(reader, int64(file.UncompressedSize64)+1))
++		closeErr := reader.Close()
++		if readErr != nil {
++			return readErr
++		}
++		if closeErr != nil {
++			return closeErr
++		}
++		if uint64(len(contents)) != file.UncompressedSize64 {
++			return fmt.Errorf("Node source member %q has invalid size", file.Name)
++		}
++		out := filepath.Join(dest, filepath.FromSlash(file.Name))
++		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
++			return err
++		}
++		if err := atomicWriteFile(out, contents, 0o644); err != nil {
++			return err
++		}
++	}
++	return nil
++}
+--- a/coding/extension/host/cellpack/node_sources_test.go
++++ b/coding/extension/host/cellpack/node_sources_test.go
+@@ -0,0 +1,43 @@
++package cellpack
++
++import (
++	"archive/zip"
++	"bytes"
++	"os"
++	"path/filepath"
++	"testing"
++)
++
++func TestNodeSourceExtraction(t *testing.T) {
++	for _, name := range []string{"preview/index.ts", "../escape.ts", "preview/../../escape.ts"} {
++		t.Run(name, func(t *testing.T) {
++			var data bytes.Buffer
++			archive := zip.NewWriter(&data)
++			file, err := archive.Create(name)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if _, err := file.Write([]byte("export default function () {}")); err != nil {
++				t.Fatal(err)
++			}
++			if err := archive.Close(); err != nil {
++				t.Fatal(err)
++			}
++			dest := t.TempDir()
++			err = extractNodeSources(data.Bytes(), dest)
++			if name != "preview/index.ts" {
++				if err == nil {
++					t.Fatal("accepted escaping archive path")
++				}
++				return
++			}
++			if err != nil {
++				t.Fatal(err)
++			}
++			content, err := os.ReadFile(filepath.Join(dest, "preview", "index.ts"))
++			if err != nil || string(content) != "export default function () {}" {
++				t.Fatalf("extracted source = %q, error = %v", content, err)
++			}
++		})
++	}
++}
