@@ -104,7 +104,7 @@ func TestBashDecisionTable(t *testing.T) {
 func TestConfirmationDialogText(t *testing.T) {
 	d := &dialog{answer: true}
 	check(newGate(Interactive, false, nil), d, "bash", bash("git push --force origin dev"), true)
-	want := "Dangerous command: git force / mirror push\nRisk Description: git force / mirror push\n\ngit push --force origin dev\n\nAllow this command to run?"
+	want := "Dangerous command: git force / mirror push\nRisk Description:\n- git force / mirror push: Overwrites the remote history. Other people's commits can be lost.\n\nCommand:\ngit push --force origin dev\n\nAllow this command to run?"
 	if len(d.asked) != 1 || d.asked[0] != want {
 		t.Errorf("dialog = %q, want %q", d.asked, want)
 	}
@@ -191,6 +191,10 @@ func TestLancetNeverSeesHardBlockedCommandsAndPatternLabelsJoinTheBand(t *testin
 	check(newGate(Interactive, true, scorer), d, "bash", bash("sudo ls"), true)
 	if len(d.asked) != 1 || !strings.HasPrefix(d.asked[0], "Dangerous command: sudo command, LANCET review, score 0.4000\n") {
 		t.Errorf("combined labels = %q", d.asked)
+	}
+	if !strings.Contains(d.asked[0], "- sudo command: Runs with administrator rights.") ||
+		!strings.Contains(d.asked[0], "- LANCET review (score 0.4000): the local model asks you to check this command.") {
+		t.Errorf("risk description misses the explanations: %q", d.asked)
 	}
 }
 
@@ -294,7 +298,7 @@ func g(mode Mode) *Gate { return newGate(mode, false, nil) }
 func TestProtectedPathDialogText(t *testing.T) {
 	d := &dialog{answer: true}
 	g(Interactive).Check(context.Background(), Call{Tool: "write", Input: map[string]any{"path": "/x/.env"}, Cwd: "/", HasUI: true, Confirm: d.confirm})
-	want := "Protected path: /x/.env\nRisk Description: write modifies a protected file.\n\nwrite wants to modify a protected file.\n\nPath: /x/.env\n\nAllow this change?"
+	want := "Protected path: /x/.env\nRisk Description:\n- Protected file: it can hold secrets, credentials or settings that control your tools. Changing it can leak access or break your environment.\n\nwrite wants to modify this file.\n\nPath: /x/.env\n\nAllow this change?"
 	if len(d.asked) != 1 || d.asked[0] != want {
 		t.Errorf("dialog = %q, want %q", d.asked, want)
 	}

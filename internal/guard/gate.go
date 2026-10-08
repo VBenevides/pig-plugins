@@ -164,6 +164,7 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 		return Decision{}, err
 	}
 	labels := analysis.Labels
+	lancetNote := ""
 	if analysis.HardBlocked {
 		return block("blocked hard-blocked command (%s). This operation is never allowed.", strings.Join(labels, ", ")), nil
 	}
@@ -188,6 +189,7 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 				label += ": " + verdict.Reason
 			}
 			labels = append(append([]string(nil), labels...), label)
+			lancetNote = lancetReviewNote(verdict)
 		case lancet.NotFlagged:
 		default:
 			return block("blocked bash; LANCET is on but unavailable (LANCET returned an invalid verdict). " +
@@ -201,7 +203,8 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 	if why := g.cannotAsk(call); why != "" {
 		return block("blocked dangerous command (%s); %s.", joined, why), nil
 	}
-	if !confirm(call, "Dangerous command: "+joined, "Risk Description: "+joined+"\n\n"+command+"\n\nAllow this command to run?") {
+	risk := describeRisk(analysis.Behaviors, analysis.Labels, lancetNote)
+	if !confirm(call, "Dangerous command: "+joined, "Risk Description:\n"+risk+"\n\nCommand:\n"+command+"\n\nAllow this command to run?") {
 		return block("user denied dangerous command (%s).", joined), nil
 	}
 	return allow, nil
@@ -234,7 +237,7 @@ func (g *Gate) checkWrite(call Call) (Decision, error) {
 	if why := g.cannotAsk(call); why != "" {
 		return block("blocked %s to protected path %s; %s.", call.Tool, absolute, why), nil
 	}
-	body := fmt.Sprintf("Risk Description: %s modifies a protected file.\n\n%s wants to modify a protected file.\n\nPath: %s\n\nAllow this change?", call.Tool, call.Tool, absolute)
+	body := fmt.Sprintf("Risk Description:\n- Protected file: it can hold secrets, credentials or settings that control your tools. Changing it can leak access or break your environment.\n\n%s wants to modify this file.\n\nPath: %s\n\nAllow this change?", call.Tool, absolute)
 	if !confirm(call, "Protected path: "+absolute, body) {
 		return block("user denied %s to protected path %s.", call.Tool, absolute), nil
 	}
