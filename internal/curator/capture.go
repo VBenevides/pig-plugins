@@ -29,6 +29,9 @@ const (
 	OutcomeFailed    = "failed"
 )
 
+// codeMemoryInspection marks events curator deliberately refuses to journal.
+const codeMemoryInspection = "memory_inspection"
+
 // ItemResult is curator's verdict on one event or gap.
 type ItemResult struct {
 	ID      string `json:"id"`
@@ -283,7 +286,10 @@ func (c *Capture) apply(batch []*pending, gaps []Gap, response IngestResponse) b
 			done[p] = true
 		case OutcomeRejected:
 			c.rejected++
-			c.problem(strings.TrimSpace(fmt.Sprintf("event %s rejected: %s %s", p.event.ID, result.Code, result.Error)))
+			// Curator refuses to learn from its own tool results by design; that is not a capture problem.
+			if result.Code != codeMemoryInspection {
+				c.problem(strings.TrimSpace(fmt.Sprintf("event %s rejected: %s %s", p.event.ID, result.Code, result.Error)))
+			}
 			done[p] = true // permanent: retrying cannot change the verdict
 		default:
 			p.attempts++

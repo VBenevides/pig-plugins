@@ -66,6 +66,28 @@ func TestCaptureIndependentOutcomes(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+func TestCaptureMemoryInspectionRejectionIsNotAProblem(t *testing.T) {
+	var problems []string
+	c := NewCapture(func(_ context.Context, r IngestRequest) (IngestResponse, error) {
+		out := IngestResponse{}
+		for _, e := range r.Events {
+			code := "other"
+			if e.ID == "inspect" {
+				code = codeMemoryInspection
+			}
+			out.Results = append(out.Results, ItemResult{ID: e.ID, Outcome: OutcomeRejected, Code: code})
+		}
+		return out, nil
+	}, CaptureOptions{BatchSize: 1, OnProblem: func(m string) { problems = append(problems, m) }})
+	c.Enqueue([]EventIn{ev("inspect"), ev("bad")})
+	c.Flush(context.Background())
+	if got := c.Stats(); got.Rejected != 2 || got.Queued != 0 {
+		t.Fatal(got)
+	}
+	if len(problems) != 1 {
+		t.Fatal(problems)
+	}
+}
 func TestCaptureRetriesBecomeGapsAndRecover(t *testing.T) {
 	calls := 0
 	up := false
