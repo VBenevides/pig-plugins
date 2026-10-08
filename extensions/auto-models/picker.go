@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/tui"
 )
 
 type choice struct{ value, label, description string }
@@ -105,22 +106,26 @@ func fit(value string, width int) string {
 func (p *picker) HandleInput(data string) (sdk.RemoteComponentResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	switch data {
-	case "\x1b", "\x03":
+	if tui.Released(data) {
+		return sdk.RemoteComponentResult{}, nil
+	}
+	// tui.Key normalizes legacy and Kitty-protocol sequences (e.g. "\x1b[27u" for esc).
+	switch tui.Key(data) {
+	case "escape", "ctrl+c":
 		return sdk.RemoteComponentResult{Done: true}, nil
-	case "\r", "\n":
+	case "enter":
 		if len(p.matches) > 0 {
 			return sdk.RemoteComponentResult{Done: true, Value: p.items[p.matches[p.index]].value}, nil
 		}
-	case "\x1b[A", "\x1bOA":
+	case "up":
 		if p.index > 0 {
 			p.index--
 		}
-	case "\x1b[B", "\x1bOB":
+	case "down":
 		if p.index+1 < len(p.matches) {
 			p.index++
 		}
-	case "\x7f", "\b":
+	case "backspace":
 		if p.searchable && p.query != "" {
 			_, n := utf8.DecodeLastRuneInString(p.query)
 			p.query = p.query[:len(p.query)-n]

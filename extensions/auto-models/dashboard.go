@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/tui"
 )
 
 const dashboardRows = 24
@@ -42,21 +43,27 @@ func (d *dashboard) HandleInput(data string) (sdk.RemoteComponentResult, error) 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	maxOffset := max(len(d.lines)-dashboardRows, 0)
-	switch data {
-	case "q", "Q", "\x1b", "\x03":
+	if tui.Released(data) {
+		return sdk.RemoteComponentResult{}, nil
+	}
+	key := tui.Key(data)
+	if data == "G" || key == "shift+g" {
+		d.offset = maxOffset
+		return sdk.RemoteComponentResult{}, nil
+	}
+	switch key {
+	case "q", "shift+q", "escape", "ctrl+c":
 		return sdk.RemoteComponentResult{Done: true}, nil
-	case "\x1b[A", "\x1bOA", "k":
+	case "up", "k":
 		d.offset = max(d.offset-1, 0)
-	case "\x1b[B", "\x1bOB", "j":
+	case "down", "j":
 		d.offset = min(d.offset+1, maxOffset)
-	case "\x1b[5~":
+	case "pageup":
 		d.offset = max(d.offset-dashboardRows, 0)
-	case "\x1b[6~", " ":
+	case "pagedown", "space":
 		d.offset = min(d.offset+dashboardRows, maxOffset)
 	case "g":
 		d.offset = 0
-	case "G":
-		d.offset = maxOffset
 	}
 	return sdk.RemoteComponentResult{}, nil
 }

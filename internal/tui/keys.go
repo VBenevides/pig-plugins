@@ -18,6 +18,14 @@ func Key(data string) string {
 		return "backspace"
 	case "\x1b[Z":
 		return "shift+tab"
+	case "\x1bOA":
+		return "up"
+	case "\x1bOB":
+		return "down"
+	case "\x1bOC":
+		return "right"
+	case "\x1bOD":
+		return "left"
 	case " ":
 		return "space"
 	}
