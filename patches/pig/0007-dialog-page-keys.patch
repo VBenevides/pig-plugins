@@ -1,0 +1,29 @@
+diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
+--- a/internal/codingagent/interactive_input.go
++++ b/internal/codingagent/interactive_input.go
+@@ -469,6 +469,15 @@
+ 	return m.dispatchInputChunk(ctx, data, nil)
+ }
+ 
++// dialogOwnsPageKey reports whether data is a page key that an open extension dialog handles itself.
++func (m *InteractiveMode) dialogOwnsPageKey(data string) bool {
++	if m.extensionDialog == nil {
++		return false
++	}
++	kb := tui.GetTUIKeybindings()
++	return kb.Matches(data, tui.KBSelectPageUp) || kb.Matches(data, tui.KBSelectPageDown)
++}
++
+ // dispatchInputChunk processes one keystroke routed with ticket. When a
+ // subprocess terminal-input listener must answer first, it returns before the
+ // keystroke is handled, and handling resumes on the main loop with the verdict.
+@@ -510,7 +519,8 @@
+ 	// handled by the alt-screen renderer and must not reach the editor. Mirrors
+ 	// upstream's addInputListener(handleViewportInput) on the alt-screen; pig is
+ 	// driver-owned, so the driver routes it explicitly.
+-	if m.altScreen != nil {
++	// An open dialog keeps the page keys so a long dialog body scrolls instead of the chat behind it (pig additive).
++	if m.altScreen != nil && !m.dialogOwnsPageKey(data) {
+ 		consumed := m.altScreen.HandleViewportInput(data)
+ 		if consumed {
+ 			return nil

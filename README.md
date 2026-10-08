@@ -77,6 +77,8 @@ The popup lists skills only and matches the `skill:` prefix, a name prefix, or a
 `patches/pig/0005-node-editor-mid-prompt-skill-autocomplete.patch` does the same for the Node editor that `pi-image-view` installs in place of the host editor.
 Submitting a prompt that holds `/skill:name` tokens adds each known skill's block once, before the unchanged text. Commands still work only at the start of the message.
 `patches/pig/0006-scrollable-extension-dialogs.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows. PageUp and PageDown scroll the rest, and a status row shows the visible range.
+
+`patches/pig/0007-dialog-page-keys.patch` lets an open dialog receive PageUp and PageDown before the full-screen chat viewport, which used to consume them.
 Select `openai-codex/gpt-6.1-sol` with `/model`; `/usage` shows the actual active
 model plus every native OAuth account, with labels, selection markers, and
 individual quota windows. A failed account does not hide successful neighbors.

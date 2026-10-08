@@ -69,6 +69,7 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0004-mid-prompt-skill-autocomplete.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0005-node-editor-mid-prompt-skill-autocomplete.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0006-scrollable-extension-dialogs.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0007-dialog-page-keys.patch" >&2
 # The Node runtime ships as a prebuilt archive with a content digest. Patched shims must be repacked into it, which also
 # changes the runtime cache key. The module zip lacks vendor/ files, so the archive cannot be regenerated from source.
 (cd "$stage/source/coding/extension/host/subprocess" && GOWORK=off go run "$root/scripts/repack_node_runtime.go" >&2)
