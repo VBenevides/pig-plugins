@@ -1,0 +1,110 @@
+diff --git a/tui/extension_selector.go b/tui/extension_selector.go
+index c86232d..88ca53c 100644
+--- a/tui/extension_selector.go
++++ b/tui/extension_selector.go
+@@ -20,6 +20,7 @@ type ExtensionSelectorComponent struct {
+ 	done                  bool
+ 	cancel                bool
+ 	onToggleToolsExpanded func()
++	bodyScroll            int // first visible row of a long title/description (pig additive)
+ 
+ 	// The themed texts are built when they change, as upstream builds each Text with theme.fg: the title at
+ 	// construction and for a countdown tick, the description at construction, the hint at construction and the
+@@ -139,8 +140,9 @@ func (e *ExtensionSelectorComponent) Render(width int) []string {
+ 	var lines []string
+ 	lines = append(lines, border.Render(width)...)
+ 	lines = append(lines, "")
+-	lines = append(lines, text(e.titleText)...)
+-	lines = append(lines, styledDescriptionLines(e.descriptionText, width)...)
++	body := text(e.titleText)
++	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
++	lines = append(lines, e.scrollBody(body, text)...)
+ 	lines = append(lines, "")
+ 
+ 	for _, row := range e.rowTexts {
+@@ -154,6 +156,24 @@ func (e *ExtensionSelectorComponent) Render(width int) []string {
+ 	return lines
+ }
+ 
++// extensionSelectorBodyRows is the most title and description rows shown at once (pig additive).
++// A longer body scrolls with the page keys instead of growing past the screen.
++const extensionSelectorBodyRows = 12
++
++// scrollBody shows at most extensionSelectorBodyRows rows of body, from e.bodyScroll, and a status row with the range.
++func (e *ExtensionSelectorComponent) scrollBody(body []string, text func(string) []string) []string {
++	if len(body) <= extensionSelectorBodyRows {
++		e.bodyScroll = 0
++		return body
++	}
++	e.bodyScroll = max(0, min(e.bodyScroll, len(body)-extensionSelectorBodyRows))
++	end := e.bodyScroll + extensionSelectorBodyRows
++	visible := append([]string(nil), body[e.bodyScroll:end]...)
++	status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) +
++		"  " + extKeyHint("pgup/pgdn", "scroll")
++	return append(visible, text(ActiveTheme().FgText("muted", status))...)
++}
++
+ // HandleInput resolves expansion, navigation, confirmation and cancellation in that order. Empty options do not complete the selector.
+ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 	if e.done {
+@@ -165,6 +185,10 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 		if e.onToggleToolsExpanded != nil {
+ 			e.onToggleToolsExpanded()
+ 		}
++	case kb.Matches(data, KBSelectPageUp):
++		e.bodyScroll = max(0, e.bodyScroll-extensionSelectorBodyRows)
++	case kb.Matches(data, KBSelectPageDown):
++		e.bodyScroll += extensionSelectorBodyRows // Render clamps to the last page
+ 	case kb.Matches(data, KBSelectUp) || data == "k":
+ 		e.cursor = max(0, e.cursor-1)
+ 		e.updateList()
+diff --git a/tui/extension_selector_test.go b/tui/extension_selector_test.go
+index 587c3bd..c928fda 100644
+--- a/tui/extension_selector_test.go
++++ b/tui/extension_selector_test.go
+@@ -2,6 +2,7 @@ package tui
+ 
+ import (
+ 	"slices"
++	"strconv"
+ 	"strings"
+ 	"testing"
+ 
+@@ -123,3 +124,37 @@ func TestExtensionSelectorHintWrapsAtNarrowWidth(t *testing.T) {
+ 		t.Fatalf("hint rows = %q, want %q", hint, want)
+ 	}
+ }
++
++func TestExtensionSelectorLongBodyHasFixedHeightAndScrolls(t *testing.T) {
++	var rows []string
++	for i := 1; i <= 40; i++ {
++		rows = append(rows, "row"+strconv.Itoa(i)+"x")
++	}
++	sel := NewExtensionSelector(strings.Join(rows, "\n"), []string{"Deny", "Allow once"})
++	first := sel.Render(80)
++	joined := strings.Join(first, "\n")
++	if !strings.Contains(joined, "row1x") || strings.Contains(joined, "row13x") || !strings.Contains(joined, "of 40") {
++		t.Fatalf("first page wrong:\n%s", joined)
++	}
++	sel.HandleInput("\x1b[6~") // pageDown
++	next := sel.Render(80)
++	if len(next) != len(first) {
++		t.Fatalf("height changed: %d -> %d", len(first), len(next))
++	}
++	if j := strings.Join(next, "\n"); !strings.Contains(j, "row13x") || strings.Contains(j, "row1x") {
++		t.Fatalf("second page wrong:\n%s", j)
++	}
++	for i := 0; i < 10; i++ {
++		sel.HandleInput("\x1b[6~")
++	}
++	if j := strings.Join(sel.Render(80), "\n"); !strings.Contains(j, "row40x") || !strings.Contains(j, "29-40 of 40") {
++		t.Fatalf("last page wrong:\n%s", j)
++	}
++	sel.HandleInput("\x1b[5~") // pageUp
++	if j := strings.Join(sel.Render(80), "\n"); !strings.Contains(j, "17-28 of 40") {
++		t.Fatalf("pageUp wrong:\n%s", j)
++	}
++	if sel.Done() {
++		t.Fatal("scrolling must not complete the selector")
++	}
++}
