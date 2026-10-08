@@ -23,6 +23,8 @@ extensions:
     origins: [local:./extensions/pi-image-view]
   - name: project-prompt
     origins: [local:./extensions/project-prompt]
+  - name: adhd-output
+    origins: [local:./extensions/adhd-output]
 discovery:
   extensions: []
   skills: []

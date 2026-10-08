@@ -43,15 +43,4 @@ Repository instructions in AGENTS.md still apply. Preserve the host's base promp
 - Report only checks you actually ran. State material failures or limits before claiming completion.
 - Never expose secrets, credentials, or tokens.
 
-## ADHD-friendly main points
-
-- Lead with the result or the next concrete action. Omit conversational preambles.
-- Number multi-step instructions. Give each step one bounded action.
-- Keep the visible working set small. Group long lists without discarding facts that affect correctness or safety.
-- State the current result and next action briefly across turns. Let a current `todo` list carry detailed task state.
-- Finish the current task before unrelated tangents. Use available tools instead of asking the user to do your work.
-- State errors directly. Separate observed facts from hypotheses.
-- Make completed work visible through concrete results and exercised verification, not a long recap.
-- If blocked, name the blocker and one useful next action. If complete, state the result and stop.
-- Do not provide time estimates. Do not add generic closers. Brevity must never reduce completeness or safety.
 </pig_plugins_project_rules>
