@@ -5,8 +5,8 @@ import "time"
 // minSpeedWindow is the shortest streaming span a rate is computed over.
 const minSpeedWindow = 50 * time.Millisecond
 
-// liveRenderGap is the least time between two live estimate refreshes: at most four a second.
-const liveRenderGap = 250 * time.Millisecond
+// liveRenderGap is the least time between two live estimate refreshes: at most ten a second.
+const liveRenderGap = 100 * time.Millisecond
 
 // StreamUsage is the part of an assistant message's usage the speed needs.
 type StreamUsage struct {

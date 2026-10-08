@@ -5,6 +5,7 @@ package footerstatus
 
 import (
 	"maps"
+	"slices"
 	"sync"
 )
 
@@ -20,6 +21,27 @@ type Store struct {
 	setMu sync.Mutex
 	mu    sync.RWMutex
 	texts map[string]string
+	// listeners are called after each Set, in no particular order; they must not block.
+	listeners map[int]func()
+	nextID    int
+}
+
+// Subscribe registers fn to run after every badge change and returns its unsubscribe function.
+// fn runs while Set holds the writer lock: it must be quick and must not call Set.
+func (s *Store) Subscribe(fn func()) func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.listeners == nil {
+		s.listeners = make(map[int]func())
+	}
+	id := s.nextID
+	s.nextID++
+	s.listeners[id] = fn
+	return func() {
+		s.mu.Lock()
+		delete(s.listeners, id)
+		s.mu.Unlock()
+	}
 }
 
 // Set records a badge and forwards it to the existing host status setter.
@@ -39,6 +61,12 @@ func (s *Store) Set(ctx Context, key, text string) {
 	}
 	s.mu.Unlock()
 	ctx.SetStatus(key, text)
+	s.mu.RLock()
+	notify := slices.Collect(maps.Values(s.listeners))
+	s.mu.RUnlock()
+	for _, fn := range notify {
+		fn()
+	}
 }
 
 // Snapshot returns the current badges without exposing mutable store state.
@@ -55,3 +83,6 @@ func Set(ctx Context, key, text string) { shared.Set(ctx, key, text) }
 
 // Snapshot returns the process-wide badges for the fused footer renderer.
 func Snapshot() map[string]string { return shared.Snapshot() }
+
+// Subscribe registers fn on the process-wide store; see Store.Subscribe.
+func Subscribe(fn func()) func() { return shared.Subscribe(fn) }

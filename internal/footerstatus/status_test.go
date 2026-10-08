@@ -72,3 +72,25 @@ func TestStoreConcurrentWritersAndSnapshots(t *testing.T) {
 		}
 	}
 }
+
+func TestSubscribeNotifiesAfterEachChangeUntilUnsubscribed(t *testing.T) {
+	var store Store
+	host := &statusHost{}
+	notified := 0
+	unsubscribe := store.Subscribe(func() {
+		if got := store.Snapshot()["a"]; got != "on" && got != "" {
+			t.Errorf("listener saw stale badge %q", got)
+		}
+		notified++
+	})
+	store.Set(host, "a", "on")
+	store.Set(host, "a", "")
+	if notified != 2 {
+		t.Fatalf("notified %d times, want 2", notified)
+	}
+	unsubscribe()
+	store.Set(host, "a", "on")
+	if notified != 2 {
+		t.Fatalf("listener ran after unsubscribe: %d", notified)
+	}
+}

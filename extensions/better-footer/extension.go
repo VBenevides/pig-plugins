@@ -54,6 +54,7 @@ type extension struct {
 	draw                   chan struct{}
 	drawDone               chan struct{}
 	unsubscribe            func()
+	unsubscribeStatus      func()
 	inputThinking          string
 	inputAt                time.Time
 	wake                   chan struct{}
@@ -225,6 +226,11 @@ func (x *extension) start(ctx sdk.Context, data map[string]any) (any, error) {
 		x.unsubscribe()
 		x.unsubscribe = nil
 	}
+	if x.unsubscribeStatus != nil {
+		x.unsubscribeStatus()
+	}
+	// A badge set by another extension must show now, not on the next 5 s tick or streamed token.
+	x.unsubscribeStatus = footerstatus.Subscribe(x.redraw)
 	x.mu.Lock()
 	home := x.state.Home
 	x.settings = settings
@@ -282,6 +288,10 @@ func (x *extension) shutdown(ctx sdk.Context, _ map[string]any) (any, error) {
 	if x.unsubscribe != nil {
 		x.unsubscribe()
 		x.unsubscribe = nil
+	}
+	if x.unsubscribeStatus != nil {
+		x.unsubscribeStatus()
+		x.unsubscribeStatus = nil
 	}
 	select {
 	case <-x.done:
