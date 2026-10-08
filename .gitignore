@@ -31,3 +31,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+.agent-work/
+local/
+.ouro/
+.curator/
