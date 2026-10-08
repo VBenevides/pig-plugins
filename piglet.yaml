@@ -29,6 +29,8 @@ extensions:
     origins: [local:./extensions/repo-excludes]
   - name: cursor-login
     origins: [local:./extensions/cursor-login]
+  - name: ask-mode
+    origins: [local:./extensions/ask-mode]
   - name: user-resources
     origins: [local:./extensions/user-resources]
 discovery:

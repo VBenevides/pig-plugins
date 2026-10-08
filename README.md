@@ -509,6 +509,13 @@ Missing files are optional; content already loaded by the host is not repeated.
 Files must be regular UTF-8 files within the project, at most 256 KiB each.
 `local/APPEND_SYSTEM.md` is not substituted for `.local/APPEND_SYSTEM.md`.
 
+## ask-mode
+
+`/ask` toggles read-only mode; `/ask on`, `/ask off` and `/ask status` set or show it.
+The state is in memory only and resets to off when a session starts.
+While on, the footer shows `ASK`, the system prompt forbids any change, and `tool_call` blocks everything except read-only tools and provably read-only bash (no redirection, substitution or write-capable commands).
+`write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
+
 ## adhd-output
 
 `/adhd on`, `/adhd off`, and `/adhd status` control optional presentation rules.
