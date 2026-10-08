@@ -97,6 +97,16 @@ func (g *Gate) SetLancet(on bool) {
 	g.mu.Unlock()
 }
 
+// applySettings makes the persisted mode and scoring switch effective together.
+// It reports whether the footer needs to be updated.
+func (g *Gate) applySettings(settings Settings) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	changed := g.mode != settings.Mode || g.lancetOn != settings.Lancet
+	g.mode, g.lancetOn = settings.Mode, settings.Lancet
+	return changed
+}
+
 // ScoreText formats a score like the TypeScript original: four decimals, or "n/a".
 func ScoreText(score *float64) string {
 	if score == nil || math.IsNaN(*score) || math.IsInf(*score, 0) {

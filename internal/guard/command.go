@@ -39,6 +39,25 @@ func onOff(on bool) string {
 	return "off"
 }
 
+// Check judges a call using the current persisted settings. Another session or
+// command handler can update the same file after this controller was created;
+// its startup snapshot must not override an explicitly saved interactive mode.
+// An unreadable or invalid file blocks the call without changing the last valid
+// runtime state, so a configuration failure cannot disable mandatory scoring.
+func (c *Controller) Check(ctx context.Context, call Call, announce func()) Decision {
+	if !Gated(call.Tool) {
+		return allow
+	}
+	settings := LoadSettings(c.Settings)
+	if settings.Problem != "" {
+		return block("blocked %s; cannot load current settings: %s.", call.Tool, settings.Problem)
+	}
+	if c.Gate.applySettings(settings) && announce != nil {
+		announce()
+	}
+	return c.Gate.Check(ctx, call)
+}
+
 // Handle runs one command line. announce is called after the mode or LANCET state changed.
 func (c *Controller) Handle(ctx context.Context, args string, notify Notify, announce func()) {
 	trimmed := strings.TrimSpace(args)

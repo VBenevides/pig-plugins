@@ -78,13 +78,13 @@ func Extension() *sdk.Extension {
 		input, _ := data["input"].(map[string]any)
 		runCtx, cancel := sdkctx.Request(ctx)
 		defer cancel()
-		decision := gate.Check(runCtx, guard.Call{
+		decision := controller.Check(runCtx, guard.Call{
 			Tool:    tool,
 			Input:   input,
 			Cwd:     ctx.Cwd(),
 			HasUI:   ctx.HasUI(),
 			Confirm: ctx.Confirm,
-		})
+		}, func() { announce(ctx) })
 		if decision.Block {
 			return map[string]any{"block": true, "reason": decision.Reason}, nil
 		}

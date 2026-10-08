@@ -244,3 +244,76 @@ func TestLancetEnforcementWithTheRealModel(t *testing.T) {
 		t.Errorf("safe command did not run: %q", results[3])
 	}
 }
+
+// The native tool-call handler must use the saved mode even when another
+// session/handler wrote it. Before synchronization it retains strict, blocks
+// both review calls, and sends no RPC confirmation request.
+func TestPersistedInteractiveReviewWithRealModelRPC(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	env := installRealModel(t, home)
+	mustWrite(t, settingsFile(home), `{"mode":"strict","lancet":{"enabled":true}}`)
+	// The real model classifies this harmless echo as review. Unlike a credential
+	// read, its actual execution is safe and has an unambiguous success marker.
+	command := "echo " + strings.Repeat("hello ", 120)
+	mock := pigtest.NewMockLLM(
+		bashCall(command), pigtest.Text("strict"),
+		bashCall(command), pigtest.Text("denied"),
+		bashCall(command), pigtest.Text("approved"),
+		bashCall(command), pigtest.Text("strict again"),
+	)
+	defer mock.Close()
+	answers := []bool{false, true}
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionPath(t), filepath.Join(extensionPath(t), "testdata", "settings-writer")},
+		Env:        env,
+		Prompts: []string{
+			"/smart-approve-lancet lancet check " + command,
+			"a", "/persist-guard-mode interactive", "b", "c",
+			"/persist-guard-mode strict", "d",
+		},
+		Confirm: func(request map[string]any) bool {
+			if len(answers) == 0 {
+				t.Errorf("unexpected confirmation: %v", request)
+				return false
+			}
+			answer := answers[0]
+			answers = answers[1:]
+			return answer
+		},
+	})
+	notices := result.Notices()
+	if len(notices) == 0 || !strings.Contains(notices[0], "LANCET: review, ") || !strings.Contains(notices[0], "reason=uncertainty-band") {
+		t.Fatalf("real scorer did not classify the regression command as uncertainty: %q", notices)
+	}
+	if len(result.Asked) != 2 || len(answers) != 0 {
+		t.Fatalf("RPC confirmations=%v, unused answers=%v\nstderr:\n%s", result.Asked, answers, result.Stderr)
+	}
+	for _, request := range result.Asked {
+		title, _ := request["title"].(string)
+		body, _ := request["message"].(string)
+		if !strings.Contains(title, "LANCET review") || !strings.Contains(title, "uncertainty-band") || !strings.Contains(body, command) {
+			t.Errorf("RPC confirmation lost the uncertainty/command: %v", request)
+		}
+	}
+	results := pigtest.ToolResults(mock)
+	if len(results) != 4 {
+		t.Fatalf("tool results = %q", results)
+	}
+	for i, want := range []string{"strict mode", "user denied dangerous command", strings.Repeat("hello ", 10), "strict mode"} {
+		if !strings.Contains(results[i], want) {
+			t.Errorf("tool result %d=%q, want %q", i, results[i], want)
+		}
+	}
+	wantChips := []string{
+		"smart-approve-lancet strict - lancet on",
+		"smart-approve-lancet interactive - lancet on",
+		"smart-approve-lancet strict - lancet on",
+	}
+	if got := result.Statuses("smart-approve-lancet"); !reflect.DeepEqual(got, wantChips) {
+		t.Errorf("effective runtime chips=%q, want %q", got, wantChips)
+	}
+	if saved := guard.LoadSettings(settingsFile(home)); saved.Mode != guard.Strict || !saved.Lancet || saved.Problem != "" {
+		t.Errorf("persisted settings=%+v", saved)
+	}
+}
