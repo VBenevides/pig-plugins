@@ -39,6 +39,8 @@ type Call struct {
 	// Select shows a dialog with several choices and returns the chosen one; ok is false when it was cancelled.
 	// With it, the user can also answer "Always allow". Without it the gate falls back to Confirm.
 	Select func(title string, options []string) (choice string, ok bool, err error)
+	// ExplainUnknown provides display-only model advice when static targets are unknown.
+	ExplainUnknown func(command, cwd string) (ScopeExplanation, error)
 }
 
 // Decision is the verdict on one call.
@@ -175,7 +177,7 @@ const (
 
 // ask puts a confirmation to the user and reports whether the call may run. A stored grant for the same command and
 // item answers it. "Always allow" stores the grant; a failure to store it is reported and the call still runs once.
-func (g *Gate) ask(call Call, title, body string, grant Grant) bool {
+func (g *Gate) ask(call Call, title string, body func() string, grant Grant) bool {
 	g.mu.RLock()
 	list := g.allowlist
 	g.mu.RUnlock()
@@ -187,14 +189,15 @@ func (g *Gate) ask(call Call, title, body string, grant Grant) bool {
 			return true
 		}
 	}
+	text := body()
 	if call.Select == nil {
-		return confirm(call, title, body)
+		return confirm(call, title, text)
 	}
 	options := []string{choiceDeny, choiceOnce}
 	if list != nil {
 		options = append(options, choiceAlways)
 	}
-	choice, ok, err := call.Select(title+"\n\n"+body, options)
+	choice, ok, err := call.Select(title+"\n\n"+text, options)
 	if err != nil || !ok {
 		return false
 	}
@@ -264,7 +267,13 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 		return block("blocked dangerous command (%s); %s.", joined, why), nil
 	}
 	risk := describeRisk(analysis.Behaviors, analysis.Labels, lancetNote)
-	body := "Risk Description:\n" + risk + "\n\n" + describeAffected(command, analysis, items) + "\n\nCommand:\n" + command + "\n\nAllow this command to run?"
+	body := func() string {
+		affected := describeAffected(command, analysis, items)
+		if len(commandAffectedItems(command, analysis, items)) == 0 && call.ExplainUnknown != nil {
+			affected += unknownScopeAdvice(call, command)
+		}
+		return "Risk Description:\n" + risk + "\n\n" + affected + "\n\nCommand:\n" + command + "\n\nAllow this command to run?"
+	}
 	if !g.ask(call, "Dangerous command: "+joined, body, Grant{Tool: call.Tool, Command: command, Item: strings.Join(items, "\n")}) {
 		return block("user denied dangerous command (%s).", joined), nil
 	}
@@ -299,7 +308,7 @@ func (g *Gate) checkWrite(call Call) (Decision, error) {
 		return block("blocked %s to protected path %s; %s.", call.Tool, absolute, why), nil
 	}
 	body := fmt.Sprintf("Risk Description:\n- Protected file: it can hold secrets, credentials or settings that control your tools. Changing it can leak access or break your environment.\n\nAffected items:\n- file: %s - %s contents\n\nAllow this change?", absolute, call.Tool)
-	if !g.ask(call, "Protected path: "+absolute, body, Grant{Tool: call.Tool, Command: call.Tool, Item: absolute}) {
+	if !g.ask(call, "Protected path: "+absolute, func() string { return body }, Grant{Tool: call.Tool, Command: call.Tool, Item: absolute}) {
 		return block("user denied %s to protected path %s.", call.Tool, absolute), nil
 	}
 	return allow, nil

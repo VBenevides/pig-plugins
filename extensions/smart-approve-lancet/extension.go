@@ -7,7 +7,7 @@
 //   - other dangerous bash behaviors and protected write/edit paths need confirmation, and are blocked when no UI
 //     exists or the mode is strict.
 //
-// LLM risk analysis and the auto mode of the upstream smart-approve are not part of this port.
+// Unknown-scope confirmation dialogs use the current session LLM for advisory risk and target descriptions.
 package smartapprovelancet
 
 import (
@@ -86,6 +86,9 @@ func Extension() *sdk.Extension {
 			HasUI:   ctx.HasUI(),
 			Confirm: ctx.Confirm,
 			Select:  ctx.Select,
+			ExplainUnknown: func(command, cwd string) (guard.ScopeExplanation, error) {
+				return explainUnknown(ctx, command, cwd)
+			},
 		}, func() { announce(ctx) })
 		if decision.Block {
 			return map[string]any{"block": true, "reason": decision.Reason}, nil

@@ -289,7 +289,13 @@ toggles) and `/smart-approve-lancet lancet [status|setup|on|off|check <command>]
 The confirmation shows `Affected items:` with one `- type: name - effect` entry per known target. Simple commands
 name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
 Implicit targets, shell expressions, compound commands and unsupported options show an unknown scope instead of
-guessing. This display does not change approval rules or saved grant keys. The dialog answers `Deny`, `Allow once`
+guessing. For an unknown-scope confirmation, the current session model receives only the command and working
+folder to explain risks and possible affected items (an additional provider request that can incur API costs).
+Its assessment is labeled advisory, never executes tools, and keeps the static unknown-scope warning. Failure or
+invalid output shows an unavailable notice and still requires approval. Known targets, stored grants, strict/no-UI
+blocks and hard blocks do not request an assessment. Requests cap output at 1024 tokens, disable retries and set
+a 15 s provider timeout (provider timeout semantics apply). This display does not change approval rules or saved
+grant keys. The dialog answers `Deny`, `Allow once`
 or `Always allow this command and item`. The last stores the exact command (or the tool, for `write` and `edit`)
 together with its policy item (delete paths or the working folder for bash; the file path for write/edit) in
 `smart-approve-lancet-allow.json` in the agent directory (mode 0600); only that pair is skipped later, and the other
@@ -306,7 +312,7 @@ regexps run in `regexp2` with its ECMAScript mode, a 2 s match timeout, and `\s`
 Differences from the TypeScript original:
 
 - Block reasons start with `smart-approve-lancet: `.
-- No LLM risk analysis and no `auto` mode.
+- LLM analysis is advisory and limited to unknown-scope confirmations; there is no `auto` mode.
 - `.` in a path glob also matches a line break, so a newline in a path cannot dodge a `**` pattern.
 - The ONNX Runtime library is not bundled. `lancet setup` downloads the pinned model (LANCET Nano v0.4.3) and the pinned
   ONNX Runtime 1.30.0 archive for linux/amd64, linux/arm64 or darwin/arm64 into `<agent dir>/smart-approve-lancet/`;
