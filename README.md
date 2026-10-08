@@ -45,9 +45,12 @@ Native account storage and quota integration received a read-only security revie
 ### better-footer
 
 Bundled development binaries now include `pi-better-footer@0.1.3`'s native port.
-The footer shows generation speed (`~` for streamed estimates, final `t/s` excluding
-time to first token and reported reasoning tokens), session usage, context, cost,
-cwd, Git branch/change counts, project version, model, thinking, and quota.
+The footer shows interaction throughput: cumulative model output tokens divided by
+elapsed wall time since `agent_start`, including model waits and tool execution.
+Tool-result tokens do not count. `~` marks streamed estimates until reported usage
+arrives; the final `t/s` is held after `agent_end` until the next interaction.
+It also shows session usage, context, cost, cwd, Git branch/change counts, project
+version, model, thinking, and quota.
 Narrow terminals hide throughput first to keep the model visible.
 Auto-models badges show `🧠 primary` or `⚡ fallback`; the model name appears only
 in the footer's model field.

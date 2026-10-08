@@ -2,158 +2,112 @@ package betterfooter
 
 import "time"
 
-// minSpeedWindow is the shortest streaming span a rate is computed over; shorter spans give bursty rates.
-const minSpeedWindow = 500 * time.Millisecond
-
-// minSpeedTokens is the fewest tokens a rate is computed from; tiny samples give unstable rates.
-const minSpeedTokens = 16
-
-// liveRenderGap is the least time between two live estimate refreshes: at most ten a second.
 const liveRenderGap = 100 * time.Millisecond
 
-// StreamUsage is the part of an assistant message's usage the speed needs.
+// Output includes reasoning tokens where the provider reports them as output.
+// Reasoning is retained as usage metadata, not added again to Output.
 type StreamUsage struct {
 	Output    int
 	Reasoning int
 }
 
-type estimate struct {
-	tokens                             float64
-	startedAt, renderedAt, lastDeltaAt time.Duration
-}
-
-// SpeedTracker measures output tokens per second while an assistant reply streams. Timing starts at the first
-// delta, not at message_start: the gap before it is queueing and prompt processing, and for providers that hide
-// reasoning, the reasoning itself. Times are offsets from any fixed monotonic origin. It is not safe for
-// concurrent use.
+// SpeedTracker measures cumulative model output over an entire agent run.
+// Elapsed wall time includes prompt processing, tools, and pauses between replies.
+// Times are offsets from a fixed monotonic origin. It is not safe for concurrent use.
 type SpeedTracker struct {
-	// Live enables the character-based estimate while streaming; the footer only shows it when mounted.
-	Live bool
-	// Speed is the last shown rate in tokens per second, 0 when there is none.
-	Speed float64
-	// Estimated marks a rate that comes from the character heuristic rather than from reported usage.
+	Live      bool
+	Speed     float64
 	Estimated bool
 
-	est              *estimate
-	firstDelta       *time.Duration
-	firstAnswerDelta *time.Duration
-	lastModelUpdate  *time.Duration
-	hasToolCall      bool
+	active        bool
+	messageActive bool
+	startedAt     time.Duration
+	renderedAt    time.Duration
+	cumTokens     float64
+	cumEstimated  bool
+	pendingTokens float64
 }
 
-// MessageStart resets the per-reply timing; the shown rate stays until the next one is known.
+// AgentStart resets the displayed rate and cumulative sample for a new interaction.
+func (t *SpeedTracker) AgentStart(now time.Duration) {
+	t.active, t.messageActive = true, false
+	t.startedAt, t.renderedAt = now, now
+	t.cumTokens, t.pendingTokens = 0, 0
+	t.Speed, t.Estimated, t.cumEstimated = 0, false, false
+}
+
+// MessageStart resets only the provisional tokens for the next assistant reply.
 func (t *SpeedTracker) MessageStart() {
-	t.est, t.firstDelta, t.firstAnswerDelta, t.lastModelUpdate, t.hasToolCall = nil, nil, nil, nil, false
-}
-
-func estimateRate(e *estimate, end time.Duration) (float64, bool) {
-	sec := (end - e.startedAt).Seconds()
-	if e.tokens >= minSpeedTokens && end-e.startedAt > minSpeedWindow {
-		return e.tokens / sec, true
+	if !t.active {
+		return
 	}
-	return 0, false
+	t.messageActive = true
+	t.pendingTokens = 0
 }
 
-// Delta records one streamed update of the assistant message. kind is the assistantMessageEvent type
-// ("text_delta", "thinking_delta", "toolcall_start", "toolcall_delta", "toolcall_end", ...). It returns true
-// when the shown rate changed and the footer should render again.
+// Delta estimates model-generated text, thinking, and tool arguments. Tool
+// results, block endings, and completion events do not add output tokens.
 func (t *SpeedTracker) Delta(kind, delta string, now time.Duration) bool {
-	changed := false
-	// Tool-call arguments are left out: providers often deliver them in bursts or whole, and they would spike the rate.
-	if kind == "text_delta" || kind == "thinking_delta" {
-		changed = t.live(delta, now)
+	if !t.active || !t.messageActive || !t.Live || delta == "" {
+		return false
 	}
-	// Even a tool-call start without argument deltas disqualifies this reply (an aborted call, or a provider that
-	// delivers complete arguments).
-	if kind == "toolcall_start" || kind == "toolcall_delta" || kind == "toolcall_end" {
-		t.hasToolCall = true
-		return changed
+	if kind != "text_delta" && kind != "thinking_delta" && kind != "toolcall_delta" {
+		return false
 	}
-	// Only text and thinking deltas belong to the reply speed. Block-end, done and abort events can land well
-	// after the last token: an aborted reply would otherwise count its idle stall as generation time.
-	if kind != "text_delta" && kind != "thinking_delta" {
-		return changed
+	// A heuristic rather than a tokenizer: four ASCII characters per token,
+	// one token per non-ASCII character. Reported usage replaces it at message_end.
+	for _, r := range delta {
+		if r < 128 {
+			t.pendingTokens += 0.25
+		} else {
+			t.pendingTokens++
+		}
 	}
-	if t.firstDelta == nil {
-		t.firstDelta = new(now)
+	if now-t.renderedAt < liveRenderGap {
+		return false
 	}
-	if kind != "thinking_delta" && t.firstAnswerDelta == nil {
-		t.firstAnswerDelta = new(now)
+	t.renderedAt = now
+	return t.Refresh(now)
+}
+
+// MessageEnd replaces this reply's estimate with reported output, never adding
+// both. If usage is unavailable, preserve the estimate and its marker.
+func (t *SpeedTracker) MessageEnd(usage StreamUsage, now time.Duration) {
+	if !t.active || !t.messageActive {
+		return
 	}
-	if t.lastModelUpdate == nil {
-		t.lastModelUpdate = new(now)
+	if usage.Output > 0 {
+		t.cumTokens += float64(usage.Output)
 	} else {
-		*t.lastModelUpdate = now
+		t.cumTokens += t.pendingTokens
+		t.cumEstimated = t.cumEstimated || t.pendingTokens > 0
 	}
+	t.pendingTokens = 0
+	t.messageActive = false
+	t.Refresh(now)
+}
+
+// Refresh updates elapsed time even while a tool runs. After AgentEnd, it
+// leaves the final rate unchanged until the next AgentStart.
+func (t *SpeedTracker) Refresh(now time.Duration) bool {
+	if !t.active || now <= t.startedAt {
+		return false
+	}
+	rate := (t.cumTokens + t.pendingTokens) / (now - t.startedAt).Seconds()
+	estimated := t.cumEstimated || t.pendingTokens > 0
+	changed := rate != t.Speed || estimated != t.Estimated
+	t.Speed, t.Estimated = rate, estimated
 	return changed
 }
 
-func (t *SpeedTracker) live(delta string, now time.Duration) bool {
-	if delta == "" || !t.Live {
-		return false
+// AgentEnd includes any interrupted reply's provisional tokens, then freezes.
+func (t *SpeedTracker) AgentEnd(now time.Duration) {
+	if !t.active {
+		return
 	}
-	if t.est == nil {
-		// The first chunk only starts the clock: its tokens were generated before timing began, so counting
-		// them would overstate early samples.
-		t.est = &estimate{startedAt: now, renderedAt: now, lastDeltaAt: now}
-		return false
+	if t.messageActive {
+		t.MessageEnd(StreamUsage{}, now)
 	}
-	// A language-aware heuristic, not a tokenizer: roughly four ASCII characters per token, one for non-ASCII.
-	for _, r := range delta {
-		if r < 128 {
-			t.est.tokens += 0.25
-		} else {
-			t.est.tokens++
-		}
-	}
-	t.est.lastDeltaAt = now
-	if now-t.est.renderedAt < liveRenderGap {
-		return false
-	}
-	rate, ok := estimateRate(t.est, now)
-	if !ok {
-		return false
-	}
-	t.Speed, t.Estimated = rate, true
-	t.est.renderedAt = now
-	return true
-}
-
-// measure is the speed over the streamed part of a reply: the reported output tokens, minus reasoning tokens
-// (those may be generated before or between the streamed deltas, and a reasoning summary is far shorter than the
-// reasoning it summarizes), over the time from the first delta that carries them to the last model update.
-func (t *SpeedTracker) measure(usage StreamUsage) (float64, bool) {
-	tokens := usage.Output - usage.Reasoning
-	start := t.firstDelta
-	if usage.Reasoning > 0 {
-		start = t.firstAnswerDelta
-	}
-	if start == nil || t.lastModelUpdate == nil || tokens < minSpeedTokens {
-		return 0, false
-	}
-	// End at the last model delta, not at a delayed message_end callback.
-	span := *t.lastModelUpdate - *start
-	if span <= minSpeedWindow {
-		return 0, false
-	}
-	return float64(tokens) / span.Seconds(), true
-}
-
-// MessageEnd finalizes the rate of an assistant reply and resets the timing. Providers report whole-message
-// output usage, not separate counts for text and tool arguments, so only replies without tool calls can use the
-// reported usage; a mixed reply keeps its marked estimate, flushed through its last chunk.
-func (t *SpeedTracker) MessageEnd(usage StreamUsage, hasToolBlock bool) {
-	if !t.hasToolCall && !hasToolBlock {
-		if rate, ok := t.measure(usage); ok {
-			t.Speed, t.Estimated = rate, false
-			t.MessageStart()
-			return
-		}
-	}
-	if t.est != nil {
-		if rate, ok := estimateRate(t.est, t.est.lastDeltaAt); ok {
-			t.Speed, t.Estimated = rate, true
-		}
-	}
-	t.MessageStart()
+	t.Refresh(now)
+	t.active = false
 }

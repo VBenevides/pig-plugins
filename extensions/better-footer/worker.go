@@ -202,6 +202,8 @@ func (x *extension) drawLoop() {
 		}
 		q, _ := x.store.Get(key)
 		x.mu.Lock()
+		x.speed.Refresh(time.Since(x.origin))
+		x.state.Speed, x.state.Estimated = x.speed.Speed, x.speed.Estimated
 		if x.state.QuotaKey == key {
 			x.state.Quota = q
 		}

@@ -15,50 +15,6 @@ import (
 	"time"
 )
 
-func TestSpeedExcludesTTFTReasoningAndEndDelay(t *testing.T) {
-	tracker := SpeedTracker{Live: true}
-	tracker.MessageStart()
-	tracker.Delta("thinking_delta", "hidden summary", 10*time.Second)
-	tracker.Delta("text_delta", "first", 20*time.Second)
-	tracker.Delta("text_delta", "answer", 22*time.Second)
-	tracker.Delta("done", "", 40*time.Second)
-	tracker.MessageEnd(StreamUsage{Output: 300, Reasoning: 100}, false)
-	if tracker.Speed != 100 || tracker.Estimated {
-		t.Fatalf("final speed = %v estimated=%v", tracker.Speed, tracker.Estimated)
-	}
-	tracker.MessageStart()
-	tracker.Delta("text_delta", "first", 50*time.Second)
-	tracker.Delta("text_delta", "last", 51*time.Second)
-	tracker.MessageEnd(StreamUsage{Output: 50}, false)
-	if tracker.Speed != 50 {
-		t.Fatalf("next reply included tool/idle time: %v", tracker.Speed)
-	}
-}
-func TestToolRepliesKeepTextEstimateAndIgnoreToolArguments(t *testing.T) {
-	tracker := SpeedTracker{Live: true}
-	tracker.MessageStart()
-	tracker.Delta("text_delta", "initial", 2*time.Second)
-	tracker.Delta("text_delta", strings.Repeat("abcd", 40), 3*time.Second)
-	tracker.Delta("text_delta", "中文", 3100*time.Millisecond)
-	tracker.Delta("toolcall_start", "", 4*time.Second)
-	tracker.Delta("toolcall_delta", strings.Repeat("x", 40000), 4010*time.Millisecond)
-	tracker.MessageEnd(StreamUsage{Output: 1000}, true)
-	if !tracker.Estimated || tracker.Speed < 38.1 || tracker.Speed > 38.3 {
-		t.Fatalf("tool estimate = %v estimated=%v", tracker.Speed, tracker.Estimated)
-	}
-}
-
-func TestToolOnlyReplyKeepsPreviousSpeed(t *testing.T) {
-	tracker := SpeedTracker{Live: true, Speed: 60}
-	tracker.MessageStart()
-	tracker.Delta("toolcall_start", "", time.Second)
-	tracker.Delta("toolcall_delta", "a", 2*time.Second)
-	tracker.Delta("toolcall_delta", strings.Repeat("x", 40000), 2010*time.Millisecond)
-	tracker.MessageEnd(StreamUsage{Output: 10000}, true)
-	if tracker.Speed != 60 {
-		t.Fatalf("tool arguments changed speed: %v", tracker.Speed)
-	}
-}
 func TestSessionStatsAppendReplaceAndSideUsage(t *testing.T) {
 	entries := []json.RawMessage{json.RawMessage(`{"type":"message","message":{"role":"assistant","usage":{"input":10,"output":5,"cacheRead":30,"cacheWrite":10,"cost":{"total":0.2}}}}`), json.RawMessage(`{"type":"usage","usage":{"input":3,"output":7,"cost":{"total":0.1}}}`), json.RawMessage(`{"type":"message","message":{"role":"toolResult","usage":{"output":2}}}`)}
 	var stats SessionStats

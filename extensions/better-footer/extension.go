@@ -141,9 +141,17 @@ func Extension() *sdk.Extension {
 		e.OnEvent(name, func(_ sdk.Context, data map[string]any) (any, error) {
 			x.mu.Lock()
 			x.lastActivity = time.Now()
+			switch name {
+			case "agent_start":
+				x.speed.AgentStart(time.Since(x.origin))
+			case "agent_end":
+				x.speed.AgentEnd(time.Since(x.origin))
+			}
+			x.state.Speed, x.state.Estimated = x.speed.Speed, x.speed.Estimated
 			x.mu.Unlock()
 			git := name == "input" || name == "agent_end" || name == "tool_execution_end" && !readOnly(text(data, "toolName"))
 			x.signal(git, false)
+			x.redraw()
 			return nil, nil
 		})
 	}
@@ -448,16 +456,8 @@ func (x *extension) messageEnd(ctx sdk.Context, data map[string]any) (any, error
 	if text(msg, "role") == "assistant" {
 		x.recordError(ctx, msg)
 		usage := object(msg, "usage")
-		tool := false
-		if blocks, ok := msg["content"].([]any); ok {
-			for _, raw := range blocks {
-				if block, ok := raw.(map[string]any); ok && text(block, "type") == "toolCall" {
-					tool = true
-				}
-			}
-		}
 		x.mu.Lock()
-		x.speed.MessageEnd(bf.StreamUsage{Output: int(number(usage, "output")), Reasoning: int(number(usage, "reasoning"))}, tool)
+		x.speed.MessageEnd(bf.StreamUsage{Output: int(number(usage, "output")), Reasoning: int(number(usage, "reasoning"))}, time.Since(x.origin))
 		x.state.Speed = x.speed.Speed
 		x.state.Estimated = x.speed.Estimated
 		x.mu.Unlock()
