@@ -74,6 +74,7 @@ then use `/accounts` to choose the account used for native model requests.
 
 `patches/pig/0004-mid-prompt-skill-autocomplete.patch` lets you type `/` after prompt text to complete a skill, as in Oh My Pi.
 The popup lists skills only and matches the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting inserts `/skill:name` and does not submit.
+`patches/pig/0005-node-editor-mid-prompt-skill-autocomplete.patch` does the same for the Node editor that `pi-image-view` installs in place of the host editor.
 Submitting a prompt that holds `/skill:name` tokens adds each known skill's block once, before the unchanged text. Commands still work only at the start of the message.
 Select `openai-codex/gpt-6.1-sol` with `/model`; `/usage` shows the actual active
 model plus every native OAuth account, with labels, selection markers, and

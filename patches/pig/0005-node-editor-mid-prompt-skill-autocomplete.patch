@@ -1,0 +1,52 @@
+diff --git a/coding/extension/host/subprocess/runtime-node/shims/pi-dist/pi-tui/sdk-bundle/index.js b/coding/extension/host/subprocess/runtime-node/shims/pi-dist/pi-tui/sdk-bundle/index.js
+index b44b60d..243a1d5 100644
+--- a/coding/extension/host/subprocess/runtime-node/shims/pi-dist/pi-tui/sdk-bundle/index.js
++++ b/coding/extension/host/subprocess/runtime-node/shims/pi-dist/pi-tui/sdk-bundle/index.js
+@@ -2342,11 +2342,12 @@ var Editor = class {
+         if (selected && this.autocompleteProvider) {
+           this.pushUndoSnapshot();
+           this.lastAction = null;
++          const submitsPrompt = this.autocompletePrefix.startsWith("/") && !this.hasPromptTextBefore(this.autocompletePrefix);
+           const result = this.autocompleteProvider.applyCompletion(this.state.lines, this.state.cursorLine, this.state.cursorCol, selected, this.autocompletePrefix);
+           this.state.lines = result.lines;
+           this.state.cursorLine = result.cursorLine;
+           this.setCursorCol(result.cursorCol);
+-          if (this.autocompletePrefix.startsWith("/")) {
++          if (submitsPrompt) {
+             this.cancelAutocomplete();
+           } else {
+             this.cancelAutocomplete();
+@@ -2677,7 +2678,7 @@ var Editor = class {
+       this.onChange(this.getText());
+     }
+     if (!this.autocompleteState) {
+-      if (char === "/" && this.isAtStartOfMessage()) {
++      if (char === "/" && (this.isAtStartOfMessage() || this.isMidPromptSlash(before + char))) {
+         this.tryTriggerAutocomplete();
+       } else if (this.autocompleteTriggerCharacters.includes(char)) {
+         const currentLine = this.state.lines[this.state.cursorLine] || "";
+@@ -3357,7 +3358,23 @@ var Editor = class {
+     return beforeCursor.trim() === "" || beforeCursor.trim() === "/";
+   }
+   isInSlashCommandContext(textBeforeCursor) {
+-    return this.isSlashMenuAllowed() && textBeforeCursor.trimStart().startsWith("/");
++    return this.isSlashMenuAllowed() && textBeforeCursor.trimStart().startsWith("/") || this.isMidPromptSlash(textBeforeCursor);
++  }
++  // pig additive: true when the prompt has text before the first character of `prefix` on this line or an earlier one.
++  hasPromptTextBefore(prefix) {
++    const line = this.state.lines[this.state.cursorLine] || "";
++    const head = line.slice(0, Math.max(0, this.state.cursorCol - prefix.length));
++    return head.trim() !== "" || this.state.lines.slice(0, this.state.cursorLine).some((earlier) => earlier.trim() !== "");
++  }
++  // pig additive: a "/token" that follows prompt text and starts after whitespace lists skills (the host provider filters).
++  isMidPromptSlash(textBeforeCursor) {
++    const slash = textBeforeCursor.lastIndexOf("/");
++    if (slash < 0 || /\s/.test(textBeforeCursor.slice(slash + 1)))
++      return false;
++    const head = textBeforeCursor.slice(0, slash);
++    if (head !== "" && !/\s$/.test(head))
++      return false;
++    return head.trim() !== "" || this.state.lines.slice(0, this.state.cursorLine).some((earlier) => earlier.trim() !== "");
+   }
+   // Autocomplete methods
+   /**

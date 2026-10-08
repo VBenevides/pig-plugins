@@ -1,0 +1,430 @@
+diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
+index e39065e..8ee1c4f 100644
+--- a/internal/codingagent/interactive_input.go
++++ b/internal/codingagent/interactive_input.go
+@@ -915,7 +915,12 @@ func (m *InteractiveMode) expandSkillCommand(prompt string) (string, bool) {
+ 	if len(m.opts.Skills) == 0 {
+ 		return "", false
+ 	}
+-	expanded, ok, err := ExpandSkillCommand(prompt, m.opts.Skills)
++	expand := ExpandSkillCommand
++	if !strings.HasPrefix(prompt, "/") {
++		// pig additive: `/skill:name` tokens inside prompt text expand too.
++		expand = ExpandInlineSkillCommands
++	}
++	expanded, ok, err := expand(prompt, m.opts.Skills)
+ 	if err != nil && m.newRunner != nil {
+ 		m.newRunner.EmitError(err)
+ 	}
+diff --git a/internal/codingagent/skill_inline_expansion_test.go b/internal/codingagent/skill_inline_expansion_test.go
+new file mode 100644
+index 0000000..482d35f
+--- /dev/null
++++ b/internal/codingagent/skill_inline_expansion_test.go
+@@ -0,0 +1,41 @@
++package codingagent
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestExpandInlineSkillCommands(t *testing.T) {
++	skills := []*SkillDef{
++		{Name: "alpha", Body: "alpha body", Path: "/skills/alpha.md", Dir: "/skills", SourceInfo: PiSourceInfo{Source: "inline"}},
++		{Name: "beta", Body: "beta body", Path: "/skills/beta.md", Dir: "/skills", SourceInfo: PiSourceInfo{Source: "inline"}},
++	}
++
++	t.Run("expands each known skill once and keeps the text", func(t *testing.T) {
++		text := "fix the bug /skill:beta then /skill:alpha and /skill:beta again, /skill:missing"
++		got, ok, failure := ExpandInlineSkillCommands(text, skills)
++		if !ok || failure != nil {
++			t.Fatalf("ok=%v failure=%v", ok, failure)
++		}
++		if !strings.HasSuffix(got, "\n\n"+text) {
++			t.Errorf("original text is not preserved at the end: %q", got)
++		}
++		if strings.Count(got, "<skill name=\"beta\"") != 1 || strings.Count(got, "<skill name=\"alpha\"") != 1 {
++			t.Errorf("each skill must expand once: %q", got)
++		}
++		if strings.Index(got, "name=\"beta\"") > strings.Index(got, "name=\"alpha\"") {
++			t.Errorf("blocks must follow order of first mention: %q", got)
++		}
++		if strings.Contains(got, "name=\"missing\"") {
++			t.Errorf("unknown skill expanded: %q", got)
++		}
++	})
++
++	t.Run("leaves unknown skills, plain text and commands alone", func(t *testing.T) {
++		for _, text := range []string{"use /skill:missing", "no skill here", "/other /skill:alpha", "path/skill:alpha"} {
++			if got, ok, failure := ExpandInlineSkillCommands(text, skills); ok {
++				t.Errorf("%q expanded to %q (failure %v)", text, got, failure)
++			}
++		}
++	})
++}
+diff --git a/internal/codingagent/skills.go b/internal/codingagent/skills.go
+index d480d19..9a1e18c 100644
+--- a/internal/codingagent/skills.go
++++ b/internal/codingagent/skills.go
+@@ -312,6 +312,38 @@ func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extensi
+ 	return block, true, nil
+ }
+ 
++// inlineSkillTokenRe finds `/skill:name` tokens that start the text or follow whitespace.
++var inlineSkillTokenRe = lazyregexp.New(`(?:^|\s)/skill:([A-Za-z0-9_-]+)`)
++
++// ExpandInlineSkillCommands expands `/skill:name` tokens inside a prompt that does not start with `/`. Each known skill
++// is expanded once, in order of first mention. The skill blocks come first and the original text follows unchanged.
++// Unknown skills are left alone. Read and parse errors leave input unchanged and carry a skill_expansion diagnostic.
++func ExpandInlineSkillCommands(text string, skills []*SkillDef) (string, bool, *extension.ExtensionError) {
++	if strings.HasPrefix(text, "/") {
++		return "", false, nil
++	}
++	seen := map[string]bool{}
++	var blocks []string
++	for _, match := range inlineSkillTokenRe.FindAllStringSubmatch(text, -1) {
++		name := match[1]
++		if seen[name] {
++			continue
++		}
++		seen[name] = true
++		block, ok, failure := ExpandSkillCommand("/skill:"+name, skills)
++		if failure != nil {
++			return "", false, failure
++		}
++		if ok {
++			blocks = append(blocks, block)
++		}
++	}
++	if len(blocks) == 0 {
++		return "", false, nil
++	}
++	return strings.Join(blocks, "\n\n") + "\n\n" + text, true, nil
++}
++
+ // skillBlockRe matches upstream's parseSkillBlock regex:
+ //
+ //	/^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/
+diff --git a/tui/editor.go b/tui/editor.go
+index e52a6fa..24c54c2 100644
+--- a/tui/editor.go
++++ b/tui/editor.go
+@@ -1123,7 +1123,7 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
+ 	// A prefix that starts with "/" falls through to submit; anything else
+ 	// (an argument completion) does not (upstream editor.ts
+ 	// tui.select.confirm).
+-	isSlashName := strings.HasPrefix(prefix, "/")
++	isSlashName := acceptSubmits(lines, row, byteCol, prefix)
+ 	e.AutocompleteCancel()
+ 	if !isSlashName && e.OnChange != nil {
+ 		e.OnChange(e.Text())
+@@ -1221,7 +1221,7 @@ func (e *Editor) naturalAutocompleteContext() bool {
+ 	}
+ 	line := e.lines[e.cursor[0]]
+ 	before := jsstring.Slice(line, 0, e.cursor[1])
+-	if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") {
++	if (e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/")) || e.midPromptSlashContext() {
+ 		return true
+ 	}
+ 	previousBoundary := true
+diff --git a/tui/editor_async_provider.go b/tui/editor_async_provider.go
+index 3887e4b..1cdf9a0 100644
+--- a/tui/editor_async_provider.go
++++ b/tui/editor_async_provider.go
+@@ -81,6 +81,7 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
+ 	e.saveHistory()
+ 	e.lastAction = ""
+ 	request := e.autocompleteRequestID
++	submits := acceptSubmits(queryLines, queryRow, queryCol, prefix)
+ 	e.startAutocompleteInput(func(ctx context.Context) (func(), error) {
+ 		result, line, col, err := provider.ApplyCompletion(ctx, queryLines, queryRow, queryCol, item, prefix)
+ 		if err != nil {
+@@ -102,7 +103,7 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
+ 				e.OnChange(e.Text())
+ 			}
+ 			if done != nil {
+-				done(strings.HasPrefix(prefix, "/"))
++				done(submits)
+ 			}
+ 		}, nil
+ 	})
+@@ -156,7 +157,7 @@ func (e *Editor) naturalAsyncAutocomplete() (bool, bool) {
+ 	before := jsstring.Slice(e.lines[e.cursor[0]], 0, e.cursor[1])
+ 	triggered := autocompleteTriggered(before, e.asyncAutocomplete.TriggerCharacters)
+ 	slash := e.cursor[0] == 0 && strings.HasPrefix(strings.TrimLeftFunc(before, widthx.IsJSSpace), "/")
+-	return triggered || slash || e.AutocompleteOpen(), triggered
++	return triggered || slash || e.midPromptSlashContext() || e.AutocompleteOpen(), triggered
+ }
+ 
+ func (e *Editor) requestAsyncAutocomplete(force, explicit bool) {
+diff --git a/tui/file_autocomplete.go b/tui/file_autocomplete.go
+index 884ea19..8ea2116 100644
+--- a/tui/file_autocomplete.go
++++ b/tui/file_autocomplete.go
+@@ -113,8 +113,17 @@ func (p *CombinedProvider) getSuggestions(lines []string, cursorLine, cursorCol
+ 		return &AutocompleteSuggestions{Items: items, Prefix: atPrefix}
+ 	}
+ 
++	// A "/" after prompt text lists skills only. Without a skill match it falls through to path completion.
++	midPromptSlash := false
++	if token, ok := midPromptSlashToken(lines, cursorLine, cursorCol); ok {
++		if suggestions := p.slash.midPromptSkillSuggestions(token); suggestions != nil {
++			return suggestions
++		}
++		midPromptSlash = true
++	}
++
+ 	// Slash-command branch, after leading whitespace (autocomplete.ts:338-339).
+-	if !force && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
++	if !force && !midPromptSlash && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
+ 		return p.slash.GetSuggestions(lines, cursorLine, cursorCol)
+ 	}
+ 
+@@ -190,6 +199,10 @@ func (p *CombinedProvider) ApplyCompletion(lines []string, cursorLine, cursorCol
+ 		afterCursor = afterCursor[1:]
+ 	}
+ 	out := slices.Clone(lines)
++	if strings.HasPrefix(prefix, "/") && strings.HasPrefix(item.Value, skillCommandPrefix) && widthx.JSTrim(beforePrefix) != "" {
++		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
++		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
++	}
+ 	if strings.HasPrefix(prefix, "/") && widthx.JSTrim(beforePrefix) == "" && !strings.Contains(prefix[1:], "/") {
+ 		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
+ 		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
+diff --git a/tui/skill_slash_autocomplete.go b/tui/skill_slash_autocomplete.go
+new file mode 100644
+index 0000000..5a5ca2c
+--- /dev/null
++++ b/tui/skill_slash_autocomplete.go
+@@ -0,0 +1,117 @@
++package tui
++
++// Mid-prompt skill autocomplete. A "/" that starts a line or follows whitespace, after prompt text, lists skills
++// only. Commands stay limited to the start of the message, and a token that matches no skill falls through to path
++// completion. The matching rules follow Oh My Pi (pi-tui/src/autocomplete.ts).
++
++import (
++	"strings"
++	"unicode/utf8"
++
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++const skillCommandPrefix = "skill:"
++
++// trailingSlashToken finds a "/token" that ends text, starts the text or follows whitespace, and has no further
++// "/" or whitespace. It returns the index of the slash.
++func trailingSlashToken(text string) (int, bool) {
++	slash := strings.LastIndexByte(text, '/')
++	if slash < 0 || strings.IndexFunc(text[slash+1:], widthx.IsJSSpace) >= 0 {
++		return 0, false
++	}
++	if slash > 0 {
++		if r, _ := utf8.DecodeLastRuneInString(text[:slash]); !widthx.IsJSSpace(r) {
++			return 0, false
++		}
++	}
++	return slash, true
++}
++
++// proseBefore reports whether the prompt has text before byte offset end of line row, on that line or an earlier one.
++func proseBefore(lines []string, row, end int) bool {
++	if row < 0 || row >= len(lines) {
++		return false
++	}
++	if widthx.JSTrim(lines[row][:max(0, min(end, len(lines[row])))]) != "" {
++		return true
++	}
++	for _, line := range lines[:row] {
++		if widthx.JSTrim(line) != "" {
++			return true
++		}
++	}
++	return false
++}
++
++// midPromptSlashToken returns the text after the slash when the cursor (byte column) is inside a slash token that
++// follows prompt text, on this line or on an earlier one.
++func midPromptSlashToken(lines []string, row, col int) (string, bool) {
++	if row < 0 || row >= len(lines) {
++		return "", false
++	}
++	before := lines[row][:min(col, len(lines[row]))]
++	slash, ok := trailingSlashToken(before)
++	if !ok || !proseBefore(lines, row, slash) {
++		return "", false
++	}
++	return before[slash+1:], true
++}
++
++// midPromptSkillMatches reports whether token (without the slash) is skill-shaped enough to list the command.
++// A stray "/word" in prose must not keep the popup open, so only these tokens match: a prefix of "skill:", a
++// "skill:..." query that fuzzy-matches the name, or a prefix of the bare name or of a hyphen-separated segment.
++func midPromptSkillMatches(token, name string) bool {
++	token, name = strings.ToLower(token), strings.ToLower(name)
++	if !strings.HasPrefix(name, skillCommandPrefix) {
++		return false
++	}
++	if strings.HasPrefix(skillCommandPrefix, token) {
++		return true
++	}
++	if strings.HasPrefix(token, skillCommandPrefix) {
++		return len(FuzzyFilter([]string{name}, token, func(s string) string { return s })) > 0
++	}
++	bare := name[len(skillCommandPrefix):]
++	for i := 0; i < len(bare); i++ {
++		if (i == 0 || bare[i-1] == '-') && strings.HasPrefix(bare[i:], token) {
++			return true
++		}
++	}
++	return false
++}
++
++// midPromptSkillSuggestions lists skill commands for token, or returns nil when none match.
++func (p *SlashOnlyProvider) midPromptSkillSuggestions(token string) *AutocompleteSuggestions {
++	var matched []SlashCommand
++	for _, c := range p.Commands {
++		if midPromptSkillMatches(token, c.Name) {
++			matched = append(matched, c)
++		}
++	}
++	if strings.HasPrefix(strings.ToLower(token), skillCommandPrefix) && len(token) > len(skillCommandPrefix) {
++		matched = FuzzyFilter(matched, token, func(c SlashCommand) string { return c.Name })
++	}
++	if len(matched) == 0 {
++		return nil
++	}
++	items := make([]AutocompleteItem, len(matched))
++	for i, c := range matched {
++		items[i] = AutocompleteItem{Value: c.Name, Label: c.Name, Description: c.Description}
++	}
++	return &AutocompleteSuggestions{Items: items, Prefix: "/" + token}
++}
++
++// acceptSubmits reports whether accepting a completion with this prefix also submits the prompt. Only a slash name
++// at the start of the message does; a path or skill completed after prompt text only edits the text.
++func acceptSubmits(lines []string, row, col int, prefix string) bool {
++	return strings.HasPrefix(prefix, "/") && !proseBefore(lines, row, col-len(prefix))
++}
++
++// midPromptSlashContext reports whether the cursor sits in a slash token after prompt text, which opens the popup
++// without a trigger character.
++func (e *Editor) midPromptSlashContext() bool {
++	lines, row, col := e.autocompleteView()
++	_, ok := midPromptSlashToken(lines, row, col)
++	return ok
++}
+diff --git a/tui/skill_slash_autocomplete_test.go b/tui/skill_slash_autocomplete_test.go
+new file mode 100644
+index 0000000..1341802
+--- /dev/null
++++ b/tui/skill_slash_autocomplete_test.go
+@@ -0,0 +1,107 @@
++package tui
++
++import (
++	"slices"
++	"testing"
++)
++
++func skillTestCommands() []SlashCommand {
++	return []SlashCommand{
++		{Name: "help", Description: "Show help"},
++		{Name: "skill:humanizer", Description: "Humanize text"},
++		{Name: "skill:research-last30days", Description: "Research"},
++		{Name: "skill:brainstorm", Description: "Ideas"},
++	}
++}
++
++func suggestionValues(s *AutocompleteSuggestions) []string {
++	if s == nil {
++		return nil
++	}
++	values := make([]string, len(s.Items))
++	for i, item := range s.Items {
++		values[i] = item.Value
++	}
++	return values
++}
++
++func TestMidPromptSlashListsOnlySkills(t *testing.T) {
++	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
++	tests := []struct {
++		name   string
++		lines  []string
++		row    int
++		col    int
++		want   []string
++		prefix string
++	}{
++		{"bare slash lists every skill", []string{"fix it /"}, 0, 8, []string{"skill:humanizer", "skill:research-last30days", "skill:brainstorm"}, "/"},
++		{"bare name prefix", []string{"fix it /hum"}, 0, 11, []string{"skill:humanizer"}, "/hum"},
++		{"hyphen segment prefix", []string{"fix it /last"}, 0, 12, []string{"skill:research-last30days"}, "/last"},
++		{"skill namespace query", []string{"fix it /skill:br"}, 0, 16, []string{"skill:brainstorm"}, "/skill:br"},
++		{"commands are not offered", []string{"fix it /hel"}, 0, 11, nil, ""},
++		{"later line after prompt text", []string{"first line", "/hum"}, 1, 4, []string{"skill:humanizer"}, "/hum"},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			got := provider.GetSuggestions(tt.lines, tt.row, tt.col)
++			if !slices.Equal(suggestionValues(got), tt.want) {
++				t.Fatalf("values = %v, want %v", suggestionValues(got), tt.want)
++			}
++			if got != nil && got.Prefix != tt.prefix {
++				t.Errorf("prefix = %q, want %q", got.Prefix, tt.prefix)
++			}
++		})
++	}
++}
++
++func TestMidPromptSlashLeavesPathsAndLeadingCommands(t *testing.T) {
++	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
++	if got := provider.GetSuggestions([]string{"see /tmp/x"}, 0, 10); got != nil {
++		for _, item := range got.Items {
++			if len(item.Value) >= 6 && item.Value[:6] == "skill:" {
++				t.Errorf("path token produced skill %q", item.Value)
++			}
++		}
++	}
++	got := provider.GetSuggestions([]string{"/hel"}, 0, 4)
++	if want := []string{"help"}; !slices.Equal(suggestionValues(got), want) {
++		t.Errorf("leading command values = %v, want %v", suggestionValues(got), want)
++	}
++}
++
++func TestMidPromptSkillCompletionInsertsTokenWithoutSubmit(t *testing.T) {
++	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
++	lines := []string{"fix it /hum later"}
++	got := provider.GetSuggestions([]string{"fix it /hum"}, 0, 11)
++	if got == nil {
++		t.Fatal("no suggestions")
++	}
++	out, row, col := provider.ApplyCompletion(lines, 0, 11, got.Items[0], got.Prefix)
++	if want := "fix it /skill:humanizer  later"; out[0] != want || row != 0 || col != len("fix it /skill:humanizer ") {
++		t.Errorf("completion = %q row %d col %d, want %q", out[0], row, col, want)
++	}
++	if acceptSubmits([]string{"fix it /hum"}, 0, 11, "/hum") {
++		t.Error("accepting mid-text must not submit")
++	}
++	if !acceptSubmits([]string{"/hel"}, 0, 4, "/hel") {
++		t.Error("accepting a leading command must submit")
++	}
++}
++
++func TestEditorOpensSkillPopupMidText(t *testing.T) {
++	editor := NewEditor()
++	editor.SetAutocomplete(NewCombinedProvider(skillTestCommands(), t.TempDir(), ""))
++	for _, r := range "fix it /hum" {
++		editor.HandleInput(string(r))
++	}
++	if !editor.AutocompleteOpen() {
++		t.Fatal("skill popup did not open mid-text")
++	}
++	if editor.AutocompleteAccept() {
++		t.Error("accepting mid-text must not submit")
++	}
++	if got, want := editor.Text(), "fix it /skill:humanizer "; got != want {
++		t.Errorf("text = %q, want %q", got, want)
++	}
++}

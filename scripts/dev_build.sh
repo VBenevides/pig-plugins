@@ -67,6 +67,10 @@ chmod -R u+w "$stage/source"
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0001-native-oauth-accounts-host.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0003-node-piglet-source-cells.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0004-mid-prompt-skill-autocomplete.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0005-node-editor-mid-prompt-skill-autocomplete.patch" >&2
+# The Node runtime ships as a prebuilt archive with a content digest. Patched shims must be repacked into it, which also
+# changes the runtime cache key. The module zip lacks vendor/ files, so the archive cannot be regenerated from source.
+(cd "$stage/source/coding/extension/host/subprocess" && GOWORK=off go run "$root/scripts/repack_node_runtime.go" >&2)
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
 sdk_ref="$sdk_module@v0.4.1"
 GOWORK=off go mod download "$sdk_ref" >&2
