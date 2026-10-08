@@ -222,10 +222,14 @@ func TestLancetEnforcementWithTheRealModel(t *testing.T) {
 		bashCall("rm -rf /"), pigtest.Text("five"),
 	)
 	defer mock.Close()
-	answers := []bool{false, true}
+	answers := []string{"Deny", "Allow once"}
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env,
 		Prompts: []string{"a", "b", "c", "d", "e"},
-		Confirm: func(map[string]any) bool { answer := answers[0]; answers = answers[1:]; return answer }})
+		Dialog: func(map[string]any) map[string]any {
+			answer := answers[0]
+			answers = answers[1:]
+			return map[string]any{"value": answer}
+		}})
 	if len(result.Asked) != 2 {
 		t.Fatalf("asked %d dialogs, want 2 (the two review prompts): %v\nstderr:\n%s", len(result.Asked), result.Asked, result.Stderr)
 	}
@@ -263,7 +267,7 @@ func TestPersistedInteractiveReviewWithRealModelRPC(t *testing.T) {
 		bashCall(command), pigtest.Text("strict again"),
 	)
 	defer mock.Close()
-	answers := []bool{false, true}
+	answers := []string{"Deny", "Allow once"}
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{
 		Extensions: []string{extensionPath(t), filepath.Join(extensionPath(t), "testdata", "settings-writer")},
 		Env:        env,
@@ -272,14 +276,14 @@ func TestPersistedInteractiveReviewWithRealModelRPC(t *testing.T) {
 			"a", "/persist-guard-mode interactive", "b", "c",
 			"/persist-guard-mode strict", "d",
 		},
-		Confirm: func(request map[string]any) bool {
+		Dialog: func(request map[string]any) map[string]any {
 			if len(answers) == 0 {
 				t.Errorf("unexpected confirmation: %v", request)
-				return false
+				return map[string]any{"cancelled": true}
 			}
 			answer := answers[0]
 			answers = answers[1:]
-			return answer
+			return map[string]any{"value": answer}
 		},
 	})
 	notices := result.Notices()
@@ -291,8 +295,8 @@ func TestPersistedInteractiveReviewWithRealModelRPC(t *testing.T) {
 	}
 	for _, request := range result.Asked {
 		title, _ := request["title"].(string)
-		body, _ := request["message"].(string)
-		if !strings.Contains(title, "LANCET review") || !strings.Contains(title, "uncertainty-band") || !strings.Contains(body, command) {
+		// The select dialog carries the confirmation text, command included, in its title.
+		if !strings.Contains(title, "LANCET review") || !strings.Contains(title, "uncertainty-band") || !strings.Contains(title, command) {
 			t.Errorf("RPC confirmation lost the uncertainty/command: %v", request)
 		}
 	}

@@ -282,6 +282,15 @@ continues, and an unavailable model blocks. A damaged settings file (`smart-appr
 directory) means `strict` and is reported. Commands: `/smart-approve-lancet [interactive|strict|status]` (no argument
 toggles) and `/smart-approve-lancet lancet [status|setup|on|off|check <command>]`.
 
+The confirmation shows the affected paths: the targets of an `rm -rf`, or the working folder when a command does not
+name them; a protected write shows its folder. The dialog answers `Deny`, `Allow once` or `Always allow this command
+and item`. The last stores the exact command (or the tool, for `write` and `edit`) together with its affected item in
+`smart-approve-lancet-allow.json` in the agent directory (mode 0600); only that pair is skipped later, and the other
+sessions see it at once. `strict` mode, hard blocks and LANCET `risky` verdicts still block. A damaged allow list
+grants nothing and is reported on stderr. A recursive force delete whose every target is known and strictly inside
+`<cwd>/.agent-work` or any `tmp` folder below the working folder (symlinks followed) runs without asking, in every
+mode; so does a protected-path write inside those folders.
+
 The pattern tables are a port of the `behaviors.ts` and `paths.ts` of `smart-approve`;
 `internal/guard/testdata/ts-golden.json` holds the TypeScript verdicts for 402 commands, 93 delete targets, 27
 normalizer inputs and 81 paths (`.agent-work/scripts/smart-approve-golden/generate.mjs` regenerates it). JavaScript

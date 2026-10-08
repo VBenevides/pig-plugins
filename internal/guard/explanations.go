@@ -88,3 +88,12 @@ func describeRisk(behaviors, labels []string, lancetNote string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// describeAffected names the folder or paths the command changes, for the confirmation dialog. A recursive delete
+// lists every path it names; any other command only has the working folder to show.
+func describeAffected(analysis Analysis, items []string) string {
+	if len(analysis.DeleteTargets) == 0 {
+		return "Working folder: " + strings.Join(items, ", ") + " (the command does not name the paths it changes)"
+	}
+	return "Affected paths:\n- " + strings.Join(items, "\n- ")
+}

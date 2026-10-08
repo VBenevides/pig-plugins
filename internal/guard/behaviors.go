@@ -17,6 +17,8 @@ type Analysis struct {
 	HardBlocked bool
 	// DenyTier is true for behaviors that auto-approval would deny without a model verdict.
 	DenyTier bool
+	// DeleteTargets are the words that a recursive force delete (rm -rf) names, as written in the command.
+	DeleteTargets []string
 }
 
 var behaviorLabels = map[string]string{
@@ -576,7 +578,7 @@ func Analyze(command string) (Analysis, error) {
 		}
 	}
 
-	analysis := Analysis{Behaviors: behaviors, Labels: make([]string, len(behaviors))}
+	analysis := Analysis{Behaviors: behaviors, Labels: make([]string, len(behaviors)), DeleteTargets: targets}
 	for i, id := range behaviors {
 		label, known := behaviorLabels[id]
 		if !known {

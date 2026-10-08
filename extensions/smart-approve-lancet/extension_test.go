@@ -1,6 +1,8 @@
 package smartapprovelancet_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -142,23 +144,28 @@ func TestRPCConfirmationFlow(t *testing.T) {
 	)
 	defer mock.Close()
 
-	answers := []bool{false, true, false}
+	answers := []string{"Deny", "Allow once", "Deny"}
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{
 		Extensions: []string{extensionPath(t)},
 		Prompts:    []string{"a", "b", "c", "d"},
-		Confirm: func(map[string]any) bool {
+		Dialog: func(map[string]any) map[string]any {
 			answer := answers[0]
 			answers = answers[1:]
-			return answer
+			return map[string]any{"value": answer}
 		},
 	})
 	if len(result.Asked) != 3 {
 		t.Fatalf("asked %d dialogs, want 3 (a hard-blocked command must never be offered): %v", len(result.Asked), result.Asked)
 	}
 	titles := []string{"Dangerous command: Force kill process (SIGKILL)", "Dangerous command: Force kill process (SIGKILL)", "Protected path: " + filepath.Join(home.Work, ".env")}
+	folders := []string{"Working folder: " + home.Work, "Working folder: " + home.Work, "Folder: " + home.Work}
 	for i, want := range titles {
-		if got, _ := result.Asked[i]["title"].(string); got != want {
-			t.Errorf("dialog %d title = %q, want %q", i, got, want)
+		// The select dialog carries the whole confirmation text in its title.
+		if got, _ := result.Asked[i]["title"].(string); !strings.HasPrefix(got, want+"\n") || !strings.Contains(got, folders[i]) {
+			t.Errorf("dialog %d title = %q, want it to start with %q and show %q", i, got, want, folders[i])
+		}
+		if options := fmt.Sprint(result.Asked[i]["options"]); options != "[Deny Allow once Always allow this command and item]" {
+			t.Errorf("dialog %d options = %s", i, options)
 		}
 	}
 	if got, _ := os.ReadFile(filepath.Join(home.Work, ".env")); string(got) != "TOKEN=1\n" {
@@ -182,5 +189,46 @@ func TestRPCConfirmationFlow(t *testing.T) {
 		if !strings.Contains(results[i], want) {
 			t.Errorf("result %d = %q, want containing %q", i, results[i], want)
 		}
+	}
+}
+
+// "Always allow" answers once; the same command on the same folder then runs without a dialog, and the pair is
+// stored in the agent directory. A scratch delete never asks.
+func TestRPCAlwaysAllowAndScratchDelete(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	mock := pigtest.NewMockLLM(
+		bashCall(confirmable), pigtest.Text("one"),
+		bashCall(confirmable), pigtest.Text("two"),
+		bashCall("rm -rf .agent-work/tmp/gone"), pigtest.Text("three"),
+	)
+	defer mock.Close()
+
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionPath(t)},
+		Prompts:    []string{"a", "b", "c"},
+		Dialog: func(map[string]any) map[string]any {
+			return map[string]any{"value": "Always allow this command and item"}
+		},
+	})
+	if len(result.Asked) != 1 {
+		t.Fatalf("asked %d dialogs, want 1 (the stored pair and the scratch delete must not ask): %v\nstderr:\n%s", len(result.Asked), result.Asked, result.Stderr)
+	}
+	for i, got := range pigtest.ToolResults(mock) {
+		if strings.Contains(got, guard.Prefix) {
+			t.Errorf("result %d was blocked: %q", i, got)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(home.AgentDir(), guard.AllowlistFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored struct{ Allow []guard.Grant }
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	want := []guard.Grant{{Tool: "bash", Command: confirmable, Item: home.Work}}
+	if !reflect.DeepEqual(stored.Allow, want) {
+		t.Errorf("allow list = %+v, want %+v", stored.Allow, want)
 	}
 }

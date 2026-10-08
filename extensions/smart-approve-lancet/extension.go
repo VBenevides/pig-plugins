@@ -34,6 +34,7 @@ func Extension() *sdk.Extension {
 	settings := guard.LoadSettings(settingsFile)
 	service := guard.NewLocal(agentdir.Dir(getenv), getenv, lancet.InstallOptions{})
 	gate := guard.NewGate(settings, service)
+	gate.UseAllowlist(guard.NewAllowlist(guard.AllowlistFile(getenv)))
 	controller := &guard.Controller{Gate: gate, Lancet: service, Settings: settingsFile}
 
 	announce := func(ctx sdk.Context) { footerstatus.Set(ctx, Name, controller.Chip()) }
@@ -84,6 +85,7 @@ func Extension() *sdk.Extension {
 			Cwd:     ctx.Cwd(),
 			HasUI:   ctx.HasUI(),
 			Confirm: ctx.Confirm,
+			Select:  ctx.Select,
 		}, func() { announce(ctx) })
 		if decision.Block {
 			return map[string]any{"block": true, "reason": decision.Reason}, nil
