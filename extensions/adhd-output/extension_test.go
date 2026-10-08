@@ -205,8 +205,8 @@ func TestProviderBoundResumeBranchReloadNewSession(t *testing.T) {
 	result = home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t), probePath(t)}, Prompts: []string{"/adhd on", "enabled new host", "/adhd-test-new", "fresh off session"}})
 	assertNoErrors(t, result)
 	requests = mock.Requests()
-	if len(requests) != 8 || strings.Contains(requestText(t, requests[7]), mode.RulesType) {
-		t.Fatal("new session inherited earlier toggle")
+	if len(requests) != 8 || strings.Count(requestText(t, requests[7]), "["+mode.RulesType+" sha256=") != 1 {
+		t.Fatal("new session did not start with the persisted /adhd on default")
 	}
 }
 

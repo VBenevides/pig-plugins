@@ -18,6 +18,7 @@ var defaultRules string
 func Extension() *sdk.Extension {
 	ext := sdk.New("adhd-output")
 	controller := mode.New(func() (mode.Config, error) { return mode.LoadConfig(mode.ConfigPath(), defaultRules) })
+	controller.PersistDefault(func(enabled bool) error { return mode.SaveDefaultEnabled(mode.ConfigPath(), enabled) })
 	ext.Flag("adhd", sdk.FlagOptions{Description: "Start new sessions with ADHD-friendly output", Type: sdk.FlagBoolean, Default: false})
 	ext.Command("adhd", "Toggle ADHD output: /adhd [on|off|status]", func(ctx sdk.Context, args string) error {
 		return controller.Command(host{ctx}, args)

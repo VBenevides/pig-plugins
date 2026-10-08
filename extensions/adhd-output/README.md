@@ -17,7 +17,7 @@ pig -e ./extensions/adhd-output
 | `/adhd off` | Disable the rules and cancel earlier active instructions |
 | `/adhd status` | Report the saved mode and current model-context rules |
 
-New sessions default to off. Use `--adhd true` to start with the rules enabled. A saved active-branch choice always overrides this default.
+New sessions default to off. `/adhd on`, `/adhd off` and the `/adhd` toggle also save the chosen mode as `defaultEnabled` in the configuration file (see below), so new sessions start with it. Use `--adhd true` to start one session with the rules enabled. A saved active-branch choice always overrides the default, and an existing session keeps its own choice. If the file cannot be written, the command still applies to the session and shows a warning. A damaged configuration file is never overwritten.
 
 The adapter accepts the SDK's boolean values and PiG's explicit `"true"` / `"false"` CLI strings. Other values produce an error instead of silently changing the default.
 
@@ -41,7 +41,7 @@ The rules affect presentation only. The extension does not replace the system pr
 
 ## Optional configuration
 
-Normal use creates no configuration files. To change defaults, create this extension-owned file:
+Only `/adhd on`, `/adhd off` and the toggle create this extension-owned file (to save `defaultEnabled`). You can also edit it by hand:
 
 ```text
 ~/.pig/state/adhd-output/config.json

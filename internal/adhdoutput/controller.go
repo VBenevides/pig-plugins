@@ -43,9 +43,15 @@ type Controller struct {
 	configured   bool
 	pending      *pendingMessage
 	waiting      atomic.Bool
+	// saveDefault persists the chosen mode as the default for new sessions. Optional.
+	saveDefault func(bool) error
 }
 
 func New(loadConfig func() (Config, error)) *Controller { return &Controller{loadConfig: loadConfig} }
+
+// PersistDefault makes /adhd on, off and the toggle also save the mode as the default for new sessions.
+// Call it before the controller is used.
+func (c *Controller) PersistDefault(save func(bool) error) { c.saveDefault = save }
 
 // Restore invalidates older work after start, resume, reload, or branch selection.
 func (c *Controller) Restore(host Host) error  { return c.submit(host, "", true) }
@@ -237,6 +243,13 @@ func (c *Controller) execute(op *operation) error {
 			}
 		}
 		enabled = target
+		if c.saveDefault != nil && target != c.config.DefaultEnabled {
+			if err := c.saveDefault(target); err != nil {
+				op.host.Notify("ADHD output: cannot save the default for new sessions: "+err.Error(), "warning")
+			} else {
+				c.config.DefaultEnabled = target
+			}
+		}
 	}
 	if err := c.check(op, snapshot); err != nil {
 		return err

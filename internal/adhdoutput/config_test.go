@@ -62,3 +62,29 @@ func TestStateAndContextAreDistinctAndStrict(t *testing.T) {
 		t.Fatal("latest disabled marker did not cancel rules")
 	}
 }
+
+func TestSaveDefaultEnabledKeepsOtherFieldsAndRejectsDamagedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "config.json")
+	must(t, SaveDefaultEnabled(path, true))
+	config, err := LoadConfig(path, "embedded")
+	must(t, err)
+	if !config.DefaultEnabled || !config.ShowStatus {
+		t.Fatal(config)
+	}
+	must(t, os.WriteFile(path, []byte(`{"showStatus":false,"future":7}`), 0o600))
+	must(t, SaveDefaultEnabled(path, true))
+	data, err := os.ReadFile(path)
+	must(t, err)
+	for _, want := range []string{`"defaultEnabled": true`, `"showStatus": false`, `"future": 7`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("%s lacks %s", data, want)
+		}
+	}
+	must(t, os.WriteFile(path, []byte(`{`), 0o600))
+	if SaveDefaultEnabled(path, false) == nil {
+		t.Fatal("damaged configuration was overwritten")
+	}
+	if got, _ := os.ReadFile(path); string(got) != `{` {
+		t.Fatalf("damaged file changed: %s", got)
+	}
+}

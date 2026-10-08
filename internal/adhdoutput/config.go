@@ -10,7 +10,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/VBenevides/pig-plugins/internal/fsutil"
 )
+
+// SaveDefaultEnabled persists defaultEnabled so new sessions start with the chosen mode. It keeps every other
+// field of an existing file and never replaces an invalid file, so a damaged configuration stays visible.
+func SaveDefaultEnabled(path string, enabled bool) error {
+	object := map[string]any{}
+	data, err := readBounded(path, 64<<10)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return fmt.Errorf("read ADHD configuration: %w", err)
+	default:
+		if object, err = fsutil.DecodeObject(data); err != nil {
+			return fmt.Errorf("decode ADHD configuration %s: %w", path, err)
+		}
+	}
+	object["defaultEnabled"] = enabled
+	return fsutil.WriteJSONFileAtomic(path, object, 0o600)
+}
 
 // Config is extension-owned configuration. Normal use needs no configuration file.
 type Config struct {

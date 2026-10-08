@@ -349,3 +349,27 @@ func TestLateWorkCannotWriteIntoReplacedSession(t *testing.T) {
 		t.Fatal("replacement session inherited old toggle")
 	}
 }
+
+func TestCommandsPersistDefaultForNewSessions(t *testing.T) {
+	var saved []bool
+	h, c := newHost(), controller()
+	c.PersistDefault(func(enabled bool) error { saved = append(saved, enabled); return nil })
+	must(t, c.Restore(h))
+	must(t, c.Command(h, "on"))
+	must(t, c.Command(h, "on"))
+	must(t, c.Command(h, "status"))
+	must(t, c.Command(h, "off"))
+	if len(saved) != 2 || !saved[0] || saved[1] {
+		t.Fatalf("saved defaults = %v, want [true false]", saved)
+	}
+}
+
+func TestDefaultSaveFailureIsReportedAndKeepsSessionChoice(t *testing.T) {
+	h, c := newHost(), controller()
+	c.PersistDefault(func(bool) error { return errors.New("read-only") })
+	must(t, c.Restore(h))
+	must(t, c.Command(h, "on"))
+	if h.status[StatusKey] != Badge || !strings.Contains(strings.Join(h.notices, "\n"), "warning: ADHD output: cannot save the default") {
+		t.Fatalf("status=%v notices=%v", h.status, h.notices)
+	}
+}
