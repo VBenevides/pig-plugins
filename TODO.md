@@ -28,3 +28,13 @@ Implementation commit: `6a69a181bc9ababbca1e5e7447f6ab2da6a9b4a4`.
 - Full upstream host comparison tests need TypeScript comparison dependencies absent from the staged source. Targeted native tests passed; a full host-suite pass is not claimed.
 - Windows-specific file handling was not runtime-tested on Linux.
 - Rewind remains deferred.
+
+## Install symlink
+
+- [x] `scripts/install.sh` links `~/.pig/bin/pig-plugins` into `~/.local/bin/pig-plugins`.
+
+Implementation commit: `980c57f7b6ac95e484f3b6aedf21fbe81a938f4f`.
+
+- `sh -n scripts/install.sh`: passed.
+- Full install into a temporary `PIG_HOME` and `PIG_PLUGINS_LINK_DIR`: built the binary, created the symlink, and `pig-plugins --version` through the link printed `0.4.1+1.0.3`. The off-PATH warning appeared as expected.
+- Not exercised: existing-regular-file refusal branch.
