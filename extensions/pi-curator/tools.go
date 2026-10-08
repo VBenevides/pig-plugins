@@ -73,6 +73,8 @@ func (x *extension) tool(build buildFunc) sdk.ToolFunc {
 		if err != nil {
 			return nil, err
 		}
+		x.countCall(sessionID, false, true)
+		defer x.announce(ctx)
 		state := x.current(sessionID, ctx.Cwd())
 		if state == nil {
 			return nil, errors.New("Repository memory is unavailable: initialize with consent first")

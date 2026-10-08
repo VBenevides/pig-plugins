@@ -19,6 +19,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/curator"
+	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
@@ -71,7 +72,12 @@ type extension struct {
 	disabled bool
 	// awaiting holds the sessions that still have to ask for consent before their first prompt.
 	awaiting map[string]bool
+	// calls counts memory_search/memory_read executions per session id.
+	calls map[string]*callCount
 }
+
+// callCount holds the memory tool calls of the current interaction and of the whole session.
+type callCount struct{ interaction, session int }
 
 func (x *extension) warn(message string) {
 	fmt.Fprintf(os.Stderr, "[pi-curator %s] %s\n", Version, message)
@@ -107,12 +113,16 @@ func Extension() *sdk.Extension {
 				return x.switchEnabled(ctx, enabled)
 			}}
 			controller.Handle(runCtx, args, ctx.Notify)
+			x.announce(ctx)
 			return nil
 		},
 	})
 
 	x.registerTools(e)
-	e.OnSessionStart(x.onSessionStart)
+	e.OnSessionStart(func(ctx sdk.Context, data map[string]any) (any, error) {
+		x.announce(ctx)
+		return x.onSessionStart(ctx, data)
+	})
 	e.OnEvent(sdk.EventMessageEnd, x.onMessageEnd)
 	e.OnEvent(sdk.EventAgentEnd, x.onAgentEnd)
 	e.OnEvent(sdk.EventBeforeAgentStart, x.onBeforeAgentStart)
@@ -222,6 +232,53 @@ func (x *extension) switchEnabled(ctx sdk.Context, enabled bool) error {
 		x.retire(state, "disabled")
 	}
 	return nil
+}
+
+// announce shows the on/off state, prefetch state and read/search call counts (interaction/session) in the footer's
+// third row. A damaged settings file reads as off, like enabled.
+func (x *extension) announce(ctx sdk.Context) {
+	x.mu.Lock()
+	disabled := x.disabled
+	x.mu.Unlock()
+	values, err := x.config.Effective()
+	if disabled || err != nil || !values.Enabled {
+		footerstatus.Set(ctx, Name, Name+" off")
+		return
+	}
+	prefetchState := "off"
+	if _, valid, on := curator.PrefetchBudget(values.Prefetch); valid && on {
+		prefetchState = "on"
+	}
+	var count callCount
+	if id, err := ctx.GetSessionID(); err == nil {
+		x.mu.Lock()
+		if c := x.calls[id]; c != nil {
+			count = *c
+		}
+		x.mu.Unlock()
+	}
+	footerstatus.Set(ctx, Name, fmt.Sprintf("%s on - prefetch %s - reads %d/%d", Name, prefetchState, count.interaction, count.session))
+}
+
+// countCall records one memory tool call; resetInteraction starts a new interaction count first.
+func (x *extension) countCall(sessionID string, resetInteraction, add bool) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if x.calls == nil {
+		x.calls = map[string]*callCount{}
+	}
+	c := x.calls[sessionID]
+	if c == nil {
+		c = &callCount{}
+		x.calls[sessionID] = c
+	}
+	if resetInteraction {
+		c.interaction = 0
+	}
+	if add {
+		c.interaction++
+		c.session++
+	}
 }
 
 func (x *extension) onSessionStart(ctx sdk.Context, _ map[string]any) (any, error) {

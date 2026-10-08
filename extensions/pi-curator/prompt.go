@@ -86,6 +86,8 @@ func (x *extension) onBeforeAgentStart(ctx sdk.Context, data map[string]any) (an
 	}
 	runCtx, cancel := sdkctx.Request(ctx)
 	defer cancel()
+	x.countCall(sessionID, true, false)
+	defer x.announce(ctx)
 	x.askConsent(ctx, runCtx, sessionID)
 	state := x.current(sessionID, ctx.Cwd())
 	if state == nil {
