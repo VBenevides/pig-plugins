@@ -1,5 +1,7 @@
 #!/bin/sh
 # Install pig-plugins by copying (never linking) it into PiG's home.
+# Installs PiG 0.4.1 first (override with PIG_VERSION) when `pig` is not on PATH, then builds the
+# fused executable; prompts and skills are installed only after that build succeeds.
 #
 #   <home>/pig-plugins/            tracked repository files, including every extension and prompts/
 #   <home>/bin/pig-plugins         fused PiG executable built from that copy
@@ -10,6 +12,8 @@
 #
 # <home> is $PIG_HOME or ~/.pig; <agent> is $PIG_CODING_AGENT_DIR or <home>/agent.
 # Re-running replaces the copy with the current repository state.
+# Quiet by default: only errors and the final completion line are printed. Output of the PiG installer and of
+# the build is kept in a temporary log that is shown only when one of those steps fails.
 set -eu
 
 # Piped from curl (`curl ... | sh`) there is no checkout beside the script: clone one and run its copy.
@@ -41,9 +45,31 @@ done
 
 mkdir -p -- "$pig_home" "$agent_dir" "$pig_home/bin"
 
-# 1. Copy tracked files to a staging directory, then swap it in.
+log=$(mktemp "${TMPDIR:-/tmp}/pig-plugins-install-log.XXXXXX")
+trap 'rm -f "$log"' 0
+# fail_with_log MESSAGE: print the error and the captured output of the failed step.
+fail_with_log() {
+    echo "install: $1" >&2
+    cat -- "$log" >&2
+    exit 1
+}
+
+# 1. Ensure PiG is installed. The host and SDK patches target PiG 0.4.1, so that version is installed by default.
+if ! command -v pig >/dev/null 2>&1; then
+    command -v curl >/dev/null 2>&1 || { echo "install: curl is required to install pig" >&2; exit 1; }
+    curl -fsSL https://pi-in-go.dev/install.sh | PIG_VERSION="${PIG_VERSION:-0.4.1}" sh >"$log" 2>&1 || fail_with_log "pig installation failed"
+    # The installer writes to ~/.local/bin by default, which may not be on PATH yet.
+    PATH="${PIG_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
+    export PATH
+    command -v pig >/dev/null 2>&1 || { echo "install: pig installation failed" >&2; exit 1; }
+fi
+
+# 2. Build the fused executable. Prompts and skills are installed only after this succeeds.
+binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins" 2>"$log") || fail_with_log "build failed"
+
+# 3. Copy tracked files to a staging directory, then swap it in.
 stage=$(mktemp -d "$pig_home/.pig-plugins-stage.XXXXXX")
-trap 'rm -rf "$stage"' 0
+trap 'rm -rf "$stage"; rm -f "$log"' 0
 git -C "$root" ls-files -z | tar -C "$root" --null -T - -cf - | tar -C "$stage" -xf -
 # Skills are copied from the working tree, so untracked ones are installed too.
 if [ -d "$root/skills" ]; then
@@ -55,22 +81,19 @@ rm -rf -- "$dest.old"
 mv -- "$stage" "$dest"
 rm -rf -- "$dest.old"
 chmod 755 "$dest"
-echo "install: copied repository to $dest"
 
-# 2. Copy the prompts into the agent directory.
+# 4. Copy the prompts into the agent directory.
 stamp=$(date +%s)
 for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
     target="$agent_dir/$f"
     if [ -e "$target" ] && ! cmp -s "$dest/prompts/agent/$f" "$target"; then
         cp -- "$target" "$target.pig-plugins-backup-$stamp"
-        echo "install: backed up $target"
     fi
     cp -- "$dest/prompts/agent/$f" "$target.tmp.$$"
     mv -- "$target.tmp.$$" "$target"
-    echo "install: wrote $target"
 done
 
-# 3. Copy the skills into the agent directory.
+# 5. Copy the skills into the agent directory.
 for skill in "$dest"/skills/*/; do
     [ -f "$skill/SKILL.md" ] || continue
     name=$(basename -- "$skill")
@@ -80,20 +103,14 @@ for skill in "$dest"/skills/*/; do
         # Backups stay outside skills/ so PiG does not discover them as duplicate skills.
         mkdir -p -- "$agent_dir/skills-backup/$stamp"
         mv -- "$target" "$agent_dir/skills-backup/$stamp/$name"
-        echo "install: backed up $target"
     fi
     if [ ! -e "$target" ]; then
         cp -R -- "$skill" "$target.tmp.$$"
         mv -- "$target.tmp.$$" "$target"
-        echo "install: wrote $target"
     fi
 done
 
-# 4. Build the fused executable. The builder needs the git checkout; its inputs match the copy above.
-binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins")
-echo "install: built $binary"
-
-# 5. Link the executable into the user bin directory so `pig-plugins` is on PATH.
+# 6. Link the executable into the user bin directory so `pig-plugins` is on PATH.
 link_dir=${PIG_PLUGINS_LINK_DIR:-"$HOME/.local/bin"}
 link="$link_dir/pig-plugins"
 mkdir -p -- "$link_dir"
@@ -101,9 +118,10 @@ if [ -e "$link" ] && [ ! -L "$link" ]; then
     echo "install: '$link' exists and is not a symlink; not replacing it" >&2
 else
     ln -sfn -- "$binary" "$link"
-    echo "install: linked $link -> $binary"
     case ":$PATH:" in
         *":$link_dir:"*) ;;
         *) echo "install: $link_dir is not on PATH; add it to run 'pig-plugins' directly" >&2 ;;
     esac
 fi
+
+echo "pig-plugins install completed, you may use it with \`pig-plugins\`"
