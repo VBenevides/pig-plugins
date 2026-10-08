@@ -12,6 +12,20 @@
 # Re-running replaces the copy with the current repository state.
 set -eu
 
+# Piped from curl (`curl ... | sh`) there is no checkout beside the script: clone one and run its copy.
+case "$0" in
+    */*) here=$(dirname -- "$0") ;;
+    *) here=. ;;
+esac
+if [ ! -f "$here/dev_build.sh" ]; then
+    command -v git >/dev/null 2>&1 || { echo "install: git is required on PATH" >&2; exit 1; }
+    checkout=$(mktemp -d "${TMPDIR:-/tmp}/pig-plugins-install.XXXXXX")
+    trap 'rm -rf "$checkout"' 0
+    git clone --quiet --depth 1 "${PIG_PLUGINS_REPO:-https://github.com/VBenevides/pig-plugins}" "$checkout/src"
+    "$checkout/src/scripts/install.sh"
+    exit 0
+fi
+
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 pig_home=${PIG_HOME:-"$HOME/.pig"}
 agent_dir=${PIG_CODING_AGENT_DIR:-"$pig_home/agent"}

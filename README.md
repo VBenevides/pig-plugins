@@ -1,5 +1,18 @@
 # pig-plugins
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts/install.sh | sh
+```
+
+Requires `git`, `go`, Node.js 22.13 or newer, and `pig` on `PATH`.
+The script clones the repository into a temporary directory, copies the plugins, prompts and skills into `~/.pig`,
+builds the fused executable at `~/.pig/bin/pig-plugins`, and removes the clone. Details are under
+[Install into `~/.pig`](#install-into-pig). Set `PIG_PLUGINS_REPO` to install from another clone or fork.
+
+## About
+
 Go extensions for [PiG](https://github.com/MichaelKinsy/PiG) (the Go port of Pi), plus the original
 Node/TypeScript `pi-image-view` extension. Each native folder under `extensions/<name>/`
 exports `func Extension() *sdk.Extension`. The repository uses one Go module for shared `internal/` packages.
