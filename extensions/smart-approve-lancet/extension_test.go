@@ -158,11 +158,11 @@ func TestRPCConfirmationFlow(t *testing.T) {
 		t.Fatalf("asked %d dialogs, want 3 (a hard-blocked command must never be offered): %v", len(result.Asked), result.Asked)
 	}
 	titles := []string{"Dangerous command: Force kill process (SIGKILL)", "Dangerous command: Force kill process (SIGKILL)", "Protected path: " + filepath.Join(home.Work, ".env")}
-	folders := []string{"Working folder: " + home.Work, "Working folder: " + home.Work, "Folder: " + home.Work}
+	items := []string{"- scope: unknown - targets not determined", "- scope: unknown - targets not determined", "- file: " + filepath.Join(home.Work, ".env") + " - write contents"}
 	for i, want := range titles {
 		// The select dialog carries the whole confirmation text in its title.
-		if got, _ := result.Asked[i]["title"].(string); !strings.HasPrefix(got, want+"\n") || !strings.Contains(got, folders[i]) {
-			t.Errorf("dialog %d title = %q, want it to start with %q and show %q", i, got, want, folders[i])
+		if got, _ := result.Asked[i]["title"].(string); !strings.HasPrefix(got, want+"\n") || !strings.Contains(got, "Affected items:\n"+items[i]) {
+			t.Errorf("dialog %d title = %q, want it to start with %q and show %q", i, got, want, items[i])
 		}
 		if options := fmt.Sprint(result.Asked[i]["options"]); options != "[Deny Allow once Always allow this command and item]" {
 			t.Errorf("dialog %d options = %s", i, options)

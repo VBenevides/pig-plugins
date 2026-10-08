@@ -286,9 +286,12 @@ continues, and an unavailable model blocks. A damaged settings file (`smart-appr
 directory) means `strict` and is reported. Commands: `/smart-approve-lancet [interactive|strict|status]` (no argument
 toggles) and `/smart-approve-lancet lancet [status|setup|on|off|check <command>]`.
 
-The confirmation shows the affected paths: the targets of an `rm -rf`, or the working folder when a command does not
-name them; a protected write shows its folder. The dialog answers `Deny`, `Allow once` or `Always allow this command
-and item`. The last stores the exact command (or the tool, for `write` and `edit`) together with its affected item in
+The confirmation shows `Affected items:` with one `- type: name - effect` entry per known target. Simple commands
+name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
+Implicit targets, shell expressions, compound commands and unsupported options show an unknown scope instead of
+guessing. This display does not change approval rules or saved grant keys. The dialog answers `Deny`, `Allow once`
+or `Always allow this command and item`. The last stores the exact command (or the tool, for `write` and `edit`)
+together with its policy item (delete paths or the working folder for bash; the file path for write/edit) in
 `smart-approve-lancet-allow.json` in the agent directory (mode 0600); only that pair is skipped later, and the other
 sessions see it at once. `strict` mode, hard blocks and LANCET `risky` verdicts still block. A damaged allow list
 grants nothing and is reported on stderr. A recursive force delete whose every target is known and strictly inside

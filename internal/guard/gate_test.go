@@ -104,7 +104,7 @@ func TestBashDecisionTable(t *testing.T) {
 func TestConfirmationDialogText(t *testing.T) {
 	d := &dialog{answer: true}
 	check(newGate(Interactive, false, nil), d, "bash", bash("git push --force origin dev"), true)
-	want := "Dangerous command: git force / mirror push\nRisk Description:\n- git force / mirror push: Overwrites the remote history. Other people's commits can be lost.\n\nWorking folder: /work (the command does not name the paths it changes)\n\nCommand:\ngit push --force origin dev\n\nAllow this command to run?"
+	want := "Dangerous command: git force / mirror push\nRisk Description:\n- git force / mirror push: Overwrites the remote history. Other people's commits can be lost.\n\nAffected items:\n- branch: dev (remote: origin) - push changes (overwrite remote history)\n\nCommand:\ngit push --force origin dev\n\nAllow this command to run?"
 	if len(d.asked) != 1 || d.asked[0] != want {
 		t.Errorf("dialog = %q, want %q", d.asked, want)
 	}
@@ -298,7 +298,7 @@ func g(mode Mode) *Gate { return newGate(mode, false, nil) }
 func TestProtectedPathDialogText(t *testing.T) {
 	d := &dialog{answer: true}
 	g(Interactive).Check(context.Background(), Call{Tool: "write", Input: map[string]any{"path": "/x/.env"}, Cwd: "/", HasUI: true, Confirm: d.confirm})
-	want := "Protected path: /x/.env\nRisk Description:\n- Protected file: it can hold secrets, credentials or settings that control your tools. Changing it can leak access or break your environment.\n\nwrite wants to modify this file.\n\nPath: /x/.env\nFolder: /x\n\nAllow this change?"
+	want := "Protected path: /x/.env\nRisk Description:\n- Protected file: it can hold secrets, credentials or settings that control your tools. Changing it can leak access or break your environment.\n\nAffected items:\n- file: /x/.env - write contents\n\nAllow this change?"
 	if len(d.asked) != 1 || d.asked[0] != want {
 		t.Errorf("dialog = %q, want %q", d.asked, want)
 	}

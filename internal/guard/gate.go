@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -265,7 +264,7 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 		return block("blocked dangerous command (%s); %s.", joined, why), nil
 	}
 	risk := describeRisk(analysis.Behaviors, analysis.Labels, lancetNote)
-	body := "Risk Description:\n" + risk + "\n\n" + describeAffected(analysis, items) + "\n\nCommand:\n" + command + "\n\nAllow this command to run?"
+	body := "Risk Description:\n" + risk + "\n\n" + describeAffected(command, analysis, items) + "\n\nCommand:\n" + command + "\n\nAllow this command to run?"
 	if !g.ask(call, "Dangerous command: "+joined, body, Grant{Tool: call.Tool, Command: command, Item: strings.Join(items, "\n")}) {
 		return block("user denied dangerous command (%s).", joined), nil
 	}
@@ -299,7 +298,7 @@ func (g *Gate) checkWrite(call Call) (Decision, error) {
 	if why := g.cannotAsk(call); why != "" {
 		return block("blocked %s to protected path %s; %s.", call.Tool, absolute, why), nil
 	}
-	body := fmt.Sprintf("Risk Description:\n- Protected file: it can hold secrets, credentials or settings that control your tools. Changing it can leak access or break your environment.\n\n%s wants to modify this file.\n\nPath: %s\nFolder: %s\n\nAllow this change?", call.Tool, absolute, filepath.Dir(absolute))
+	body := fmt.Sprintf("Risk Description:\n- Protected file: it can hold secrets, credentials or settings that control your tools. Changing it can leak access or break your environment.\n\nAffected items:\n- file: %s - %s contents\n\nAllow this change?", absolute, call.Tool)
 	if !g.ask(call, "Protected path: "+absolute, body, Grant{Tool: call.Tool, Command: call.Tool, Item: absolute}) {
 		return block("user denied %s to protected path %s.", call.Tool, absolute), nil
 	}

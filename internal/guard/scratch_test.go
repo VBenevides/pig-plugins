@@ -86,8 +86,13 @@ func TestScratchDeleteThroughSymlinkOutOfScratchStillAsks(t *testing.T) {
 	}
 }
 
-func TestDialogShowsAffectedPathsAndOffersAlwaysAllow(t *testing.T) {
+func TestDialogShowsAffectedItemsAndOffersAlwaysAllow(t *testing.T) {
 	cwd := workDir(t)
+	for _, name := range []string{"build", "dist"} {
+		if err := os.Mkdir(filepath.Join(cwd, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	gate := newGate(Interactive, false, nil)
 	gate.UseAllowlist(NewAllowlist(filepath.Join(t.TempDir(), "allow.json")))
 	s := &selector{choice: choiceDeny}
@@ -95,7 +100,7 @@ func TestDialogShowsAffectedPathsAndOffersAlwaysAllow(t *testing.T) {
 	if len(s.asked) != 1 {
 		t.Fatalf("asked %v", s.asked)
 	}
-	for _, want := range []string{"Affected paths:", "- " + filepath.Join(cwd, "build"), "- " + filepath.Join(cwd, "dist")} {
+	for _, want := range []string{"Affected items:", "- folder: " + filepath.Join(cwd, "build") + " - delete", "- folder: " + filepath.Join(cwd, "dist") + " - delete"} {
 		if !strings.Contains(s.asked[0], want) {
 			t.Errorf("dialog lacks %q:\n%s", want, s.asked[0])
 		}
@@ -162,8 +167,8 @@ func TestAlwaysAllowForProtectedWriteIsPerPath(t *testing.T) {
 	if got := gate.Check(context.Background(), selectCall(cwd, "write", map[string]any{"path": ".env"}, always)); got.Block {
 		t.Fatalf("blocked: %+v", got)
 	}
-	if !strings.Contains(always.asked[0], "Folder: "+cwd) {
-		t.Errorf("dialog lacks the folder:\n%s", always.asked[0])
+	if !strings.Contains(always.asked[0], "- file: "+filepath.Join(cwd, ".env")+" - write contents") {
+		t.Errorf("dialog lacks the affected file:\n%s", always.asked[0])
 	}
 	deny := &selector{choice: choiceDeny}
 	if got := gate.Check(context.Background(), selectCall(cwd, "write", map[string]any{"path": ".env"}, deny)); got.Block || len(deny.asked) != 0 {
