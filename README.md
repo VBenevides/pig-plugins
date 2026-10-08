@@ -458,8 +458,12 @@ Do not enable `harness-interact` or the TypeScript todo twin at the same time.
 
 The bundled native extension appends `prompts/project-system.md` on
 `before_agent_start`, preserving the entire host prompt and adding the rules once.
-It requires hashline edits for existing files, reserves `write` for new paths,
-and includes concise ADHD-friendly presentation guidance without the full skill.
+It requires hashline edits for existing files and reserves `write` for new paths.
+For trusted projects, it also loads the literal `.local/APPEND_SYSTEM.md` and
+`local/AGENTS.md` paths from the current working directory on each request.
+Missing files are optional; content already loaded by the host is not repeated.
+Files must be regular UTF-8 files within the project, at most 256 KiB each.
+`local/APPEND_SYSTEM.md` is not substituted for `.local/APPEND_SYSTEM.md`.
 
 The original Pi Harness addendum is preserved in
 `prompts/sources/zed-pi-harness-APPEND_SYSTEM.md` for provenance, not execution.
@@ -467,3 +471,17 @@ The adaptation follows PiG v0.4.1 prompt composition and the user's local
 hashline guidance. ADHD main points come from
 [i-have-adhd revision 723af7d9afaf43eb871dbcce6129e2bf80de90d5](https://github.com/ayghri/i-have-adhd/blob/723af7d9afaf43eb871dbcce6129e2bf80de90d5/skills/i-have-adhd/SKILL.md);
 the MIT notice is under `prompts/sources/`.
+
+## adhd-output
+
+`/adhd on`, `/adhd off`, and `/adhd status` control optional presentation rules.
+The default is off. State belongs to the current session branch; enabled rules
+are invisible context messages, not extra model turns. The shared footer shows
+`● ADHD ON`. See `extensions/adhd-output/README.md` for launch and configuration.
+
+## repo-excludes
+
+On trusted repository startup, this plugin adds missing `.agent-work/`, `.ouro/`,
+and `.curator/` entries to Git's `info/exclude`, including linked worktrees.
+It preserves existing bytes and permissions and never edits tracked `.gitignore`.
+Failures are reported. See `extensions/repo-excludes/README.md`.
