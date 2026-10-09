@@ -53,21 +53,26 @@ func selectedAuth(source accountSource, provider string) (quota.AuthEntry, bool,
 
 // accountStatus is shared by the footer and deterministic quota integration tests.
 func (x *extension) accountStatus(run context.Context, source accountSource, account sdk.OAuthAccount) (*quota.StatusQuota, error) {
+	status, _, err := x.accountQuota(run, source, account)
+	return status, err
+}
+
+func (x *extension) accountQuota(run context.Context, source accountSource, account sdk.OAuthAccount) (*quota.StatusQuota, *float64, error) {
 	entry, err := accountAuth(source, account.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !validOAuth(entry, time.Now()) {
-		return nil, fmt.Errorf("native OAuth credentials unavailable or expired")
+		return nil, nil, fmt.Errorf("native OAuth credentials unavailable or expired")
 	}
 	switch account.Provider {
 	case "anthropic":
 		usage, err := x.client.FetchClaude(run, entry)
-		return quota.ClaudeStatusQuota(usage), err
+		return quota.ClaudeStatusQuota(usage), quota.ClaudeRemaining(usage), err
 	case "openai-codex":
 		usage, err := x.client.FetchCodex(run, entry)
-		return quota.CodexStatusQuota(usage), err
+		return quota.CodexStatusQuota(usage), quota.CodexRemaining(usage), err
 	default:
-		return nil, nil
+		return nil, nil, nil
 	}
 }

@@ -51,6 +51,14 @@ edits: report the warnings and state explicitly that the result is not a pass.
    report the exact failing gate, attempted repair, and missing prerequisite.
    Never describe a blocked or warning-bearing result as a pass.
 
+## Gitignored files
+
+NEVER apply formatting or run checks on gitignored files. Before running Ouro,
+verify that formatting and check targets exclude files ignored by Git, including
+files inside ignored directories. If the configured gates cannot enforce this
+boundary, report the blocker instead of running them. Do not remove ignore rules
+or force-include ignored files to obtain a pass.
+
 ## Verification boundary
 
 To check whether source, configuration, tool, or service changes worked, rerun

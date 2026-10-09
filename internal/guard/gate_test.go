@@ -199,14 +199,14 @@ func TestLancetNeverSeesHardBlockedCommandsAndPatternLabelsJoinTheBand(t *testin
 }
 
 func TestLancetOnWithoutAScorerFailsClosed(t *testing.T) {
-	got := check(newGate(Interactive, true, nil), nil, "bash", bash("ls"), true)
+	got := check(newGate(Interactive, true, nil), nil, "bash", bash("echo hi"), true)
 	if !got.Block || !strings.Contains(got.Reason, "LANCET is on but unavailable") {
 		t.Errorf("got %+v", got)
 	}
 }
 
 func TestPanicInTheScorerBlocks(t *testing.T) {
-	got := check(newGate(Interactive, true, &fakeScorer{panics: true}), nil, "bash", bash("ls"), true)
+	got := check(newGate(Interactive, true, &fakeScorer{panics: true}), nil, "bash", bash("echo hi"), true)
 	if !got.Block || !strings.Contains(got.Reason, "policy evaluation failed: scorer exploded") {
 		t.Errorf("got %+v", got)
 	}
@@ -214,11 +214,11 @@ func TestPanicInTheScorerBlocks(t *testing.T) {
 
 func TestGateStateChangesApplyToTheNextCall(t *testing.T) {
 	g := newGate(Interactive, false, &fakeScorer{err: errors.New("down")})
-	if got := check(g, nil, "bash", bash("ls"), false); got.Block {
+	if got := check(g, nil, "bash", bash("echo hi"), false); got.Block {
 		t.Fatalf("lancet off must not score: %+v", got)
 	}
 	g.SetLancet(true)
-	if got := check(g, nil, "bash", bash("ls"), false); !got.Block {
+	if got := check(g, nil, "bash", bash("echo hi"), false); !got.Block {
 		t.Fatal("lancet on with a failing scorer must block")
 	}
 	g.SetLancet(false)

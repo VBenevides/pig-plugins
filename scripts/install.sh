@@ -12,8 +12,8 @@
 #
 # <home> is $PIG_HOME or ~/.pig; <agent> is $PIG_CODING_AGENT_DIR or <home>/agent.
 # Re-running replaces the copy with the current repository state.
-# Quiet by default: only errors and the final completion line are printed. Output of the PiG installer and of
-# the build is kept in a temporary log that is shown only when one of those steps fails.
+# Installation stages and build progress are printed to stderr.
+# PiG bootstrap output is retained in a temporary log and shown on failure.
 set -eu
 
 # Piped from curl (`curl ... | sh`) there is no checkout beside the script: clone one and run its copy.
@@ -25,6 +25,7 @@ if [ ! -f "$here/dev_build.sh" ]; then
     command -v git >/dev/null 2>&1 || { echo "install: git is required on PATH" >&2; exit 1; }
     checkout=$(mktemp -d "${TMPDIR:-/tmp}/pig-plugins-install.XXXXXX")
     trap 'rm -rf "$checkout"' 0
+    echo "install: downloading repository" >&2
     git clone --quiet --depth 1 "${PIG_PLUGINS_REPO:-https://github.com/VBenevides/pig-plugins}" "$checkout/src"
     "$checkout/src/scripts/install.sh"
     exit 0
@@ -55,6 +56,7 @@ fail_with_log() {
 }
 
 # 1. Ensure PiG is installed. The host and SDK patches target PiG 0.4.1, so that version is installed by default.
+echo "install: [1/6] checking PiG installation" >&2
 if ! command -v pig >/dev/null 2>&1; then
     command -v curl >/dev/null 2>&1 || { echo "install: curl is required to install pig" >&2; exit 1; }
     curl -fsSL https://pi-in-go.dev/install.sh | PIG_VERSION="${PIG_VERSION:-0.4.1}" sh >"$log" 2>&1 || fail_with_log "pig installation failed"
@@ -65,9 +67,11 @@ if ! command -v pig >/dev/null 2>&1; then
 fi
 
 # 2. Build the fused executable. Prompts and skills are installed only after this succeeds.
-binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins" 2>"$log") || fail_with_log "build failed"
+echo "install: [2/6] building executable" >&2
+binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins") || { echo "install: build failed (see diagnostics above)" >&2; exit 1; }
 
 # 3. Copy tracked files to a staging directory, then swap it in.
+echo "install: [3/6] copying repository files" >&2
 stage=$(mktemp -d "$pig_home/.pig-plugins-stage.XXXXXX")
 trap 'rm -rf "$stage"; rm -f "$log"' 0
 git -C "$root" ls-files -z | tar -C "$root" --null -T - -cf - | tar -C "$stage" -xf -
@@ -83,6 +87,7 @@ rm -rf -- "$dest.old"
 chmod 755 "$dest"
 
 # 4. Copy the prompts into the agent directory.
+echo "install: [4/6] installing agent prompts" >&2
 stamp=$(date +%s)
 for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
     target="$agent_dir/$f"
@@ -94,6 +99,7 @@ for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
 done
 
 # 5. Copy the skills into the agent directory.
+echo "install: [5/6] installing skills" >&2
 for skill in "$dest"/skills/*/; do
     [ -f "$skill/SKILL.md" ] || continue
     name=$(basename -- "$skill")
@@ -111,6 +117,7 @@ for skill in "$dest"/skills/*/; do
 done
 
 # 6. Link the executable into the user bin directory so `pig-plugins` is on PATH.
+echo "install: [6/6] linking executable" >&2
 link_dir=${PIG_PLUGINS_LINK_DIR:-"$HOME/.local/bin"}
 link="$link_dir/pig-plugins"
 mkdir -p -- "$link_dir"

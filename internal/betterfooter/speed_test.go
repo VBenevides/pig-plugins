@@ -116,3 +116,24 @@ func TestInteractionSpeedZeroElapsedAndThrottledTokens(t *testing.T) {
 		t.Fatal("throttled chunks lost tokens", tracker.Speed)
 	}
 }
+
+func TestInteractionSpeedDecaysEveryHalfSecondWithoutNewTokens(t *testing.T) {
+	tracker := SpeedTracker{}
+	tracker.AgentStart(0)
+	tracker.MessageStart()
+	tracker.MessageEnd(StreamUsage{Output: 100}, time.Second)
+	for _, elapsed := range []time.Duration{1500 * time.Millisecond, 2 * time.Second, 2500 * time.Millisecond} {
+		previous := tracker.Speed
+		if !tracker.Refresh(elapsed) || tracker.Speed >= previous {
+			t.Fatal("rate did not decrease without new output", tracker.Speed)
+		}
+		if tracker.Speed != 100/elapsed.Seconds() {
+			t.Fatal("elapsed-time refresh changed the token sum", tracker.Speed)
+		}
+	}
+	tracker.AgentEnd(3 * time.Second)
+	finalSpeed := tracker.Speed
+	if tracker.Refresh(3500*time.Millisecond) || tracker.Speed != finalSpeed {
+		t.Fatal("completed interaction must hold its rate")
+	}
+}

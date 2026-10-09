@@ -172,6 +172,8 @@ func (x *extension) drawLoop() {
 	defer close(x.drawDone)
 	timer := time.NewTicker(5 * time.Second)
 	defer timer.Stop()
+	speedTimer := time.NewTicker(500 * time.Millisecond)
+	defer speedTimer.Stop()
 	for {
 		checkAccount := false
 		select {
@@ -179,6 +181,7 @@ func (x *extension) drawLoop() {
 			return
 		case <-timer.C:
 			checkAccount = true
+		case <-speedTimer.C:
 		case <-x.draw:
 		}
 		x.mu.Lock()

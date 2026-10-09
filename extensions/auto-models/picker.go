@@ -147,6 +147,7 @@ func (p *picker) HandleInput(data string) (sdk.RemoteComponentResult, error) {
 	}
 	return sdk.RemoteComponentResult{}, nil
 }
+
 // swapValue is returned by a swappable picker when the user presses "r".
 const swapValue = "\x00swap"
 

@@ -39,6 +39,10 @@ type extension struct {
 	quotaProvider     string
 	quotaAccount      string
 	primaryQuotaAt    time.Time
+	lowQuotaAsked     string
+	retryPending      bool
+	retryUsed         bool
+	retryTarget       quota.Slot
 	autoEnabled       bool
 	loadErr           error
 	life              context.Context
@@ -88,9 +92,22 @@ func Extension() *sdk.Extension {
 	e.OnEvent("message_end", x.messageEnd)
 	for _, event := range []string{"agent_end", "model_select"} {
 		event := event
-		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		e.OnEvent(event, func(ctx sdk.Context, data map[string]any) (any, error) {
 			if event == "model_select" {
 				x.reconcile(ctx)
+			}
+			if event == "agent_end" {
+				x.mu.Lock()
+				pending := x.retryPending
+				target := x.retryTarget
+				x.retryPending = false
+				x.mu.Unlock()
+				willRetry, _ := data["willRetry"].(bool)
+				if pending && !willRetry && ctx.ModelProvider() == target.Provider && ctx.Model() == target.Model {
+					if err := ctx.SendUserMessage("Continue the interrupted task.", "followUp"); err != nil {
+						x.report(ctx, err)
+					}
+				}
 			}
 			x.queueRefresh(ctx, event == "model_select")
 			return nil, nil
@@ -367,8 +384,9 @@ func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
 		return
 	}
 	var status *quota.StatusQuota
+	var remaining *float64
 	if hasAccount {
-		status, err = x.accountStatus(x.life, ctx, account)
+		status, remaining, err = x.accountQuota(x.life, ctx, account)
 	}
 	if err != nil {
 		if x.life.Err() != nil {
@@ -383,6 +401,9 @@ func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
 	}
 	if ctx.ModelProvider() == provider && current.ID == account.ID && x.life.Err() == nil {
 		x.status(ctx, status)
+		if err := x.lowQuota(nativeModelSwitcher{ctx, x}, account, remaining); err != nil {
+			x.report(ctx, err)
+		}
 	}
 }
 
@@ -395,19 +416,59 @@ func (x *extension) provider(ctx sdk.Context) string {
 	return ctx.ModelProvider()
 }
 func (x *extension) fallbackOnLimit(ctx sdk.Context, provider string, left time.Duration) error {
-	primary, fallback := x.slots()
-	x.mu.Lock()
-	using := x.usingPrimary
-	x.mu.Unlock()
-	if !using || (provider != "" && provider != primary.Provider) {
+	return x.switchOnLimit(nativeModelSwitcher{ctx, x}, provider)
+}
+
+func (x *extension) switchOnLimit(ctx modelSwitcher, provider string) error {
+	if !x.autoEnabled || provider != ctx.ModelProvider() {
 		return nil
 	}
-	ok, err := x.choose(ctx, fallback)
-	if !ok {
+	primary, fallback := x.slots()
+	failedModel := ctx.Model()
+	target, toPrimary := fallback, false
+	switch {
+	case ctx.ModelProvider() == primary.Provider && ctx.Model() == primary.Model:
+	case ctx.ModelProvider() == fallback.Provider && ctx.Model() == fallback.Model:
+		target, toPrimary = primary, true
+	default:
+		return nil
+	}
+	if primary == fallback {
+		return nil
+	}
+	account, found, err := selectedAccount(ctx, target.Provider)
+	if err != nil || !found {
 		return err
 	}
-	x.selected(ctx, false)
-	ctx.Notify(fmt.Sprintf("Primary rate-limited, switched to %s, retry in %dmin", clean(fallback.Model), int(math.Round(left.Minutes()))), "warning")
+	remaining, err := x.accountRemaining(x.life, ctx, account)
+	if err != nil || remaining == nil || *remaining <= 0 {
+		return err
+	}
+	current, found, err := selectedAccount(ctx, target.Provider)
+	if err != nil || !found || current.ID != account.ID || provider != ctx.ModelProvider() {
+		return err
+	}
+	currPrimary, currFallback := x.slots()
+	if currPrimary != primary || currFallback != fallback || ctx.Model() != failedModel || x.life.Err() != nil {
+		return nil
+	}
+	x.mu.Lock()
+	used := x.retryUsed
+	x.mu.Unlock()
+	if used {
+		return nil
+	}
+	ok, err := ctx.chooseModel(target)
+	if err != nil || !ok {
+		return err
+	}
+	ctx.markSelected(toPrimary)
+	x.mu.Lock()
+	x.retryPending, x.retryUsed = true, true
+	x.retryTarget = target
+	x.primaryQuotaAt = time.Now()
+	x.mu.Unlock()
+	ctx.Notify("Quota exhausted, switched to "+clean(target.Model)+" and continuing", "warning")
 	return nil
 }
 func (x *extension) response(ctx sdk.Context, data map[string]any) (any, error) {
@@ -463,6 +524,12 @@ func (x *extension) messageEnd(ctx sdk.Context, data map[string]any) (any, error
 		return nil, nil
 	}
 	text, _ := message["errorMessage"].(string)
+	if message["stopReason"] != "error" && text == "" {
+		x.mu.Lock()
+		x.retryUsed = false
+		x.retryPending = false
+		x.mu.Unlock()
+	}
 	if !quota.RateLimitError(text) {
 		return nil, nil
 	}

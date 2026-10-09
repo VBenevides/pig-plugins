@@ -199,7 +199,7 @@ func (c *Controller) enable(ctx context.Context, notify Notify, announce func())
 		notify("LANCET: cannot enable: the pinned model is not verified. Run /smart-approve-lancet lancet setup first.", "error")
 		return
 	}
-	// Enabling makes scoring mandatory for every bash command, so prove the runtime can score before it is on.
+	// Scoring remains mandatory for commands outside the read-only subset.
 	if _, err := c.Lancet.Score(ctx, "echo lancet-self-test"); err != nil {
 		notify(fmt.Sprintf("LANCET: cannot enable: scoring does not work (%v). Bash stays as it was.", err), "error")
 		return
@@ -210,7 +210,7 @@ func (c *Controller) enable(ctx context.Context, notify Notify, announce func())
 	}
 	c.Gate.SetLancet(true)
 	announce()
-	notify("LANCET: on. Every bash command is now scored locally; if LANCET becomes unavailable, bash is blocked.", "info")
+	notify("LANCET: on. Commands outside the read-only subset are scored locally; if LANCET becomes unavailable, those commands are blocked.", "info")
 }
 
 func (c *Controller) disable(notify Notify, announce func()) {

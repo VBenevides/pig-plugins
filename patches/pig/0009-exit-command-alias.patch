@@ -1,0 +1,57 @@
+--- a/internal/codingagent/slash_commands.go
++++ b/internal/codingagent/slash_commands.go
+@@ -47,6 +47,5 @@
+ // BuiltinSlashCommand is the canonical shape for every command exposed
+-// to users. Aliases are first-class. (Note: upstream pi does NOT alias
+-// /exit → /quit; only /quit exists. We match that behavior: no alias.)
++// to users. Aliases are first-class; /exit aliases the normal /quit shutdown.
+ type BuiltinSlashCommand struct {
+ 	Name        string
+ 	Aliases     []string
+@@ -591,7 +590,7 @@
+ 		{Name: "compact", Description: "Manually compact the session context", Handler: compactHandler},
+ 		{Name: "resume", Description: "Resume a different session", Handler: resumeHandler},
+ 		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", Handler: reloadHandler},
+-		{Name: "quit", Description: "Quit " + AppName, Handler: quitHandler},
++		{Name: "quit", Aliases: []string{"exit"}, Description: "Quit " + AppName, Handler: quitHandler},
+ 		// Hidden: dispatchable but absent from /help and autocomplete, matching
+ 		// upstream (handled inline in the submit handler, not in the canonical
+ 		// slash-commands.js completion list). /debug writes a debug log; it is
+--- a/internal/codingagent/slash_commands_test.go
++++ b/internal/codingagent/slash_commands_test.go
+@@ -84,11 +84,10 @@
+ 	if !ok {
+ 		t.Fatal("/quit did not resolve")
+ 	}
+-	// /exit was removed (no upstream alias). Verify it's unknown.
+-	_, ok = r.Resolve("exit")
+-	if ok {
+-		t.Fatal("/exit should not resolve (removed)")
++	command, ok := r.Resolve("exit")
++	if !ok || command.Name != "quit" {
++		t.Fatal("/exit did not resolve to /quit")
+ 	}
+ }
+ 
+ func TestSlashRegistryUnknownCommand(t *testing.T) {
+@@ -105,12 +104,14 @@
+ 
+ func TestSlashQuitInvokesQuit(t *testing.T) {
+ 	r := NewSlashRegistry()
+-	sc, _, _, quit := newTestSlashContext()
+-	if err := r.Dispatch(sc, "/quit", nil); err != nil {
+-		t.Fatalf("/quit: %v", err)
+-	}
+-	if !*quit {
+-		t.Fatal("/quit did not invoke Quit sink")
++	for _, command := range []string{"/quit", "/exit"} {
++		sc, _, _, quit := newTestSlashContext()
++		if err := r.Dispatch(sc, command, nil); err != nil {
++			t.Fatalf("%s: %v", command, err)
++		}
++		if !*quit {
++			t.Fatalf("%s did not invoke Quit sink", command)
++		}
+ 	}
+ }
+ 

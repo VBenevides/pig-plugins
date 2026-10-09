@@ -74,7 +74,7 @@ func Cooldown(headers map[string]string, now time.Time) time.Duration {
 	return defaultCooldown
 }
 
-var rateLimitPattern = regexp.MustCompile(`(?i)\b429\b|rate_limit_error|rate limit`)
+var rateLimitPattern = regexp.MustCompile(`(?i)\b429\b|rate_limit_error|rate limit|insufficient_quota|usage_limit_reached|quota.{0,40}(exceeded|exhausted|reached)|(?:exceeded|exhausted).{0,40}quota|usage limit`)
 
 func RateLimitError(message string) bool { return rateLimitPattern.MatchString(message) }
 

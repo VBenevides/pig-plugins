@@ -84,8 +84,16 @@ func (x *extension) recoverPrimary(ctx sdk.Context) error {
 	}
 	x.primaryQuotaAt = time.Now()
 	x.mu.Unlock()
-	available, err := x.primaryAvailable(x.life, ctx, primary.Provider)
-	if err != nil || available == nil || !*available {
+	account, found, err := selectedAccount(ctx, primary.Provider)
+	if err != nil || !found {
+		return err
+	}
+	remaining, err := x.accountRemaining(x.life, ctx, account)
+	if err != nil || remaining == nil || *remaining < 5 {
+		return err
+	}
+	currentAccount, found, err := selectedAccount(ctx, primary.Provider)
+	if err != nil || !found || currentAccount.ID != account.ID {
 		return err
 	}
 	// A manual model/configuration change or a new request during the network

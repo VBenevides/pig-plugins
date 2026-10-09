@@ -90,7 +90,7 @@ func (g *Gate) Mode() Mode {
 	return g.mode
 }
 
-// LancetOn reports whether every bash command is scored.
+// LancetOn reports whether non-read-only bash commands are scored.
 func (g *Gate) LancetOn() bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -226,6 +226,9 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 	lancetNote := ""
 	if analysis.HardBlocked {
 		return block("blocked hard-blocked command (%s). This operation is never allowed.", strings.Join(labels, ", ")), nil
+	}
+	if readOnlyCommand(command) {
+		return allow, nil
 	}
 	if g.LancetOn() {
 		if g.scorer == nil {

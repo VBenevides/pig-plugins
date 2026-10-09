@@ -1,0 +1,175 @@
+--- a/tui/extension_selector.go
++++ b/tui/extension_selector.go
+@@ -21,6 +21,8 @@
+ 	cancel                bool
+ 	onToggleToolsExpanded func()
+ 	bodyScroll            int // first visible row of a long title/description (pig additive)
++	terminalHeight        int
++	bodyRows              int
+ 
+ 	// The themed texts are built when they change, as upstream builds each Text with theme.fg: the title at
+ 	// construction and for a countdown tick, the description at construction, the hint at construction and the
+@@ -136,6 +138,9 @@
+ func (e *ExtensionSelectorComponent) Render(width int) []string {
+ 	border := NewDynamicBorder("")
+ 	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
++	if e.terminalHeight > 0 {
++		return e.renderHeight(width, text, border.Render(width))
++	}
+ 
+ 	var lines []string
+ 	lines = append(lines, border.Render(width)...)
+@@ -186,9 +191,9 @@
+ 			e.onToggleToolsExpanded()
+ 		}
+ 	case kb.Matches(data, KBSelectPageUp):
+-		e.bodyScroll = max(0, e.bodyScroll-extensionSelectorBodyRows)
++		e.bodyScroll = max(0, e.bodyScroll-e.pageRows())
+ 	case kb.Matches(data, KBSelectPageDown):
+-		e.bodyScroll += extensionSelectorBodyRows // Render clamps to the last page
++		e.bodyScroll += e.pageRows() // Render clamps to the last page
+ 	case kb.Matches(data, KBSelectUp) || data == "k":
+ 		e.cursor = max(0, e.cursor-1)
+ 		e.updateList()
+--- a/internal/codingagent/interactive_layout.go
++++ b/internal/codingagent/interactive_layout.go
+@@ -26,7 +26,7 @@
+ // while an extension dialog is open. On a terminal too short for both, the
+ // dialog wins, but the transcript never renders empty and leaves the user
+ // answering with no context at all.
+-const minExtensionDialogChatLines = 3
++const minExtensionDialogChatLines = 1
+ 
+ // setExtensionDialogViewMode caps (or restores) the chat container so an open
+ // extension dialog has room without hiding the reasoning that motivated it
+@@ -62,6 +62,9 @@
+ 	if width <= 0 || component == nil {
+ 		return 0
+ 	}
++	if sized, ok := component.(interface{ SetTerminalHeight(int) }); ok {
++		sized.SetTerminalHeight(m.tuiInst.Height())
++	}
+ 	return len(component.Render(width))
+ }
+ 
+--- /dev/null
++++ b/tui/extension_selector_height.go
+@@ -0,0 +1,65 @@
++package tui
++
++import "strconv"
++
++// SetTerminalHeight budgets the complete selector, not just its message body.
++func (e *ExtensionSelectorComponent) SetTerminalHeight(height int) {
++	e.terminalHeight = max(0, height)
++}
++
++func (e *ExtensionSelectorComponent) pageRows() int {
++	if e.terminalHeight > 0 {
++		return max(1, e.bodyRows)
++	}
++	return extensionSelectorBodyRows
++}
++
++func (e *ExtensionSelectorComponent) renderHeight(width int, text func(string) []string, border []string) []string {
++	budget := max(1, e.terminalHeight*7/10)
++	oneLine := func(value string) string {
++		rows := text(value)
++		if len(rows) == 0 {
++			return ""
++		}
++		return rows[0]
++	}
++	var lines []string
++	borders := 0
++	if budget >= 4 {
++		borders = 2 * len(border)
++		lines = append(lines, border...)
++	}
++	// Reserve body space, but keep every approval option visible whenever it
++	// physically fits. At extremely small heights, options follow the cursor.
++	optionRows := min(len(e.rowTexts), max(1, budget-borders-2))
++	remaining := max(0, budget-borders-optionRows)
++	hintRows := 0
++	if remaining >= 4 {
++		hintRows = 1
++	}
++	body := text(e.titleText)
++	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
++	e.bodyRows = max(0, remaining-hintRows)
++	scrolling := len(body) > e.bodyRows
++	if scrolling && e.bodyRows > 1 {
++		e.bodyRows-- // reserve a one-row scroll indicator
++	}
++	e.bodyScroll = max(0, min(e.bodyScroll, max(0, len(body)-e.bodyRows)))
++	end := min(len(body), e.bodyScroll+e.bodyRows)
++	lines = append(lines, body[e.bodyScroll:end]...)
++	if scrolling && remaining-hintRows > 1 {
++		status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) + "  pgup/pgdn scroll"
++		lines = append(lines, oneLine(ActiveTheme().FgText("muted", status)))
++	}
++	start := max(0, min(e.cursor, len(e.rowTexts)-optionRows))
++	for _, row := range e.rowTexts[start : start+optionRows] {
++		lines = append(lines, oneLine(row))
++	}
++	if hintRows > 0 {
++		lines = append(lines, oneLine(e.hintText))
++	}
++	if borders > 0 {
++		lines = append(lines, border...)
++	}
++	return lines
++}
+--- /dev/null
++++ b/tui/extension_selector_height_test.go
+@@ -0,0 +1,50 @@
++package tui
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestExtensionSelectorHeightBudgetPreservesApprovalChoices(t *testing.T) {
++	for _, height := range []int{1, 6, 10, 12, 18, 24, 40, 80} {
++		for _, width := range []int{16, 40, 80} {
++			sel := NewExtensionSelector(strings.Repeat("long explanation\n", 100), []string{"Deny", "Allow", "Allow once"})
++			sel.SetTerminalHeight(height)
++			rows := sel.Render(width)
++			if len(rows) > max(1, height*7/10) {
++				t.Fatalf("height %d width %d: got %d rows", height, width, len(rows))
++			}
++			if height >= 10 {
++				for _, choice := range []string{"Deny", "Allow", "Allow once"} {
++					if !strings.Contains(strings.Join(rows, "\n"), choice) {
++						t.Fatalf("height %d width %d: missing %s", height, width, choice)
++					}
++				}
++			}
++		}
++	}
++}
++
++func TestExtensionSelectorHeightResizeAndScrolling(t *testing.T) {
++	sel := NewExtensionSelector(strings.Repeat("explanation\n", 100), []string{"Deny", "Allow", "Allow once"})
++	sel.SetTerminalHeight(40)
++	before := sel.Render(80)
++	sel.HandleInput("\x1b[6~")
++	if sel.bodyScroll == 0 || sel.Done() {
++		t.Fatal("page down must scroll without approving")
++	}
++	sel.SetTerminalHeight(12)
++	shrunk := sel.Render(80)
++	if len(shrunk) > 8 || len(shrunk) >= len(before) {
++		t.Fatal("resize did not shrink dialog", len(before), len(shrunk))
++	}
++	sel.SetTerminalHeight(80)
++	if len(sel.Render(80)) <= len(shrunk) {
++		t.Fatal("resize did not grow dialog")
++	}
++	sel.HandleInput("\x1b[B")
++	sel.HandleInput("\r")
++	if !sel.Done() || sel.SelectedValue() != "Allow" {
++		t.Fatal("approval navigation changed")
++	}
++}

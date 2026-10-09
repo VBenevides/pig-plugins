@@ -228,6 +228,10 @@ binary=$(./scripts/dev_build.sh)
 ```
 
 The script builds `build/pig-plugins` for the current platform and prints its absolute path to stdout.
+Installation and build stages are shown live on stderr, including PiG's fused-build progress.
+Go compilation defaults to two parallel jobs to reduce desktop memory and disk pressure.
+Override with `PIG_BUILD_JOBS=4`; `GOMAXPROCS` is also defaulted to 2 unless already set.
+Source staging excludes checkout-local `.git`, `.agent-work`, `build`, `node_modules`, and `.ouro` directories.
 Build diagnostics go to stderr. To choose another output path:
 
 ```sh
@@ -284,10 +288,16 @@ The safety layer: it registers no tool and gates `bash`, `write` and `edit` thro
 behaviors (`rm -rf /`, `curl | sh`, fork bombs, ...) are always blocked. Other dangerous behaviors and protected paths
 (`~/.ssh`, `.env`, ... with `.env.example` allowed; symlinks are resolved, dangling ones included) ask for
 confirmation in `interactive` mode and are blocked in `strict` mode or when no UI exists. With `/smart-approve-lancet
-lancet on`, every other bash command is scored locally first: `risky` is blocked, `review` asks, `not_flagged`
+lancet on`, commands outside the verified read-only subset are scored locally first: `risky` is blocked, `review` asks, `not_flagged`
 continues, and an unavailable model blocks. A damaged settings file (`smart-approve-lancet.json` in the agent
 directory) means `strict` and is reported. Commands: `/smart-approve-lancet [interactive|strict|status]` (no argument
 toggles) and `/smart-approve-lancet lancet [status|setup|on|off|check <command>]`.
+
+Verified read-only commands (`readlink`, `strings`, `rg`, `grep`, `head`, `tail`, `cat`, `ls`, `pwd`, `wc`, `stat`)
+bypass LANCET scoring and approval, including pipelines and lists made entirely from these commands.
+Redirects, substitutions, executable hooks, wrappers, and mixed read/write commands retain the existing policy.
+`rg` with `RIPGREP_CONFIG_PATH` set also retains scoring because its config can supply executable hooks.
+Hard-block rules still take precedence.
 
 The confirmation shows `Affected items:` with one `- type: name - effect` entry per known target. Simple commands
 name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
