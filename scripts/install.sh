@@ -8,6 +8,7 @@
 #   <home>/bin/pig-plugins         launcher with --update support
 #   <agent>/{SYSTEM,APPEND_SYSTEM,AGENTS}.md   copied from prompts/agent/; a differing existing file is
 #                                              kept as <file>.pig-plugins-backup-<timestamp>
+#   <agent>/keybindings.json                   copied from config/agent/ only when absent; never overwritten
 #   <agent>/skills/<name>/         copied from skills/ (every directory holding a SKILL.md); a differing
 #                                  existing skill moves to <agent>/skills-backup/<timestamp>/<name>
 #
@@ -109,6 +110,19 @@ for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
     cp -- "$dest/prompts/agent/$f" "$target.tmp.$$"
     mv -- "$target.tmp.$$" "$target"
 done
+
+# Default keybindings (ctrl+z undoes instead of suspending). keybindings.json is user-owned, so an
+# existing different file is kept untouched rather than overwritten.
+keys_source="$dest/config/agent/keybindings.json"
+keys_target="$agent_dir/keybindings.json"
+if [ -f "$keys_source" ]; then
+    if [ ! -e "$keys_target" ]; then
+        cp -- "$keys_source" "$keys_target.tmp.$$"
+        mv -- "$keys_target.tmp.$$" "$keys_target"
+    elif ! cmp -s "$keys_source" "$keys_target"; then
+        echo "install: $keys_target exists and differs; not replacing it (defaults: $keys_source)" >&2
+    fi
+fi
 
 # 5. Copy the skills into the agent directory.
 echo "install: [5/6] installing skills" >&2
