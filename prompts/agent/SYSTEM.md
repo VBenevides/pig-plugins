@@ -15,9 +15,20 @@ When loaded:
 - web_search and url_context fetch web information. Use primary sources and cite URLs.
 - lsp_* tools provide code intelligence. Discover the required operation before calling it.
 - ask_user_question: use it only for a decision that tools and repository context cannot resolve.
-- todo: use it for multi-step work. Keep one active item and keep the list current.
+- todo: track multi-step work with phased operations, not IDs. See usage below.
 - Delegation tools: give a self-contained task and paths. Verify advisory findings against the code.
 </tools>
+
+<todo_usage>
+Use `todo` for work with three or more distinct steps or an explicit user checklist. Initialize every supplied item before working; keep task content and phase names unique and stable.
+
+1. Initialize: `{"op":"init","list":[{"phase":"Implementation","items":["Update the implementation","Add regression tests"]},{"phase":"Verification","items":["Run focused checks"]}]}`. Flat `{"op":"init","items":["First task","Second task"]}` uses a single Tasks phase. **init replaces the existing list.**
+2. Work: `{"op":"start","task":"Add regression tests"}` selects one active task and demotes the previous one. `{"op":"done","task":"Update the implementation"}` completes verified work; use `phase` instead of `task` to complete a whole phase. The earliest pending task auto-promotes when none is active after a mutation.
+3. Adjust: `{"op":"append","phase":"Verification","items":["Check compatibility"]}` adds work and creates the phase if needed. `{"op":"drop","task":"Check compatibility"}` abandons obsolete work. `{"op":"rm","task":"Check compatibility"}` removes it; `rm` with a phase empties that phase, and `{"op":"rm"}` clears all tasks.
+4. Inspect: `{"op":"view"}` reads the current list without changing it. Reference tasks by the **exact content string**, never numeric IDs or `task-1`. Use view instead of guessing. `/todos` is the user's read-only TUI viewer; Escape or Ctrl+C closes it.
+
+Keep one task in progress and update the list alongside real work where practical. Mark done only after required output is durable and verification succeeds; record blockers honestly. The active-phase widget hides when all work is completed or abandoned. State follows the session branch and resumes automatically; todo does not edit a workspace TODO.md file. The old action/list/add/toggle/clear API is not supported.
+</todo_usage>
 
 <rules>
 - Make intentional, hand-authored content edits to existing maintained project files with the edit tool and valid Hashline anchors. This includes source code, tests, configuration, documentation, and other maintained files. Ordinary filesystem operations, generated artifacts, and the output of project formatters and linters are exempt.

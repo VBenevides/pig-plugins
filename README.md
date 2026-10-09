@@ -500,26 +500,58 @@ Do not enable the TypeScript questionnaire twin at the same time.
 
 ## todo
 
-The native Go extension ports `@diegopetrucci/pi-todo@0.1.11`.
-`todo` supports `list`, `add` with `text`, `toggle` with numeric `id`, and `clear`.
-Each result includes the original `{action, todos, nextId, error?}` snapshot.
-PiG stores these details in its session JSONL; there is no separate task file.
-Session start and tree navigation restore the latest full snapshot on the active branch.
-State stays inside the extension factory. New-session replacement starts with an empty list and ID 1.
-Tool batches run sequentially; a mutex also protects state from concurrent internal callers.
+The native Go extension ports [code-yeongyu/pi-todotools](https://github.com/code-yeongyu/pi-todotools)
+at commit `50b85f7e39c94a8fa8253eb3628515f188a42a1c`, whose phased model derives from Oh My Pi v17.0.5.
+It replaces the old `action`/numeric-ID API. Tasks are `{content, status}` with
+`pending`, `in_progress`, `completed`, or `abandoned` status.
 
-Tool cards preserve status markers and the five-item collapsed list; expanded cards show all items.
-`/todos` opens the original read-only list with a completion count and closes on Escape or Ctrl+C.
-It requires the TUI, not RPC or print mode. No persistent widget is installed.
-Terminal controls are removed from rendered text. Long tool-card text is limited to 1,024 wrapped lines per item.
-Malformed latest snapshots fail visibly and block mutations rather than falling back to stale state.
-The ID counter stays inside JavaScript's exact-integer range.
+| op | Fields | Effect |
+|---|---|---|
+| `init` | `list: [{phase, items}]` or flat `items` | Replace the full list |
+| `start` | `task` | Select active work; demote the previous active task |
+| `done` / `drop` | `task` or `phase` | Complete / abandon work |
+| `append` | `phase`, `items` | Add tasks; create the phase if missing |
+| `rm` | optional `task` or `phase` | Remove tasks; omit both to clear all |
+| `view` | none | Read the list without mutation |
 
-Eighteen actions and branch/resume snapshots were replayed through the pinned TypeScript.
-Real PiG runs verify persisted resume, tree navigation to an earlier todo result, branch ID reuse,
-clear/reset, and factory replacement on a new session.
-A native TUI smoke verifies sequential batch IDs, themed cards, the collapsed list,
-all seven items in `/todos`, Escape closure and clean exit.
+```json
+{"op":"init","list":[{"phase":"Implementation","items":["Update the implementation","Add regression tests"]},{"phase":"Verification","items":["Run focused checks"]}]}
+{"op":"done","task":"Update the implementation"}
+{"op":"view"}
+```
+
+Pass **verbatim task content** or phase names, never IDs. New tasks must be globally unique.
+When no task is active after a mutation, the earliest pending task auto-promotes in phase order.
+Completing later work never reopens completed tasks. With no target, `done`/`drop` affect all tasks;
+prefer explicit targets. With both targets, `task` takes precedence. `rm` leaves empty phase containers.
+
+Successful mutations persist `{schema:"v2", phases}` in `sanepi.todo-state` session entries before
+updating memory. View and validation failures write nothing. Tool details contain
+`{op, phases, storage, completedTasks?}`. Session reload/tree navigation reads the latest valid
+branch-local custom entry or historical `todo`/`todowrite` result. Old flat upstream lists and this
+repository's old ID/text/done snapshots migrate automatically; unknown legacy statuses become
+pending and cancelled becomes abandoned. Invalid snapshots produce warnings and retain the last valid
+state, matching upstream fallback rather than the old port's mutation blocking.
+Legacy duplicate content is preserved; exact-content targeting selects the first match, as upstream.
+Use init with unique task text to disambiguate such lists. New sessions start empty.
+
+The live active-phase widget appears **above the editor** through PiG's normal string-array widget
+API (ten-row cap and host-managed wrapping/resizing), not a separate side pane. It hides when all
+tasks are completed or abandoned. A widget failure warns without undoing an already-durable mutation.
+Cards show Roman-numbered phases and themed status markers; collapsed cards summarize untouched
+phases, while expanded cards show every phase. Terminal controls are removed, and cards are capped
+at 1,024 wrapped lines. `/todos` opens the full read-only phased viewer with a done count;
+Escape or Ctrl+C closes it. `/todos` requires TUI mode; the tool works in RPC/print mode.
+
+The extension adds task-management guidance once per effective system prompt.
+Usage examples also live in [`prompts/agent/SYSTEM.md`](prompts/agent/SYSTEM.md).
+It does not read or write a workspace TODO.md. Markdown conversion helpers are internal library
+functions, not disk import/export commands. Ask mode continues to permit session task notes.
+
+Tests cover operations, atomic rejection, migration, persistence rollback, active-phase rendering,
+Markdown conversion, and idempotent guidance. Real PiG tests exercise resume, branch/new-session
+isolation and successful-mutation-only custom entries. A 120-column TUI smoke exercised phase
+progression, `/todos` 3/3 status, Escape closure and clean exit.
 Do not enable another todo extension at the same time.
 
 ## project-prompt

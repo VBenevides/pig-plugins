@@ -2,7 +2,7 @@
   "type": "object",
   "required": ["op"],
   "properties": {
-    "op": {"type": "string", "enum": ["init", "start", "done", "rm", "drop", "append", "view"]},
+    "op": {"anyOf": [{"const": "init", "type": "string"}, {"const": "start", "type": "string"}, {"const": "done", "type": "string"}, {"const": "rm", "type": "string"}, {"const": "drop", "type": "string"}, {"const": "append", "type": "string"}, {"const": "view", "type": "string"}]},
     "task": {"type": "string", "description": "Task content"},
     "phase": {"type": "string", "description": "Phase name"},
     "items": {"type": "array", "items": {"type": "string", "description": "Task content"}, "description": "Tasks to append"},

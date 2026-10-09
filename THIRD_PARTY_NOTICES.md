@@ -12,7 +12,7 @@ copyright notice below. Versions are the ones the parity fixtures were captured 
 | `better-footer` | [`pi-better-footer@0.1.3`](https://github.com/roy-tian/pi-better-footer) | Roy Tian | MIT |
 | `web-search` | [`pi-web-search@1.6.0`](https://github.com/ttttmr/pi-web-search) | ttttmr | MIT (package.json) |
 | `ask-user-question` | [`@juicesharp/rpiv-ask-user-question@2.12.0`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) | juicesharp | MIT |
-| `todo` | [`@diegopetrucci/pi-todo@0.1.11`](https://github.com/diegopetrucci/pi-extensions/tree/main/extensions/todo) | Diego Petrucci | MIT |
+| `todo` | [`pi-todotools`](https://github.com/code-yeongyu/pi-todotools/tree/50b85f7e39c94a8fa8253eb3628515f188a42a1c) | Yeongyu Kim; Oh My Pi: Mario Zechner, Can Bölük | MIT |
 | `lsp` | `pi-lsp@0.1.7` (npm) | not stated in the package | MIT |
 | `smart-approve-lancet` | [VBenevides/smart-approve-lancet](https://github.com/VBenevides/smart-approve-lancet) | Vinicius Benevides (this repository's author) | MIT |
 | `pi-curator` | [VBenevides/pi-curator](https://github.com/VBenevides/pi-curator) | Vinicius Benevides (this repository's author) | MIT |
@@ -24,6 +24,13 @@ Limits of this record:
   licence for Diego Petrucci. No copyright holder text exists for `pi-web-search`, so none is claimed below beyond the
   declared author.
 - `pi-lsp@0.1.7` declares no author or repository. Its `LICENSE` reads `Copyright (c) 2026` with no holder.
+
+The phased todo Go port pins pi-todotools at `50b85f7e39c94a8fa8253eb3628515f188a42a1c`.
+Its upstream MIT license and origin notice are preserved in `extensions/todo/LICENSE` and
+`extensions/todo/NOTICE`. The model, operations, guidance, Markdown helpers and phase rendering
+derive from Oh My Pi commit `9fd6e97113f5ed3a847e66d346970efdf8afcad9` (v17.0.5):
+Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük.
+The old Diego Petrucci notice below is retained for historical fixtures used to test migration.
 
 ## Bundled Node extension
 

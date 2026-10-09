@@ -1,0 +1,1867 @@
+{
+  "source": "https://github.com/code-yeongyu/pi-todotools",
+  "commit": "50b85f7e39c94a8fa8253eb3628515f188a42a1c",
+  "schema": {
+    "type": "object",
+    "required": [
+      "op"
+    ],
+    "properties": {
+      "op": {
+        "anyOf": [
+          {
+            "type": "string",
+            "const": "init"
+          },
+          {
+            "type": "string",
+            "const": "start"
+          },
+          {
+            "type": "string",
+            "const": "done"
+          },
+          {
+            "type": "string",
+            "const": "rm"
+          },
+          {
+            "type": "string",
+            "const": "drop"
+          },
+          {
+            "type": "string",
+            "const": "append"
+          },
+          {
+            "type": "string",
+            "const": "view"
+          }
+        ]
+      },
+      "list": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "phase",
+            "items"
+          ],
+          "properties": {
+            "phase": {
+              "type": "string",
+              "description": "Phase name"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "description": "Task content"
+              },
+              "description": "Tasks for this phase",
+              "minItems": 1
+            }
+          }
+        },
+        "description": "Phased task list for init"
+      },
+      "task": {
+        "type": "string",
+        "description": "Task content"
+      },
+      "phase": {
+        "type": "string",
+        "description": "Phase name"
+      },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "description": "Task content"
+        },
+        "description": "Tasks to append"
+      }
+    }
+  },
+  "operations": [
+    {
+      "params": {
+        "op": "view"
+      },
+      "phases": [],
+      "errors": [],
+      "completed": [],
+      "summary": "Todo list is empty.",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "init",
+        "list": [
+          {
+            "phase": "Foundation",
+            "items": [
+              "Build core",
+              "Add edges"
+            ]
+          },
+          {
+            "phase": "Verification",
+            "items": [
+              "Run tests",
+              "Write docs"
+            ]
+          }
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "in_progress"
+            },
+            {
+              "content": "Add edges",
+              "status": "pending"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "pending"
+            },
+            {
+              "content": "Write docs",
+              "status": "pending"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (4):\n  - Build core [in_progress] (Foundation)\n  - Add edges [pending] (Foundation)\n  - Run tests [pending] (Verification)\n  - Write docs [pending] (Verification)\nOverall: 0/4 done, 4 open.\nActive phase 1/2 \"Foundation\" (0/2).\n  Foundation:\n    - [ ] Build core (in progress)\n    - [ ] Add edges\n  Verification:\n    - [ ] Run tests\n    - [ ] Write docs",
+      "widget": [
+        "Todo",
+        "Foundation",
+        "[•] Build core",
+        "[ ] Add edges"
+      ]
+    },
+    {
+      "params": {
+        "op": "start",
+        "task": "Run tests"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "pending"
+            },
+            {
+              "content": "Add edges",
+              "status": "pending"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "in_progress"
+            },
+            {
+              "content": "Write docs",
+              "status": "pending"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (4):\n  - Build core [pending] (Foundation)\n  - Add edges [pending] (Foundation)\n  - Run tests [in_progress] (Verification)\n  - Write docs [pending] (Verification)\nOverall: 0/4 done, 4 open.\nActive phase 1/2 \"Foundation\" (0/2).\n  Foundation:\n    - [ ] Build core\n    - [ ] Add edges\n  Verification:\n    - [ ] Run tests (in progress)\n    - [ ] Write docs",
+      "widget": [
+        "Todo",
+        "Verification",
+        "[•] Run tests",
+        "[ ] Write docs"
+      ]
+    },
+    {
+      "params": {
+        "op": "done",
+        "phase": "Verification"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "in_progress"
+            },
+            {
+              "content": "Add edges",
+              "status": "pending"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [
+        {
+          "phase": "Verification",
+          "content": "Run tests"
+        },
+        {
+          "phase": "Verification",
+          "content": "Write docs"
+        }
+      ],
+      "summary": "Remaining items (2):\n  - Build core [in_progress] (Foundation)\n  - Add edges [pending] (Foundation)\nOverall: 2/4 done, 2 open.\nActive phase 1/2 \"Foundation\" (0/2) — earliest phase with open tasks; the in-progress pointer auto-advances to the earliest open task on each completion, so it can sit behind out-of-order work (nothing was un-completed).\n  Foundation:\n    - [ ] Build core (in progress)\n    - [ ] Add edges\n  Verification:\n    - [X] Run tests\n    - [X] Write docs",
+      "widget": [
+        "Todo",
+        "Foundation",
+        "[•] Build core",
+        "[ ] Add edges"
+      ]
+    },
+    {
+      "params": {
+        "op": "done",
+        "task": "Build core"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "in_progress"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [
+        {
+          "phase": "Foundation",
+          "content": "Build core"
+        }
+      ],
+      "summary": "Remaining items (1):\n  - Add edges [in_progress] (Foundation)\nOverall: 3/4 done, 1 open.\nActive phase 1/2 \"Foundation\" (1/2) — earliest phase with open tasks; the in-progress pointer auto-advances to the earliest open task on each completion, so it can sit behind out-of-order work (nothing was un-completed).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (in progress)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs",
+      "widget": [
+        "Todo",
+        "Foundation",
+        "[✓] Build core",
+        "[•] Add edges"
+      ]
+    },
+    {
+      "params": {
+        "op": "done",
+        "task": "Build core"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "in_progress"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (1):\n  - Add edges [in_progress] (Foundation)\nOverall: 3/4 done, 1 open.\nActive phase 1/2 \"Foundation\" (1/2) — earliest phase with open tasks; the in-progress pointer auto-advances to the earliest open task on each completion, so it can sit behind out-of-order work (nothing was un-completed).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (in progress)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs",
+      "widget": [
+        "Todo",
+        "Foundation",
+        "[✓] Build core",
+        "[•] Add edges"
+      ]
+    },
+    {
+      "params": {
+        "op": "drop",
+        "task": "Add edges"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items: none.\nOverall: 4/4 done, 0 open.\nActive phase 2/2 \"Verification\" (2/2).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "append",
+        "phase": "Follow-up",
+        "items": [
+          "New work"
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "append",
+        "phase": "Tasks",
+        "items": [
+          "New work"
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Task \"New work\" already exists"
+      ],
+      "completed": [],
+      "summary": "Errors: Task \"New work\" already exists\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "append",
+        "phase": "Tasks",
+        "items": [
+          "Fresh",
+          "Fresh"
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Task \"Fresh\" already exists"
+      ],
+      "completed": [],
+      "summary": "Errors: Task \"Fresh\" already exists\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "init",
+        "list": [
+          {
+            "phase": "P",
+            "items": [
+              "same"
+            ]
+          },
+          {
+            "phase": "Q",
+            "items": [
+              "same"
+            ]
+          }
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Duplicate task \"same\" in init list"
+      ],
+      "completed": [],
+      "summary": "Errors: Duplicate task \"same\" in init list\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "init",
+        "list": [
+          {
+            "phase": "P",
+            "items": [
+              "one"
+            ]
+          },
+          {
+            "phase": "P",
+            "items": [
+              "two"
+            ]
+          }
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Duplicate phase \"P\" in init list"
+      ],
+      "completed": [],
+      "summary": "Errors: Duplicate phase \"P\" in init list\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "init",
+        "list": [
+          {
+            "phase": "Empty",
+            "items": []
+          }
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Phase \"Empty\" has no tasks in init list"
+      ],
+      "completed": [],
+      "summary": "Errors: Phase \"Empty\" has no tasks in init list\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "init"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Missing list for init operation"
+      ],
+      "completed": [],
+      "summary": "Errors: Missing list for init operation\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "init",
+        "items": []
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Missing list for init operation"
+      ],
+      "completed": [],
+      "summary": "Errors: Missing list for init operation\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "start"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Missing task content"
+      ],
+      "completed": [],
+      "summary": "Errors: Missing task content\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "done",
+        "task": "task-1"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Task \"task-1\" not found. Tasks are referenced by content, not by IDs — pass the task's full text from the previous result."
+      ],
+      "completed": [],
+      "summary": "Errors: Task \"task-1\" not found. Tasks are referenced by content, not by IDs — pass the task's full text from the previous result.\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "rm",
+        "task": "missing"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Task \"missing\" not found"
+      ],
+      "completed": [],
+      "summary": "Errors: Task \"missing\" not found\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "drop",
+        "phase": "missing"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Phase \"missing\" not found"
+      ],
+      "completed": [],
+      "summary": "Errors: Phase \"missing\" not found\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "append",
+        "items": [
+          "x"
+        ]
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Missing phase name for append operation"
+      ],
+      "completed": [],
+      "summary": "Errors: Missing phase name for append operation\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "append",
+        "phase": "P"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Missing items for append operation"
+      ],
+      "completed": [],
+      "summary": "Errors: Missing items for append operation\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "append",
+        "phase": "P",
+        "items": []
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Missing items for append operation"
+      ],
+      "completed": [],
+      "summary": "Errors: Missing items for append operation\nRemaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "view"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": [
+            {
+              "content": "New work",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (1):\n  - New work [in_progress] (Follow-up)\nOverall: 4/5 done, 1 open.\nActive phase 3/3 \"Follow-up\" (0/1).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:\n    - [ ] New work (in progress)",
+      "widget": [
+        "Todo",
+        "Follow-up",
+        "[•] New work"
+      ]
+    },
+    {
+      "params": {
+        "op": "rm",
+        "task": "New work"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": [
+            {
+              "content": "Build core",
+              "status": "completed"
+            },
+            {
+              "content": "Add edges",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": []
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items: none.\nOverall: 4/4 done, 0 open.\nActive phase 3/3 \"Follow-up\" (0/0).\n  Foundation:\n    - [X] Build core\n    - [ ] Add edges (dropped)\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "rm",
+        "phase": "Foundation"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": []
+        },
+        {
+          "name": "Verification",
+          "tasks": [
+            {
+              "content": "Run tests",
+              "status": "completed"
+            },
+            {
+              "content": "Write docs",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "Follow-up",
+          "tasks": []
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items: none.\nOverall: 2/2 done, 0 open.\nActive phase 3/3 \"Follow-up\" (0/0).\n  Foundation:\n  Verification:\n    - [X] Run tests\n    - [X] Write docs\n  Follow-up:",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "rm"
+      },
+      "phases": [
+        {
+          "name": "Foundation",
+          "tasks": []
+        },
+        {
+          "name": "Verification",
+          "tasks": []
+        },
+        {
+          "name": "Follow-up",
+          "tasks": []
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Todo list cleared.",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "init",
+        "list": []
+      },
+      "phases": [],
+      "errors": [],
+      "completed": [],
+      "summary": "Todo list cleared.",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "start",
+        "task": "ghost"
+      },
+      "phases": [],
+      "errors": [
+        "Task \"ghost\" not found (todo list is empty — was it replaced or not yet created?)"
+      ],
+      "completed": [],
+      "summary": "Errors: Task \"ghost\" not found (todo list is empty — was it replaced or not yet created?)",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "init",
+        "items": [
+          "flat",
+          "next"
+        ]
+      },
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "flat",
+              "status": "in_progress"
+            },
+            {
+              "content": "next",
+              "status": "pending"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (2):\n  - flat [in_progress] (Tasks)\n  - next [pending] (Tasks)\nOverall: 0/2 done, 2 open.\nActive phase 1/1 \"Tasks\" (0/2).\n  Tasks:\n    - [ ] flat (in progress)\n    - [ ] next",
+      "widget": [
+        "Todo",
+        "Tasks",
+        "[•] flat",
+        "[ ] next"
+      ]
+    },
+    {
+      "params": {
+        "op": "done",
+        "task": "flat",
+        "phase": "missing"
+      },
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "flat",
+              "status": "completed"
+            },
+            {
+              "content": "next",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [
+        {
+          "phase": "Tasks",
+          "content": "flat"
+        }
+      ],
+      "summary": "Remaining items (1):\n  - next [in_progress] (Tasks)\nOverall: 1/2 done, 1 open.\nActive phase 1/1 \"Tasks\" (1/2).\n  Tasks:\n    - [X] flat\n    - [ ] next (in progress)",
+      "widget": [
+        "Todo",
+        "Tasks",
+        "[✓] flat",
+        "[•] next"
+      ]
+    },
+    {
+      "params": {
+        "op": "drop"
+      },
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "flat",
+              "status": "abandoned"
+            },
+            {
+              "content": "next",
+              "status": "abandoned"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items: none.\nOverall: 2/2 done, 0 open.\nActive phase 1/1 \"Tasks\" (2/2).\n  Tasks:\n    - [ ] flat (dropped)\n    - [ ] next (dropped)",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "append",
+        "phase": "New",
+        "items": [
+          "more"
+        ]
+      },
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "flat",
+              "status": "abandoned"
+            },
+            {
+              "content": "next",
+              "status": "abandoned"
+            }
+          ]
+        },
+        {
+          "name": "New",
+          "tasks": [
+            {
+              "content": "more",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (1):\n  - more [in_progress] (New)\nOverall: 2/3 done, 1 open.\nActive phase 2/2 \"New\" (0/1).\n  Tasks:\n    - [ ] flat (dropped)\n    - [ ] next (dropped)\n  New:\n    - [ ] more (in progress)",
+      "widget": [
+        "Todo",
+        "New",
+        "[•] more"
+      ]
+    },
+    {
+      "params": {
+        "op": "done"
+      },
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "flat",
+              "status": "completed"
+            },
+            {
+              "content": "next",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "name": "New",
+          "tasks": [
+            {
+              "content": "more",
+              "status": "completed"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [
+        {
+          "phase": "Tasks",
+          "content": "flat"
+        },
+        {
+          "phase": "Tasks",
+          "content": "next"
+        },
+        {
+          "phase": "New",
+          "content": "more"
+        }
+      ],
+      "summary": "Remaining items: none.\nOverall: 3/3 done, 0 open.\nActive phase 2/2 \"New\" (1/1).\n  Tasks:\n    - [X] flat\n    - [X] next\n  New:\n    - [X] more",
+      "widget": null
+    },
+    {
+      "params": {
+        "op": "init",
+        "phase": "Custom",
+        "items": [
+          "custom"
+        ]
+      },
+      "phases": [
+        {
+          "name": "Custom",
+          "tasks": [
+            {
+              "content": "custom",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (1):\n  - custom [in_progress] (Custom)\nOverall: 0/1 done, 1 open.\nActive phase 1/1 \"Custom\" (0/1).\n  Custom:\n    - [ ] custom (in progress)",
+      "widget": [
+        "Todo",
+        "Custom",
+        "[•] custom"
+      ]
+    },
+    {
+      "params": {
+        "op": "view"
+      },
+      "phases": [
+        {
+          "name": "Custom",
+          "tasks": [
+            {
+              "content": "custom",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "completed": [],
+      "summary": "Remaining items (1):\n  - custom [in_progress] (Custom)\nOverall: 0/1 done, 1 open.\nActive phase 1/1 \"Custom\" (0/1).\n  Custom:\n    - [ ] custom (in progress)",
+      "widget": [
+        "Todo",
+        "Custom",
+        "[•] custom"
+      ]
+    }
+  ],
+  "branches": [
+    {
+      "branch": [],
+      "phases": []
+    },
+    {
+      "branch": [
+        {
+          "type": "custom",
+          "customType": "sanepi.todo-state",
+          "data": {
+            "todos": [
+              {
+                "content": "open",
+                "status": "blocked",
+                "priority": "high"
+              },
+              {
+                "content": "gone",
+                "status": "cancelled"
+              }
+            ]
+          }
+        }
+      ],
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "open",
+              "status": "pending"
+            },
+            {
+              "content": "gone",
+              "status": "abandoned"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "branch": [
+        {
+          "type": "custom",
+          "customType": "sanepi.todo-state",
+          "data": {
+            "schema": "v2",
+            "phases": [
+              {
+                "name": "P",
+                "tasks": [
+                  {
+                    "content": "work",
+                    "status": "pending"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todowrite",
+            "details": {
+              "todos": [
+                {
+                  "content": "legacy",
+                  "status": "completed"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "legacy",
+              "status": "completed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "branch": [
+        {
+          "type": "message",
+          "message": {
+            "role": "toolResult",
+            "toolName": "todo",
+            "details": {
+              "phases": [
+                {
+                  "name": "P",
+                  "tasks": []
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "custom",
+          "customType": "sanepi.todo-state",
+          "data": {
+            "schema": "v2",
+            "phases": []
+          }
+        }
+      ],
+      "phases": []
+    },
+    {
+      "branch": [
+        {
+          "type": "custom",
+          "customType": "sanepi.todo-state",
+          "data": {
+            "schema": "v2",
+            "phases": [
+              {
+                "name": "P",
+                "tasks": [
+                  {
+                    "content": "keep",
+                    "status": "in_progress"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "custom",
+          "customType": "sanepi.todo-state",
+          "data": {
+            "schema": "v2",
+            "phases": [
+              {
+                "name": "bad",
+                "tasks": [
+                  {
+                    "content": "bad",
+                    "status": "unknown"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "phases": [
+        {
+          "name": "P",
+          "tasks": [
+            {
+              "content": "keep",
+              "status": "in_progress"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "markdown": [
+    {
+      "text": "",
+      "phases": [],
+      "errors": [],
+      "export": "# Tasks\n"
+    },
+    {
+      "text": "- [X] closed\r\n+ [>] active\n* [~] gone\n- [?] invalid\nbad syntax",
+      "phases": [
+        {
+          "name": "Tasks",
+          "tasks": [
+            {
+              "content": "closed",
+              "status": "completed"
+            },
+            {
+              "content": "active",
+              "status": "in_progress"
+            },
+            {
+              "content": "gone",
+              "status": "abandoned"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        "Line 4: unknown status marker \"[?]\" (use [ ], [x], [/], [-])",
+        "Line 5: unrecognized syntax \"bad syntax\""
+      ],
+      "export": "# Tasks\n- [x] closed\n- [/] active\n- [-] gone\n"
+    },
+    {
+      "text": "# P\n- [ ] first\n- [/] second\n# Empty\n",
+      "phases": [
+        {
+          "name": "P",
+          "tasks": [
+            {
+              "content": "first",
+              "status": "pending"
+            },
+            {
+              "content": "second",
+              "status": "in_progress"
+            }
+          ]
+        },
+        {
+          "name": "Empty",
+          "tasks": []
+        }
+      ],
+      "errors": [],
+      "export": "# P\n- [ ] first\n- [/] second\n\n# Empty\n"
+    },
+    {
+      "text": "# P\n- [/] one\n- [/] two\n",
+      "phases": [
+        {
+          "name": "P",
+          "tasks": [
+            {
+              "content": "one",
+              "status": "in_progress"
+            },
+            {
+              "content": "two",
+              "status": "pending"
+            }
+          ]
+        }
+      ],
+      "errors": [],
+      "export": "# P\n- [/] one\n- [ ] two\n"
+    }
+  ]
+}
