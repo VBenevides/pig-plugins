@@ -98,6 +98,12 @@ upstream TypeScript comparison packages cannot run unless those packages are
 installed; targeted native lifecycle, refresh, cancellation and bridge tests
 are covered independently.
 
+### Tool output previews
+
+`patches/pig/0016-persist-tool-expansion.patch` defaults tool output to collapsed previews of at most 10 output rows. Ctrl+O expands or collapses tools and saves the preference as `toolsExpanded` in the global `settings.json`. New and resumed sessions restore that preference; full tool results remain available to the model and in session history. Headers, expansion hints, and image previews are separate from the output-row limit.
+
+Saving does not block the input loop. Rapid toggles preserve the latest choice, shutdown waits for pending saves, and save failures show an error.
+
 
 ### Numbered images (native Go)
 

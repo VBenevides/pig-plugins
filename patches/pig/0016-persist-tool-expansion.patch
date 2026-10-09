@@ -1,0 +1,529 @@
+--- a/internal/codingagent/settings.go
++++ b/internal/codingagent/settings.go
+@@ -269,6 +269,7 @@
+ 	LegacyCommandPrefix    string                   `json:"commandPrefix,omitempty"`
+ 	NpmCommand             []string                 `json:"npmCommand,omitzero"`
+ 	CollapseChangelog      *bool                    `json:"collapseChangelog,omitempty"`
++	ToolsExpanded          *bool                    `json:"toolsExpanded,omitempty"`
+ 	ShowCacheMissNotices   *bool                    `json:"showCacheMissNotices,omitempty"`
+ 	EnableInstallTelemetry *bool                    `json:"enableInstallTelemetry,omitempty"`
+ 	EnableAnalytics        *bool                    `json:"enableAnalytics,omitempty"`
+@@ -548,6 +549,9 @@
+ 	CollapseChangelog    bool `json:"collapseChangelog,omitempty"`
+ 	collapseChangelogSet bool `json:"-"`
+ 
++	// ToolsExpanded persists the global Ctrl+O preference; nil defaults to collapsed.
++	ToolsExpanded *bool `json:"toolsExpanded,omitempty"`
++
+ 	// ShowCacheMissNotices controls transcript notices for significant prompt
+ 	// cache misses. Default: false. Mirrors upstream settings.showCacheMissNotices
+ 	// (settings-manager.ts:96).
+@@ -891,6 +895,7 @@
+ 		MaskSecretInput:                cloneBoolPtr(s.MaskSecretInput),
+ 		CollapseChangelog:              s.CollapseChangelog,
+ 		collapseChangelogSet:           s.collapseChangelogSet,
++		ToolsExpanded:                  cloneBoolPtr(s.ToolsExpanded),
+ 		ShowCacheMissNotices:           s.ShowCacheMissNotices,
+ 		showCacheMissNoticesSet:        s.showCacheMissNoticesSet,
+ 		EnableSkillCommands:            cloneBoolPtr(s.EnableSkillCommands),
+@@ -947,6 +952,7 @@
+ 		DeviceID:                   s.DeviceID,
+ 		Codemode:                   s.Codemode,
+ 		MaskSecretInput:            s.MaskSecretInput,
++		ToolsExpanded:              s.ToolsExpanded,
+ 		Theme:                      s.themeSetting(),
+ 		Compaction:                 s.Compaction,
+ 		Retry:                      s.Retry,
+@@ -1080,6 +1086,11 @@
+ 	// Decoding drops a mistyped theme, so record its presence first.
+ 	rawTheme, themePresent := legacy["theme"]
+ 	_, themeIsString := rawTheme.(string)
++	if raw, present := legacy["toolsExpanded"]; present && raw != nil {
++		if _, ok := raw.(bool); !ok {
++			return errors.New("toolsExpanded must be a boolean")
++		}
++	}
+ 	w, err := decodeSettingsWire(legacy)
+ 	if err != nil {
+ 		return err
+@@ -1134,6 +1145,7 @@
+ 		s.CollapseChangelog = *w.CollapseChangelog
+ 		s.collapseChangelogSet = true
+ 	}
++	s.ToolsExpanded = w.ToolsExpanded
+ 	if w.ShowCacheMissNotices != nil {
+ 		s.ShowCacheMissNotices = *w.ShowCacheMissNotices
+ 		s.showCacheMissNoticesSet = true
+@@ -3086,6 +3098,9 @@
+ 		m.CollapseChangelog = project.CollapseChangelog
+ 		m.collapseChangelogSet = true
+ 	}
++	if project.ToolsExpanded != nil {
++		m.ToolsExpanded = cloneBoolPtr(project.ToolsExpanded)
++	}
+ 	if project.showCacheMissNoticesSet {
+ 		m.ShowCacheMissNotices = project.ShowCacheMissNotices
+ 		m.showCacheMissNoticesSet = true
+--- a/internal/codingagent/interactive.go
++++ b/internal/codingagent/interactive.go
+@@ -351,13 +351,15 @@
+ 	keybindings *KeybindingsManager
+ 
+ 	// toolByID holds only pending calls so completion updates the streaming card and releases its ID for later calls. toolOrder retains transcript order for Ctrl+O; toolsExpanded is the global expansion choice.
+-	toolMu        sync.Mutex
+-	toolByID      map[string]*tui.ToolExecutionComponent
+-	toolStarts    map[string]time.Time
+-	toolFileCalls map[string]ai.ToolCall
+-	toolOrder     []*tui.ToolExecutionComponent
+-	bashOrder     []*tui.BashExecutionBlock // row 2.8a: Ctrl+O drives bash blocks too
+-	toolsExpanded bool
++	toolMu                sync.Mutex
++	toolByID              map[string]*tui.ToolExecutionComponent
++	toolStarts            map[string]time.Time
++	toolFileCalls         map[string]ai.ToolCall
++	toolOrder             []*tui.ToolExecutionComponent
++	bashOrder             []*tui.BashExecutionBlock // row 2.8a: Ctrl+O drives bash blocks too
++	toolsExpanded         bool
++	toolPreferenceSaving  bool
++	toolPreferenceVersion uint64
+ 	// builtInHeaderExpanded starts from verbose || toolsExpanded, then follows explicit expansion and restoration. Guarded by toolMu.
+ 	builtInHeaderExpanded bool
+ 	// builtInHeaderLogo is the clickable logo of the built-in header as last rendered; the render loop writes it and the
+@@ -1183,6 +1185,10 @@
+ 	if opts.TuiMode == "" {
+ 		opts.TuiMode = (&SettingsManager{merged: opts.Settings}).GetTuiMode()
+ 	}
++	toolPreference := opts.Settings.ToolsExpanded
++	if opts.SettingsManager != nil {
++		toolPreference = opts.SettingsManager.Get().ToolsExpanded
++	}
+ 
+ 	m := &InteractiveMode{
+ 		opts:                 opts,
+@@ -1197,6 +1203,7 @@
+ 		workingVisible:       true,
+ 		spinnerIntervalCh:    make(chan time.Duration, 1),
+ 		outputPad:            opts.Settings.GetOutputPad(),
++		toolsExpanded:        toolPreference != nil && *toolPreference,
+ 		installChanges:       installchange.Default(),
+ 	}
+ 	if opts.InitialThemeSetting != nil {
+--- a/internal/codingagent/interactive_editor.go
++++ b/internal/codingagent/interactive_editor.go
+@@ -77,6 +77,7 @@
+ 	expanded := !m.toolsExpanded
+ 	m.toolMu.Unlock()
+ 	m.setAllToolsExpanded(expanded)
++	m.persistToolExpansionPreference()
+ }
+ 
+ // setAllToolsExpanded applies changed expansion state to the startup header and every mounted expandable child, not detached tracking-list entries. Extension UI calls share this owner-loop path with the default editor.
+--- a/tui/tool_execution.go
++++ b/tui/tool_execution.go
+@@ -625,9 +625,7 @@
+ 		c.saveCachedRender(width, out)
+ 		return out
+ 	}
+-	// Per-tool BodyRenderers receive the expanded flag and always own their
+-	// preview-to-full transition. This preserves upstream tool-execution.ts
+-	// behavior and keeps the collapsed bash preview visible.
++	// Body renderers receive the expansion state; the host caps collapsed previews.
+ 
+ 	// Separator line between call header and result body.
+ 	// Upstream's result components (bash, read, write, edit) all start
+@@ -640,7 +638,7 @@
+ 	// or a renderShell:"self" extension renderer with no lines), skip the
+ 	// separator so the empty body doesn't leave a stray blank row inside
+ 	// the box: mirrors upstream #5299 (read.ts collapsed returns "").
+-	body := c.renderResultBody(width - 2)
++	body := c.collapsedToolRows(c.renderResultBody(width-2), width-2)
+ 	footer := c.runningElapsedRows(width - 2)
+ 	if len(body) > 0 {
+ 		out = append(out, paintBgWith(bgOpen, "", width))
+@@ -796,35 +794,16 @@
+ 	return 8
+ }
+ 
+-const fallbackPreviewLines = 10
+-
+-// renderCollapsedPreview returns the first ten plain-text output lines and an
+-// upstream-compatible "more lines" hint for a definition without a result
+-// renderer.
++// renderCollapsedPreview wraps output before limiting the visible preview.
+ func (c *ToolExecutionComponent) renderCollapsedPreview(width int) []string {
+ 	cleanOutput := stripControlEscapes(c.Output)
+ 	cleanOutput = strings.ReplaceAll(cleanOutput, "\t", "   ")
+ 	lines := strings.Split(strings.TrimRight(cleanOutput, "\n"), "\n")
+-
+-	if width < 1 {
+-		width = 1
+-	}
+-
+-	displayLines := lines
+-	remaining := 0
+-	if len(lines) > fallbackPreviewLines {
+-		displayLines = lines[:fallbackPreviewLines]
+-		remaining = len(lines) - fallbackPreviewLines
+-	}
+ 	var out []string
+-	for _, line := range displayLines {
+-		out = append(out, wrapText(fg(ActiveTheme().ToolOutput, line), width)...)
+-	}
+-	if remaining > 0 {
+-		hint := fmt.Sprintf("... (%d more line%s, ctrl+o to expand)", remaining, plural(remaining))
+-		out = append(out, wrapText(fg(ActiveTheme().Muted, hint), width)...)
++	for _, line := range lines {
++		out = append(out, wrapText(fg(ActiveTheme().ToolOutput, line), max(1, width))...)
+ 	}
+-	return out
++	return c.collapsedToolRows(out, width)
+ }
+ 
+ func (c *ToolExecutionComponent) bodyMaxLines() int {
+--- a/tui/tool_execution_definition.go
++++ b/tui/tool_execution_definition.go
+@@ -6,7 +6,6 @@
+ 
+ import (
+ 	"encoding/json"
+-	"strconv"
+ 	"strings"
+ 
+ 	"github.com/MichaelKinsy/PiG/tui/widthx"
+@@ -46,8 +45,6 @@
+ 	IsDirty() bool
+ }
+ 
+-const fallbackResultPreviewLines = 10
+-
+ // SetDefinition makes the card draw a registered tool definition as upstream
+ // does, instead of the built-in or generic presentation. args are the call's
+ // current arguments. A nil definition returns the card to that presentation.
+@@ -135,7 +132,7 @@
+ 			if fallback, ok := component.(RendererFallback); ok {
+ 				fallback.SetRendererFallback(func(width int) []string {
+ 					if preview := c.resultFallback(); preview != nil {
+-						return preview.Render(width)
++						return c.collapsedToolRows(preview.Render(width), width)
+ 					}
+ 					return nil
+ 				})
+@@ -163,27 +160,18 @@
+ 	}
+ 	theme := ActiveTheme()
+ 	lines := strings.Split(output, "\n")
+-	display := lines
+-	if c.Collapsed && len(lines) > fallbackResultPreviewLines {
+-		display = lines[:fallbackResultPreviewLines]
+-	}
+-	styled := make([]string, len(display))
+-	for i, line := range display {
++	styled := make([]string, len(lines))
++	for i, line := range lines {
+ 		styled[i] = theme.FgText("toolOutput", line)
+ 	}
+-	text := strings.Join(styled, "\n")
+-	if remaining := len(lines) - len(display); remaining > 0 {
+-		text += theme.FgText("muted", "\n... ("+strconv.Itoa(remaining)+" more lines,") + " " +
+-			theme.FgText("dim", AppKeyText("app.tools.expand", "ctrl+o")) + theme.FgText("muted", " to expand") +
+-			theme.FgText("muted", ")")
+-	}
+-	return NewPaddedText(text, 0, 0, nil)
++	return NewPaddedText(strings.Join(styled, "\n"), 0, 0, nil)
+ }
+ 
+ func (c *ToolExecutionComponent) definitionComponents() []Component {
+ 	components := []Component{NewMouseRegion(c.definitionCall, c.handleResultMouse)}
+ 	if c.definitionResultComponent != nil {
+-		components = append(components, NewMouseRegion(c.definitionResultComponent, c.handleResultMouse))
++		preview := &toolResultPreview{card: c, child: c.definitionResultComponent}
++		components = append(components, NewMouseRegion(preview, c.handleResultMouse))
+ 	}
+ 	return components
+ }
+--- /dev/null
++++ b/internal/codingagent/tool_expansion_preference.go
+@@ -0,0 +1,43 @@
++package codingagent
++
++import (
++	"fmt"
++	"log"
++)
++
++// Preference saves are coalesced into one joined worker, never disk IO on the
++// input loop. Shutdown drains that worker so the latest toggle is durable.
++func (m *InteractiveMode) persistToolExpansionPreference() {
++	manager := m.opts.SettingsManager
++	if manager == nil {
++		return
++	}
++	m.toolMu.Lock()
++	m.toolPreferenceVersion++
++	if m.toolPreferenceSaving {
++		m.toolMu.Unlock()
++		return
++	}
++	m.toolPreferenceSaving = true
++	m.toolMu.Unlock()
++	ownerContext := m.runCtx
++	m.backgroundTasks.Go(func() {
++		for {
++			m.toolMu.Lock()
++			expanded, version := m.toolsExpanded, m.toolPreferenceVersion
++			m.toolMu.Unlock()
++			if err := manager.UpdateGlobal(func(settings *Settings) { settings.ToolsExpanded = new(expanded) }); err != nil {
++				message := fmt.Sprintf("Cannot save tool output preference: %v", err)
++				log.Print(message)
++				m.runOnMain(ownerContext, func() { m.showError(message) })
++			}
++			m.toolMu.Lock()
++			if version == m.toolPreferenceVersion {
++				m.toolPreferenceSaving = false
++				m.toolMu.Unlock()
++				return
++			}
++			m.toolMu.Unlock()
++		}
++	})
++}
+--- /dev/null
++++ b/internal/codingagent/tool_expansion_preference_test.go
+@@ -0,0 +1,127 @@
++package codingagent
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestToolExpansionPreferenceSurvivesNewSession(t *testing.T) {
++	cwd, agentDir := t.TempDir(), t.TempDir()
++	sm := NewSettingsManager(cwd, agentDir)
++	mode := NewInteractiveMode(InteractiveOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
++	if mode.toolsExpanded {
++		t.Fatal("fresh tools must be collapsed")
++	}
++	if classifyKeyWithBindings("\x0f", DefaultKeybindingsManager()) != actionToggleTools {
++		t.Fatal("Ctrl+O must toggle tools")
++	}
++	mode.toggleAllTools()
++	mode.backgroundTasks.Wait()
++	data, err := os.ReadFile(filepath.Join(agentDir, "settings.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	var stored map[string]any
++	if err := json.Unmarshal(data, &stored); err != nil {
++		t.Fatal(err)
++	}
++	if stored["toolsExpanded"] != true {
++		t.Fatalf("preference not persisted: %s", data)
++	}
++	sm = NewSettingsManager(cwd, agentDir)
++	next := NewInteractiveMode(InteractiveOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
++	if !next.toolsExpanded {
++		t.Fatal("new session lost expanded preference")
++	}
++	next.toggleAllTools()
++	next.backgroundTasks.Wait()
++	sm = NewSettingsManager(cwd, agentDir)
++	last := NewInteractiveMode(InteractiveOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
++	if last.toolsExpanded {
++		t.Fatal("collapsed preference did not survive restart")
++	}
++}
++
++func TestToolExpansionPreferenceRapidTogglesPersistLatest(t *testing.T) {
++	sm := NewSettingsManager(t.TempDir(), t.TempDir())
++	mode := NewInteractiveMode(InteractiveOptions{SettingsManager: sm, Settings: sm.Get()})
++	for range 101 {
++		mode.toggleAllTools()
++	}
++	mode.backgroundTasks.Wait()
++	reloaded := NewSettingsManager(sm.cwd, sm.agentDir)
++	data, err := json.Marshal(reloaded.Get())
++	if err != nil {
++		t.Fatal(err)
++	}
++	var stored map[string]any
++	_ = json.Unmarshal(data, &stored)
++	if stored["toolsExpanded"] != true {
++		t.Fatalf("latest preference lost: %s", data)
++	}
++}
++
++func TestToolExpansionPreferenceFailureIsVisible(t *testing.T) {
++	cwd, agentDir := t.TempDir(), t.TempDir()
++	sm := NewSettingsManager(cwd, agentDir)
++	if err := os.Mkdir(filepath.Join(agentDir, "settings.json"), 0700); err != nil {
++		t.Fatal(err)
++	}
++	mode := NewInteractiveMode(InteractiveOptions{SettingsManager: sm, Settings: sm.Get()})
++	mode.chatContainer = tui.NewContainer()
++	mode.toggleAllTools()
++	mode.backgroundTasks.Wait()
++	for {
++		select {
++		case task := <-mode.uiTaskCh:
++			task()
++		default:
++			if !strings.Contains(strings.Join(mode.chatContainer.Render(100), "\n"), "Cannot save tool output preference") {
++				t.Fatal("save failure was hidden")
++			}
++			return
++		}
++	}
++}
++
++func TestToolExpansionSettingsRoundTripAndIsolation(t *testing.T) {
++	var global, project Settings
++	if err := json.Unmarshal([]byte(`{"toolsExpanded":true}`), &global); err != nil {
++		t.Fatal(err)
++	}
++	if err := json.Unmarshal([]byte(`{"toolsExpanded":false}`), &project); err != nil {
++		t.Fatal(err)
++	}
++	merged := mergeSettings(global, project)
++	if merged.ToolsExpanded == nil || *merged.ToolsExpanded {
++		t.Fatal("explicit project false did not override true")
++	}
++	*merged.ToolsExpanded = true
++	if *project.ToolsExpanded {
++		t.Fatal("merged settings aliased project state")
++	}
++	copy := cloneSettings(global)
++	*copy.ToolsExpanded = false
++	if !*global.ToolsExpanded {
++		t.Fatal("snapshot aliased global preference")
++	}
++	data, err := json.Marshal(project)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var decoded map[string]any
++	if err := json.Unmarshal(data, &decoded); err != nil {
++		t.Fatal(err)
++	}
++	if decoded["toolsExpanded"] != false {
++		t.Fatal("explicit false lost on save")
++	}
++	if err := json.Unmarshal([]byte(`{"toolsExpanded":"false"}`), &project); err == nil {
++		t.Fatal("invalid preference type was accepted")
++	}
++}
+--- /dev/null
++++ b/tui/tool_preview.go
+@@ -0,0 +1,45 @@
++package tui
++
++import (
++	"fmt"
++	"strings"
++)
++
++const collapsedToolPreviewRows = 10
++
++// collapsedToolRows caps visible output, not the retained tool result. Headers,
++// expansion hints and separately rendered images keep their normal framing.
++func (c *ToolExecutionComponent) collapsedToolRows(rows []string, width int) []string {
++	if !c.Collapsed || len(rows) <= collapsedToolPreviewRows {
++		return rows
++	}
++	out := append([]string(nil), rows[:collapsedToolPreviewRows]...)
++	remaining := len(rows) - collapsedToolPreviewRows
++	hint := fmt.Sprintf("... (%d more line%s, %s to expand)", remaining, plural(remaining), AppKeyText("app.tools.expand", "ctrl+o"))
++	// A renderer may already have truncated its result. Its remaining count is
++	// unknown here, so do not describe the discarded hint as hidden output.
++	if strings.Contains(strings.Join(rows, ""), "to expand") {
++		hint = "... (" + AppKeyText("app.tools.expand", "ctrl+o") + " to expand)"
++	}
++	return append(out, wrapText(ActiveTheme().FgText("muted", hint), max(1, width))...)
++}
++
++type toolResultPreview struct {
++	card  *ToolExecutionComponent
++	child Component
++}
++
++func (p *toolResultPreview) Render(width int) []string {
++	return p.card.collapsedToolRows(flattenVisualRows(p.child.Render(width)), width)
++}
++func (p *toolResultPreview) Invalidate() { p.child.Invalidate() }
++func (p *toolResultPreview) IsDirty() bool {
++	dirty, ok := p.child.(rendererDirtyReporter)
++	return ok && dirty.IsDirty()
++}
++func (p *toolResultPreview) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
++	if p.card.Collapsed && event.Y >= collapsedToolPreviewRows {
++		return nil
++	}
++	return DispatchMouseEvent(p.child, event)
++}
+--- /dev/null
++++ b/tui/tool_preview_limit_test.go
+@@ -0,0 +1,59 @@
++package tui
++
++import (
++	"fmt"
++	"strings"
++	"testing"
++)
++
++func TestCollapsedToolOutputCapsVisualRows(t *testing.T) {
++	for _, width := range []int{20, 80} {
++		for _, definition := range []bool{false, true} {
++			for _, size := range []int{9, 10, 15} {
++				card := NewToolExecutionComponent("custom", "test")
++				var lines []string
++				for i := 1; i <= size; i++ {
++					lines = append(lines, fmt.Sprintf("row-%02d", i))
++				}
++				body := strings.Join(lines, "\n")
++				if definition {
++					card.SetDefinition(&ToolDefinitionRenderers{Result: func(ToolRenderInput) (Component, bool) { return NewText(body), true }}, nil)
++				} else {
++					card.BodyRenderer = func(int, bool) []string { return lines }
++				}
++				card.SetResult(body, false, 0)
++				card.SetExpanded(false)
++				collapsed := strings.Join(card.Render(width), "\n")
++				if size > 10 && strings.Contains(collapsed, "row-11") {
++					t.Fatalf("width=%d definition=%v: oversized preview: %s", width, definition, collapsed)
++				}
++				if size <= 10 && !strings.Contains(collapsed, fmt.Sprintf("row-%02d", size)) {
++					t.Fatal("short output was clipped")
++				}
++				card.SetExpanded(true)
++				if expanded := strings.Join(card.Render(width), "\n"); !strings.Contains(expanded, fmt.Sprintf("row-%02d", size)) {
++					t.Fatal("expanded output was clipped")
++				}
++			}
++		}
++	}
++}
++
++func TestCollapsedToolOutputCapsWrappedFallbackRows(t *testing.T) {
++	for _, definition := range []bool{false, true} {
++		card := NewToolExecutionComponent("custom", "test")
++		if definition {
++			card.SetDefinition(&ToolDefinitionRenderers{}, nil)
++		}
++		card.SetResult(strings.Repeat("abcdefghij", 30), false, 0)
++		card.SetExpanded(false)
++		collapsed := strings.Join(card.Render(12), "\n")
++		if rows := strings.Count(collapsed, "abcdefghij"); rows != 10 {
++			t.Fatalf("definition=%v preview rows=%d, want 10", definition, rows)
++		}
++		card.SetExpanded(true)
++		if rows := strings.Count(strings.Join(card.Render(12), "\n"), "abcdefghij"); rows != 30 {
++			t.Fatalf("expanded rows=%d, want 30", rows)
++		}
++	}
++}
