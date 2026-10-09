@@ -29,7 +29,7 @@ func TestSharedNormalFooterAndNarrowWidths(t *testing.T) {
 	tokens := 2000
 	state := betterfooter.RenderState{Cwd: "/project", Provider: "mock", Model: "mock-model", ContextTokens: &tokens, ContextWindow: 100000, Speed: 42, Statuses: footerstatus.Snapshot()}
 	lines := betterfooter.RenderFooter(state, 180, betterfooter.Theme{}, time.Unix(1000, 0))
-	for _, text := range []string{mode.Badge, "OTHER STATUS", "mock/mock-model", "42t/s", "2.0k/100k"} {
+	for _, text := range []string{"Mode: ACT · ADHD ON · OTHER STATUS", "mock/mock-model", "42t/s", "2.0k/100k"} {
 		if !strings.Contains(strings.Join(lines, "\n"), text) {
 			t.Fatalf("normal fused footer lost %q: %v", text, lines)
 		}

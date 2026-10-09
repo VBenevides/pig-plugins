@@ -86,8 +86,8 @@ func TestRendererKeepsAutoModelAndSmartApproveBadges(t *testing.T) {
 		}
 	}
 	statuses.Set(host, "auto-model-usage", "Checking quota…")
-	if output := render(); !strings.Contains(output, "Checking quota…") || !strings.Contains(output, modelBadge) || !strings.Contains(output, approvalBadge) {
-		t.Fatalf("new badge displaced persistent badges: %q", output)
+	if output := render(); strings.Contains(output, "Checking quota…") || !strings.Contains(output, modelBadge) || !strings.Contains(output, approvalBadge) {
+		t.Fatalf("temporary quota status duplicated or persistent badge lost: %q", output)
 	}
 	statuses.Set(host, "auto-model-usage", "")
 	if output := render(); strings.Contains(output, "Checking quota…") || !strings.Contains(output, modelBadge) || !strings.Contains(output, approvalBadge) {

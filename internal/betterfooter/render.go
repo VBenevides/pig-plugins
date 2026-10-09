@@ -145,6 +145,9 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 		model = "no-model"
 	}
 	pm := t.fg("accent", SanitizePlain(provider)) + "/" + dim(SanitizePlain(model))
+	if badge := Sanitize(s.Statuses["auto-model"]); badge != "" {
+		pm = badge + " " + pm
+	}
 	if s.Reasoning {
 		effort := s.Thinking
 		if effort == "" {
@@ -207,14 +210,21 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 	}
 	keys := make([]string, 0, len(s.Statuses))
 	for k := range s.Statuses {
-		if !slices.Contains(ThirdRowStatusKeys, k) {
+		if k != "ask-mode" && k != "auto-model" && k != "auto-model-usage" && k != "auto-model-quota" && !slices.Contains(ThirdRowStatusKeys, k) {
 			keys = append(keys, k)
 		}
 	}
 	slices.Sort(keys)
-	texts := make([]string, 0, len(keys))
+	mode := t.fg("success", "ACT")
+	if SanitizePlain(s.Statuses["ask-mode"]) == "ASK" {
+		mode = t.fg("warning", "ASK")
+	}
+	texts := []string{"Mode: " + mode}
 	for _, k := range keys {
 		if v := Sanitize(s.Statuses[k]); v != "" {
+			if k == "adhd-output" || k == "adhd" {
+				v = strings.TrimSpace(strings.TrimPrefix(v, "●"))
+			}
 			texts = append(texts, v)
 		}
 	}
@@ -230,7 +240,7 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 	}
 	project = Truncate(project, width)
 	if len(texts) > 0 {
-		project = joinLR(width, project, dim(strings.Join(texts, "  ")), 2)
+		project = joinLR(width, project, dim(strings.Join(texts, " · ")), 2)
 	}
 	contextText := "?"
 	if s.ContextTokens != nil {

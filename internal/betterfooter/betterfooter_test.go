@@ -39,7 +39,7 @@ func TestSessionStatsAppendReplaceAndSideUsage(t *testing.T) {
 func TestGuardStatusesUseThirdRow(t *testing.T) {
 	state := RenderState{Cwd: "/p", Statuses: map[string]string{"auto-model": "am", "smart-approve-lancet": "sal", "pi-curator": "pc"}}
 	lines := RenderFooter(state, 120, Theme{}, time.Unix(1000, 0))
-	if len(lines) != 3 || !strings.Contains(lines[0], "am") || strings.Contains(lines[0], "sal") || !strings.Contains(lines[2], "[sal][pc]") {
+	if len(lines) != 3 || strings.Contains(lines[0], "am") || !strings.Contains(lines[1], "am no-provider/no-model") || strings.Contains(lines[0], "sal") || !strings.Contains(lines[2], "[sal][pc]") {
 		t.Fatalf("rows = %q", lines)
 	}
 	state.Statuses = map[string]string{"auto-model": "am"}
@@ -48,12 +48,42 @@ func TestGuardStatusesUseThirdRow(t *testing.T) {
 	}
 }
 
+func TestFirstRowModeAndOptionalADHD(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		statuses map[string]string
+		want     string
+	}{
+		{"default", nil, "Mode: ACT"},
+		{"ask", map[string]string{"ask-mode": "ASK"}, "Mode: ASK"},
+		{"adhd", map[string]string{"adhd-output": "● ADHD ON"}, "Mode: ACT · ADHD ON"},
+		{"both", map[string]string{"ask-mode": "ASK", "adhd-output": "● ADHD ON"}, "Mode: ASK · ADHD ON"},
+		{"disabled", map[string]string{"ask-mode": "", "adhd-output": ""}, "Mode: ACT"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			line := RenderFooter(RenderState{Cwd: "/p", Statuses: tc.statuses}, 120, Theme{}, time.Unix(1000, 0))[0]
+			if !strings.HasSuffix(line, tc.want) || strings.Contains(line, "●") {
+				t.Fatalf("first row = %q, want suffix %q", line, tc.want)
+			}
+			theme := Theme{Fg: func(color, text string) string { return "[" + color + "]" + text + "[/]" }}
+			colored := RenderFooter(RenderState{Cwd: "/p", Statuses: tc.statuses}, 200, theme, time.Unix(1000, 0))[0]
+			wantColor := "[success]ACT[/]"
+			if tc.statuses["ask-mode"] == "ASK" {
+				wantColor = "[warning]ASK[/]"
+			}
+			if !strings.Contains(colored, wantColor) {
+				t.Fatalf("mode color missing %q: %q", wantColor, colored)
+			}
+		})
+	}
+}
+
 func TestRendererFieldsStatusesAndWidths(t *testing.T) {
 	now := time.Unix(1000, 0)
 	tokens := 5000
 	state := RenderState{Cwd: "/home/u/project", Home: "/home/u/", Branch: "main", Version: "v1.2.3", Git: GitChanges{Added: 2, Removed: 1, Dirty: true}, Provider: "test", Model: "model", Reasoning: true, Thinking: "high", ContextTokens: &tokens, ContextWindow: 200000, Speed: 99, Estimated: true, Totals: Totals{Input: 1000, Output: 20, CacheRead: 500, Cost: 0.123}, LatestHit: 33.3, HasHit: true, Quota: ProviderQuota{Windows: []RateWindow{{Scope: "weekly", Percent: 25, HasReset: true, ResetSec: 3600, CapturedAt: now}}}, Statuses: map[string]string{"z": "last\nline", "a": "first"}}
 	lines := RenderFooter(state, 180, Theme{}, now)
-	for _, want := range []string{"~/project", "main", "v1.2.3", "+2 -1", "first  last line", "↑1.0k/500", "↓20", "CH33.3%", "$0.123", "5.0k/200k", "~99t/s", "test/model high", "1h 25%"} {
+	for _, want := range []string{"~/project", "main", "v1.2.3", "+2 -1", "Mode: ACT · first · last line", "↑1.0k/500", "↓20", "CH33.3%", "$0.123", "5.0k/200k", "~99t/s", "test/model high", "1h 25%"} {
 		if !strings.Contains(strings.Join(lines, "\n"), want) {
 			t.Fatalf("missing %q: %v", want, lines)
 		}
