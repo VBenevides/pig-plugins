@@ -29,11 +29,12 @@ func Extension() *sdk.Extension {
 		for _, warning := range warnings {
 			ctx.Notify(warning, "warn")
 		}
-		return nil, nil
+		return nil, syncWidget(ctx, phases)
 	}
 	e.OnEvent(sdk.EventSessionStart, restore)
 	e.OnEvent(sdk.EventSessionTree, restore)
-	e.RegisterTool(sdk.ToolDefinition{Name: "todo", Label: "Todo", Description: "Manage phased tasks by exact content, never IDs. Ops: init (list or items), start (task), done/drop (task or phase), rm (task or phase; omit to clear), append (phase, items), view. The earliest open task auto-promotes when no task is in progress.", Parameters: tasks.PhasedSchema(), ExecutionMode: "sequential", Execute: func(ctx sdk.Context, raw map[string]any) (any, error) {
+	e.OnEvent(sdk.EventBeforeAgentStart, appendGuidance)
+	e.RegisterTool(sdk.ToolDefinition{Name: "todo", Label: "Todo", Description: "Manage phased tasks by exact content, never IDs. Ops: init (list or items), start (task), done/drop (task or phase), rm (task or phase; omit to clear), append (phase, items), view. The earliest open task auto-promotes when no task is in progress.", PromptSnippet: "Track phased tasks with one op-based todo tool; reference tasks by exact content.", PromptGuidelines: []string{"Use one todo operation at a time; batch it with real work.", "Reference tasks and phases by exact content/name; use view when uncertain.", "Mark verified work done immediately and drop obsolete work."}, Parameters: tasks.PhasedSchema(), ExecutionMode: "sequential", Execute: func(ctx sdk.Context, raw map[string]any) (any, error) {
 		data, err := json.Marshal(raw)
 		if err != nil {
 			return nil, err
@@ -60,6 +61,11 @@ func Extension() *sdk.Extension {
 		}
 		if op.Op != "view" && len(errors) == 0 {
 			phases = tasks.ClonePhases(details.Phases)
+			// The mutation is already durable. A display failure must not make the
+			// agent retry a successful append or other non-idempotent operation.
+			if err := syncWidget(ctx, phases); err != nil {
+				ctx.Notify(err.Error(), "warn")
+			}
 		}
 		return sdk.ToolResult{Content: tasks.FormatSummary(details.Phases, errors, op.Op == "view"), Details: details, IsError: len(errors) > 0}, nil
 	}, RenderCall: renderCall, RenderResult: renderResult})
