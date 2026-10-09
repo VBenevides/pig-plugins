@@ -433,10 +433,47 @@ func (x *extension) switchOnLimit(ctx modelSwitcher, provider string) error {
 	default:
 		return nil
 	}
+	x.mu.Lock()
+	used := x.retryUsed
+	x.mu.Unlock()
+	if used {
+		return nil
+	}
+	account, found, err := selectedAccount(ctx, provider)
+	if err != nil {
+		return err
+	}
+	if found {
+		switched, err := x.rotateAccountWithPolicy(ctx, account, false)
+		if switched {
+			x.mu.Lock()
+			x.retryPending, x.retryUsed = true, true
+			x.retryTarget = quota.Slot{Provider: provider, Model: failedModel}
+			x.mu.Unlock()
+		}
+		if err != nil || switched {
+			return err
+		}
+	}
+	if found {
+		current, stillSelected, err := selectedAccount(ctx, provider)
+		if err != nil {
+			return err
+		}
+		if !stillSelected || current.ID != account.ID {
+			return nil
+		}
+	}
+	x.mu.Lock()
+	used = x.retryUsed
+	x.mu.Unlock()
+	if used {
+		return nil
+	}
 	if primary == fallback {
 		return nil
 	}
-	account, found, err := selectedAccount(ctx, target.Provider)
+	account, found, err = selectedAccount(ctx, target.Provider)
 	if err != nil || !found {
 		return err
 	}
@@ -450,12 +487,6 @@ func (x *extension) switchOnLimit(ctx modelSwitcher, provider string) error {
 	}
 	currPrimary, currFallback := x.slots()
 	if currPrimary != primary || currFallback != fallback || ctx.Model() != failedModel || x.life.Err() != nil {
-		return nil
-	}
-	x.mu.Lock()
-	used := x.retryUsed
-	x.mu.Unlock()
-	if used {
 		return nil
 	}
 	ok, err := ctx.chooseModel(target)

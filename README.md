@@ -38,6 +38,7 @@ An `openai` API-audience OAuth token is rejected by that endpoint (401), so it i
 `/auto-model` offers only the session's scoped models (`--models` or `enabledModels`). With no scope it offers every authenticated model.
 Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. The patched native host stores OAuth accounts in `oauth-accounts.json` and lazily migrates existing singleton OAuth logins from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
+On quota failure, auto-models first tries another native account for the same provider with at least 5% known quota remaining, retaining the model. Only if none is eligible does it try the configured fallback. Account or model recovery shares one continuation budget per interrupted task; explicit `--model` disables both. Background low-quota rotation still waits until the session is idle.
 In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.
 Differences from upstream: only OAuth credentials are used, quota requests have a timeout, size limit, and no redirects, and persistence errors are reported, not ignored.
 Native account storage and quota integration received a read-only security review with no material findings.

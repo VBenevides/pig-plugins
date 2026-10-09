@@ -17,6 +17,7 @@ func (x *extension) accountRemaining(run context.Context, source accountSource, 
 type accountSwitcher interface {
 	accountSource
 	ModelProvider() string
+	Model() string
 	IsIdle() (bool, error)
 	SelectOAuthAccount(string) error
 	Notify(string, string)
@@ -25,7 +26,6 @@ type accountSwitcher interface {
 // modelSwitcher isolates host mutation and dialogs from quota policy.
 type modelSwitcher interface {
 	accountSwitcher
-	Model() string
 	Confirm(string, string) (bool, error)
 	chooseModel(quota.Slot) (bool, error)
 	markSelected(bool)
@@ -43,6 +43,14 @@ func (c nativeModelSwitcher) markSelected(primary bool) { c.x.selected(c.Context
 
 // rotateAccount never crosses provider boundaries or selects unknown quota.
 func (x *extension) rotateAccount(ctx accountSwitcher, account sdk.OAuthAccount) (bool, error) {
+	return x.rotateAccountWithPolicy(ctx, account, true)
+}
+
+// A failed provider response is settled even while its Session is not idle.
+// Account selection affects only the next request; completed tools are retained.
+func (x *extension) rotateAccountWithPolicy(ctx accountSwitcher, account sdk.OAuthAccount, requireIdle bool) (bool, error) {
+	model := ctx.Model()
+	primary, fallback := x.slots()
 	accounts, err := ctx.OAuthAccounts()
 	if err != nil {
 		return false, fmt.Errorf("native OAuth account enumeration failed")
@@ -67,9 +75,18 @@ func (x *extension) rotateAccount(ctx accountSwitcher, account sdk.OAuthAccount)
 		if !found || current.ID != account.ID || ctx.ModelProvider() != account.Provider {
 			return false, nil
 		}
-		idle, err := ctx.IsIdle()
-		if err != nil || !idle || x.life.Err() != nil {
-			return false, err
+		currPrimary, currFallback := x.slots()
+		if ctx.Model() != model || currPrimary != primary || currFallback != fallback {
+			return false, nil
+		}
+		if x.life.Err() != nil {
+			return false, x.life.Err()
+		}
+		if requireIdle {
+			idle, err := ctx.IsIdle()
+			if err != nil || !idle {
+				return false, err
+			}
 		}
 		if err := ctx.SelectOAuthAccount(candidate.ID); err != nil {
 			return false, fmt.Errorf("native OAuth account selection failed")
