@@ -1,0 +1,21 @@
+--- /dev/null
++++ b/image_preview.go
+@@ -0,0 +1,18 @@
++package sdk
++
++// RenderImage prepares bounded PNG preview rows using the host's configured
++// graphics protocol. supported is false on terminals without image graphics.
++func (c Context) RenderImage(data string, width, height int) ([]string, bool, error) {
++	frame, err := hostRequired[struct {
++		Lines     []string `json:"lines"`
++		Supported bool     `json:"supported"`
++	}](c, "ui.renderImage", map[string]any{"data": data, "width": width, "height": height}, "frame")
++	return frame.Lines, frame.Supported, err
++}
++
++// SetPreviewWidget publishes a width-tagged graphics frame without string-list
++// wrapping or the ten-line truncation used for ordinary text widgets.
++func (c Context) SetPreviewWidget(key string, lines []string, width int) error {
++	result, err := c.callHost("ui.setPreviewWidget", map[string]any{"key": key, "lines": lines, "width": width})
++	return callResultError(result, err)
++}

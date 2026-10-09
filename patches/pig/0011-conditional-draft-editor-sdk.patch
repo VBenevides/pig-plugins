@@ -1,0 +1,11 @@
+--- /dev/null
++++ b/conditional_editor.go
+@@ -0,0 +1,8 @@
++package sdk
++
++// CompareAndSetEditorText atomically replaces expanded draft text if it still
++// matches expected. A false result means newer typing/submission won the race.
++// Hosts without this additive capability return an error, never an unsafe write.
++func (c Context) CompareAndSetEditorText(expected, text string) (bool, error) {
++	return hostRequired[bool](c, "ui.compareAndSetEditorText", map[string]string{"expected": expected, "text": text}, "applied")
++}

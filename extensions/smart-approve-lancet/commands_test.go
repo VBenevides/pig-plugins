@@ -32,16 +32,16 @@ func TestModeCommandTogglesAndPersists(t *testing.T) {
 	if len(notices) != 4 {
 		t.Fatalf("notices = %q\nstderr:\n%s", notices, result.Stderr)
 	}
-	if notices[0] != "smart-approve-lancet: strict - lancet off" || notices[3] != "smart-approve-lancet: interactive - lancet off" {
+	if notices[0] != "smart-approve-lancet: on - auto - lancet off" || notices[3] != "smart-approve-lancet: on - interactive - lancet off" {
 		t.Errorf("toggle notices = %q / %q", notices[0], notices[3])
 	}
-	if !strings.HasPrefix(notices[1], "smart-approve-lancet: strict - lancet off\n") || !strings.Contains(notices[1], "settings: "+settingsFile(home)) {
+	if !strings.HasPrefix(notices[1], "smart-approve-lancet: on - auto - lancet off\n") || !strings.Contains(notices[1], "settings: "+settingsFile(home)) {
 		t.Errorf("status = %q", notices[1])
 	}
 	if want := `smart-approve-lancet: unknown option "bogus"; ` + guard.CommandHelp; notices[2] != want {
 		t.Errorf("unknown option = %q", notices[2])
 	}
-	if got := result.Statuses("smart-approve-lancet"); !reflect.DeepEqual(got, []string{chipOff, "smart-approve-lancet strict - lancet off", chipOff}) {
+	if got := result.Statuses("smart-approve-lancet"); !reflect.DeepEqual(got, []string{chipOff, "smart-approve-lancet on - auto - lancet off", chipOff}) {
 		t.Errorf("status chips = %q", got)
 	}
 
@@ -54,7 +54,7 @@ func TestModeCommandTogglesAndPersists(t *testing.T) {
 	if len(rpc.Asked) != 0 {
 		t.Errorf("strict mode asked: %v", rpc.Asked)
 	}
-	if results := pigtest.ToolResults(mock); len(results) != 1 || !strings.Contains(results[0], "strict mode blocks it without asking") {
+	if results := pigtest.ToolResults(mock); len(results) != 1 || !strings.Contains(results[0], "auto mode blocks it without asking") {
 		t.Errorf("results = %q", results)
 	}
 }
@@ -69,7 +69,7 @@ func TestDamagedSettingsFailClosedAndAreReported(t *testing.T) {
 		Confirm: func(map[string]any) bool { return true }})
 	problem := ""
 	for _, notice := range result.Notices() {
-		if strings.Contains(notice, "using strict") {
+		if strings.Contains(notice, "using auto") {
 			problem = notice
 		}
 	}
@@ -79,7 +79,7 @@ func TestDamagedSettingsFailClosedAndAreReported(t *testing.T) {
 	if len(result.Asked) != 0 {
 		t.Errorf("a damaged settings file must mean strict, but the user was asked: %v", result.Asked)
 	}
-	if got := result.Statuses("smart-approve-lancet"); len(got) == 0 || got[0] != "smart-approve-lancet strict - lancet off" {
+	if got := result.Statuses("smart-approve-lancet"); len(got) == 0 || got[0] != "smart-approve-lancet on - auto - lancet off" {
 		t.Errorf("status chips = %q", got)
 	}
 }
@@ -196,7 +196,7 @@ func TestLancetLifecycleWithTheRealModel(t *testing.T) {
 	if notices[5] != "LANCET: off. Bash uses the pattern checks only." {
 		t.Errorf("off = %q", notices[5])
 	}
-	if got := result.Statuses("smart-approve-lancet"); !reflect.DeepEqual(got, []string{chipOff, "smart-approve-lancet interactive - lancet on", chipOff}) {
+	if got := result.Statuses("smart-approve-lancet"); !reflect.DeepEqual(got, []string{chipOff, "smart-approve-lancet on - interactive - lancet on", chipOff}) {
 		t.Errorf("status chips = %q", got)
 	}
 	settings := guard.LoadSettings(settingsFile(home))
@@ -304,15 +304,15 @@ func TestPersistedInteractiveReviewWithRealModelRPC(t *testing.T) {
 	if len(results) != 4 {
 		t.Fatalf("tool results = %q", results)
 	}
-	for i, want := range []string{"strict mode", "user denied dangerous command", strings.Repeat("hello ", 10), "strict mode"} {
+	for i, want := range []string{"auto mode", "user denied dangerous command", strings.Repeat("hello ", 10), "auto mode"} {
 		if !strings.Contains(results[i], want) {
 			t.Errorf("tool result %d=%q, want %q", i, results[i], want)
 		}
 	}
 	wantChips := []string{
-		"smart-approve-lancet strict - lancet on",
-		"smart-approve-lancet interactive - lancet on",
-		"smart-approve-lancet strict - lancet on",
+		"smart-approve-lancet on - auto - lancet on",
+		"smart-approve-lancet on - interactive - lancet on",
+		"smart-approve-lancet on - auto - lancet on",
 	}
 	if got := result.Statuses("smart-approve-lancet"); !reflect.DeepEqual(got, wantChips) {
 		t.Errorf("effective runtime chips=%q, want %q", got, wantChips)

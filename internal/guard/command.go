@@ -13,7 +13,7 @@ const CommandName = "smart-approve-lancet"
 
 // Help texts of the command.
 const (
-	CommandHelp = "usage: /smart-approve-lancet [interactive|strict|status] | lancet [status|setup|on|off|check <command>] (no argument toggles the mode)"
+	CommandHelp = "usage: /smart-approve-lancet [on|off|interactive|auto|status] | lancet [status|setup|on|off|check <command>] (no argument toggles the mode)"
 	LancetHelp  = "usage: /smart-approve-lancet lancet status | setup | on | off | check <command>"
 )
 
@@ -29,7 +29,10 @@ type Controller struct {
 
 // Chip is the footer text of the current state.
 func (c *Controller) Chip() string {
-	return fmt.Sprintf("%s %s - lancet %s", CommandName, c.Gate.Mode(), onOff(c.Gate.LancetOn()))
+	if !c.Gate.Enabled() {
+		return CommandName + " off"
+	}
+	return fmt.Sprintf("%s on - %s - lancet %s", CommandName, c.Gate.Mode(), onOff(c.Gate.LancetOn()))
 }
 
 func onOff(on bool) string {
@@ -66,6 +69,16 @@ func (c *Controller) Handle(ctx context.Context, args string, notify Notify, ann
 	case word == "lancet" || strings.HasPrefix(word, "lancet "):
 		c.lancetCommand(ctx, trimmed[len("lancet"):], notify, announce)
 		return
+	case word == "on" || word == "off":
+		enabled := word == "on"
+		if err := SaveSettings(c.Settings, Change{Enabled: new(enabled)}); err != nil {
+			notify(fmt.Sprintf("%sstate not changed; cannot save %s: %v", Prefix, c.Settings, err), "error")
+			return
+		}
+		c.Gate.SetEnabled(enabled)
+		announce()
+		notify(c.Chip(), "info")
+		return
 	case word == "status":
 		notify(c.status(), "info")
 		return
@@ -88,15 +101,15 @@ func (c *Controller) Handle(ctx context.Context, args string, notify Notify, ann
 	}
 	c.Gate.SetMode(mode)
 	announce()
-	notify(fmt.Sprintf("%s: %s - lancet %s", CommandName, mode, onOff(c.Gate.LancetOn())), "info")
+	notify(fmt.Sprintf("%s: %s", CommandName, strings.TrimPrefix(c.Chip(), CommandName+" ")), "info")
 }
 
 func (c *Controller) status() string {
 	return strings.Join([]string{
-		fmt.Sprintf("%s: %s - lancet %s", CommandName, c.Gate.Mode(), onOff(c.Gate.LancetOn())),
-		"interactive asks before dangerous commands and protected paths; strict blocks them without asking",
-		"hard-blocked commands are blocked in both modes; see /smart-approve-lancet lancet status for the local model",
-		"LLM risk analysis and auto mode are not part of this port",
+		fmt.Sprintf("%s: %s", CommandName, strings.TrimPrefix(c.Chip(), CommandName+" ")),
+		"interactive asks before dangerous commands and protected paths; auto blocks them without asking",
+		"while enabled, hard-blocked commands are blocked in both modes; see /smart-approve-lancet lancet status for the local model",
+		"off bypasses all guard checks; LLM risk analysis is not part of this port",
 		"settings: " + c.Settings,
 	}, "\n")
 }
@@ -128,7 +141,7 @@ func (c *Controller) lancetStatus() string {
 	return strings.Join(append(lines,
 		"policy (bash only, after hard blocks):",
 		"  NOT_FLAGGED -> continues to the dangerous-command check",
-		"  REVIEW      -> asks you (blocked in strict mode or without a UI)",
+		"  REVIEW      -> asks you (blocked in auto mode or without a UI)",
 		"  RISKY       -> blocked",
 		"  unavailable -> blocked while LANCET is on",
 	), "\n")
@@ -241,7 +254,7 @@ func Completions(prefix string) []Completion {
 	var options []string
 	switch {
 	case len(words) <= 1:
-		options = []string{string(Interactive), string(Strict), "status", "lancet"}
+		options = []string{"on", "off", string(Interactive), string(Strict), "status", "lancet"}
 	case words[0] == "lancet" && len(words) == 2:
 		options = []string{"status", "setup", "on", "off", "check"}
 	}

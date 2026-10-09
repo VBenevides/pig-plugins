@@ -15,7 +15,7 @@ import (
 
 const (
 	confirmable = "kill -9 99999999 2>&1" // dangerous, not hard-blocked
-	chipOff     = "smart-approve-lancet interactive - lancet off"
+	chipOff     = "smart-approve-lancet on - interactive - lancet off"
 )
 
 func extensionPath(t *testing.T) string {

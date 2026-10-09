@@ -149,7 +149,7 @@ func TestAlwaysAllowDoesNotLoosenStrictHardBlocksOrWrites(t *testing.T) {
 	strict := newGate(Strict, false, nil)
 	strict.UseAllowlist(list)
 	s := &selector{choice: choiceOnce}
-	if got := strict.Check(context.Background(), selectCall(cwd, "bash", bash("rm -rf build"), s)); !got.Block || !strings.Contains(got.Reason, "strict mode") {
+	if got := strict.Check(context.Background(), selectCall(cwd, "bash", bash("rm -rf build"), s)); !got.Block || !strings.Contains(got.Reason, "auto mode") {
 		t.Errorf("strict mode must still block: %+v", got)
 	}
 	interactive := newGate(Interactive, false, nil)

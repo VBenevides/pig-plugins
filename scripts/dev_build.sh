@@ -20,10 +20,6 @@ if ! command -v git >/dev/null 2>&1; then
     echo "dev_build: git is required on PATH" >&2
     exit 1
 fi
-if ! command -v node >/dev/null 2>&1; then
-    echo "dev_build: Node.js 22.13 or newer is required on PATH" >&2
-    exit 1
-fi
 if ! command -v tar >/dev/null 2>&1; then
     echo "dev_build: tar is required on PATH" >&2
     exit 1
@@ -79,19 +75,16 @@ tar -C "$source" --exclude='./.git' --exclude='./.agent-work' \
 tar -C "$stage/source" -xf "$stage/source.tar"
 rm -f "$stage/source.tar"
 chmod -R u+w "$stage/source"
-echo "dev_build: [3/6] applying host patches and repacking Node runtime" >&2
+echo "dev_build: [3/6] applying native host patches" >&2
 # The native account extension requires the pinned host and SDK patches.
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0001-native-oauth-accounts-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0003-node-piglet-source-cells.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0004-mid-prompt-skill-autocomplete.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0005-node-editor-mid-prompt-skill-autocomplete.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0006-scrollable-extension-dialogs.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0007-dialog-page-keys.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0008-terminal-height-dialogs.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0009-exit-command-alias.patch" >&2
-# The Node runtime ships as a prebuilt archive with a content digest. Patched shims must be repacked into it, which also
-# changes the runtime cache key. The module zip lacks vendor/ files, so the archive cannot be regenerated from source.
-(cd "$stage/source/coding/extension/host/subprocess" && GOWORK=off go run "$root/scripts/repack_node_runtime.go" >&2)
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0010-conditional-draft-editor-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0012-native-image-preview-host.patch" >&2
 echo "dev_build: [4/6] preparing patched SDK" >&2
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
 sdk_ref="$sdk_module@v0.4.1"
@@ -101,6 +94,8 @@ mkdir "$stage/sdk"
 cp -R "$sdk_source/." "$stage/sdk"
 chmod -R u+w "$stage/sdk"
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0002-native-oauth-accounts-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0011-conditional-draft-editor-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0013-native-image-preview-sdk.patch" >&2
 (
     cd "$stage/source"
     rm -f go.work go.work.sum

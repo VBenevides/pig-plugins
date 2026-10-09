@@ -75,7 +75,7 @@ func TestBashDecisionTable(t *testing.T) {
 		{name: "dangerous without UI", mode: Interactive, command: confirmable, wantBlock: true,
 			wantReason: "blocked dangerous command (Force kill process (SIGKILL)); no UI is available to confirm it."},
 		{name: "dangerous in strict never asks", mode: Strict, hasUI: true, answer: true, command: confirmable, wantBlock: true,
-			wantReason: "strict mode blocks it without asking"},
+			wantReason: "auto mode blocks it without asking"},
 		{name: "dangerous denied", mode: Interactive, hasUI: true, answer: false, command: confirmable, wantBlock: true,
 			wantReason: "user denied dangerous command (Force kill process (SIGKILL)).", wantAsked: 1},
 		{name: "dangerous approved", mode: Interactive, hasUI: true, answer: true, command: confirmable, wantAsked: 1},
@@ -150,7 +150,7 @@ func TestLancetBands(t *testing.T) {
 		{name: "review blocked without UI", result: verdict(lancet.Review, 0.5, "uncertainty-band"), mode: Interactive,
 			wantReason: "blocked dangerous command (LANCET review, score 0.5000: uncertainty-band); no UI is available to confirm it."},
 		{name: "review blocked in strict", result: verdict(lancet.Review, 0.5, ""), mode: Strict, hasUI: true, answer: true,
-			wantReason: "(LANCET review, score 0.5000); strict mode blocks it without asking"},
+			wantReason: "(LANCET review, score 0.5000); auto mode blocks it without asking"},
 		{name: "review asks and is denied", result: verdict(lancet.Review, 0.3, ""), mode: Interactive, hasUI: true,
 			wantReason: "user denied dangerous command (LANCET review, score 0.3000).", wantAsked: 1},
 		{name: "review asks and is approved", result: verdict(lancet.Review, 0.3, ""), mode: Interactive, hasUI: true, answer: true, wantAsked: 1},
@@ -223,7 +223,7 @@ func TestGateStateChangesApplyToTheNextCall(t *testing.T) {
 	}
 	g.SetLancet(false)
 	g.SetMode(Strict)
-	if got := check(g, &dialog{answer: true}, "bash", bash("kill -9 1"), true); !strings.Contains(got.Reason, "strict mode") {
+	if got := check(g, &dialog{answer: true}, "bash", bash("kill -9 1"), true); !strings.Contains(got.Reason, "auto mode") {
 		t.Errorf("strict not applied: %+v", got)
 	}
 }
@@ -267,7 +267,7 @@ func TestProtectedPaths(t *testing.T) {
 		{name: "at-prefix path", tool: "write", path: "@" + filepath.Join(home, ".ssh/x"), mode: Interactive, wantBlock: "protected path"},
 		{name: "symlink alias of protected dir", tool: "write", path: "alias/new_key", mode: Interactive, wantBlock: "protected path"},
 		{name: "dangling symlink to protected file", tool: "write", path: "dangling", mode: Interactive, wantBlock: "protected path"},
-		{name: "strict never asks", tool: "write", path: ".env", hasUI: true, answer: true, mode: Strict, wantBlock: "strict mode blocks it without asking"},
+		{name: "auto never asks", tool: "write", path: ".env", hasUI: true, answer: true, mode: Strict, wantBlock: "auto mode blocks it without asking"},
 		{name: "asks and is denied", tool: "write", path: ".env", hasUI: true, mode: Interactive,
 			wantBlock: "user denied write to protected path " + filepath.Join(work, ".env") + ".", wantAsked: 1},
 		{name: "asks and is approved", tool: "edit", path: ".env", hasUI: true, answer: true, mode: Interactive, wantAsked: 1},

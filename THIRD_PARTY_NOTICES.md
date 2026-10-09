@@ -32,10 +32,11 @@ derive from Oh My Pi commit `9fd6e97113f5ed3a847e66d346970efdf8afcad9` (v17.0.5)
 Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük.
 The old Diego Petrucci notice below is retained for historical fixtures used to test migration.
 
-## Bundled Node extension
+## Native image-preview port
 
-`extensions/pi-image-view/` is `pi-image-view@0.4.0`, the alchemistklk fork of RielJ/pi-image-preview. Its MIT licence
-is in `extensions/pi-image-view/LICENSE`.
+`extensions/pi-image-view/` ports `pi-image-view@0.4.0`, the alchemistklk fork of RielJ/pi-image-preview, to Go.
+Its MIT licence is retained in `extensions/pi-image-view/LICENSE`. The pinned TypeScript reference source and
+upstream archive integrity metadata are retained in `testfixtures/image-view/upstream/`; they are not bundled.
 
 ## Prompt material
 
@@ -50,6 +51,8 @@ The ADHD output rules draw on [i-have-adhd](https://github.com/ayghri/i-have-adh
 - **ONNX Runtime** 1.30.0 (Microsoft, MIT): downloaded at setup from its GitHub release; not redistributed here.
 - **`github.com/dlclark/regexp2`** (Doug Clark, MIT), **`github.com/shota3506/onnxruntime-purego`** (Shota Sugiura, MIT) and
   **`github.com/ebitengine/purego`** (Apache-2.0) are Go module dependencies.
+- **`golang.org/x/image`** v0.45.0 (The Go Authors, BSD-3-Clause) supplies WebP decoding and resizing.
+  Its license is retained in `extensions/pi-image-view/X_IMAGE_LICENSE`.
 
 ## Licence texts
 

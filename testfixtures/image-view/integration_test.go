@@ -19,7 +19,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/pigtest"
 )
 
-// TestBundledImageView exercises the real mixed Go/Node host, not source mocks.
+// TestBundledImageView exercises the real native Go bundle, not source mocks.
 // Build once with scripts/dev_build.sh and set PIG_IMAGE_SMOKE_BINARY to its path.
 func TestBundledImageView(t *testing.T) {
 	binary := os.Getenv("PIG_IMAGE_SMOKE_BINARY")
@@ -143,7 +143,7 @@ func TestBundledImageView(t *testing.T) {
 	encoded, _ := json.Marshal(commands)
 	for _, command := range []string{"pi-image-view", "usage", "better-footer"} {
 		if !strings.Contains(string(encoded), `"name":"`+command+`"`) {
-			t.Fatalf("bundled Node/Go command %q missing: %s", command, encoded)
+			t.Fatalf("bundled native command %q missing: %s", command, encoded)
 		}
 	}
 	prompts := []map[string]any{
@@ -151,6 +151,7 @@ func TestBundledImageView(t *testing.T) {
 		{"type": "prompt", "message": "inspect ./wide.png"},
 		{"type": "prompt", "message": "read tiny.png using the read tool"},
 		{"type": "prompt", "message": "inspect ./tiny.png again"},
+		{"type": "prompt", "message": "inspect ./tiny.png", "images": []any{map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(tiny.Bytes()), "mimeType": "image/png"}}},
 	}
 	for _, prompt := range prompts {
 		send(prompt)
@@ -159,10 +160,10 @@ func TestBundledImageView(t *testing.T) {
 	send(map[string]any{"type": "get_state"})
 	until(func(event map[string]any) bool { return event["type"] == "response" && event["command"] == "get_state" })
 	requests := mock.Requests()
-	if len(requests) != 5 {
-		t.Fatalf("model requests = %d, want 5", len(requests))
+	if len(requests) != 6 {
+		t.Fatalf("model requests = %d, want 6", len(requests))
 	}
-	for index, expectedImages := range []int{1, 2, 2, 3, 4} {
+	for index, expectedImages := range []int{1, 2, 2, 3, 4, 5} {
 		data, _ := json.Marshal(requests[index]["messages"])
 		if count := strings.Count(string(data), `"type":"image_url"`); count != expectedImages {
 			t.Fatalf("request %d: images = %d, want %d: %s", index, count, expectedImages, data)

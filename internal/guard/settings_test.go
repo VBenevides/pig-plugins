@@ -62,7 +62,7 @@ func TestDamagedFileFailsClosedToStrictWithAReason(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"{nope", "[1]", "null", `{"mode": "auto"}`, `{"mode": 3}`, `{"lancet": true}`,
+	for _, text := range []string{"{nope", "[1]", "null", `{"mode": "bogus"}`, `{"enabled":"no"}`, `{"mode": 3}`, `{"lancet": true}`,
 		`{"lancet": {"enabled": "yes"}}`, `{"mode":"strict"} trailing`, ""} {
 		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
 			t.Fatal(err)

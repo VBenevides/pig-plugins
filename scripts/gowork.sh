@@ -1,5 +1,5 @@
 #!/bin/sh
-# Create the ignored workspace using the patched SDK required by native accounts.
+# Create the ignored workspace using the patched SDK required by native extensions.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 ref=github.com/MichaelKinsy/PiG/extensions/sdk@v0.4.1
@@ -11,6 +11,8 @@ trap 'rm -rf "$stage"' 0
 cp -R "$source/." "$stage"
 chmod -R u+w "$stage"
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage" apply "$root/patches/pig/0002-native-oauth-accounts-sdk.patch"
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage" apply "$root/patches/pig/0011-conditional-draft-editor-sdk.patch"
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage" apply "$root/patches/pig/0013-native-image-preview-sdk.patch"
 sdk="$root/build/native-sdk"
 rm -rf "$sdk"
 mv "$stage" "$sdk"

@@ -51,6 +51,9 @@ func (h *Home) WriteModels(t testing.TB, providers map[string]ProviderModels) {
 		models := make([]any, len(p.Models))
 		for i, id := range p.Models {
 			models[i] = map[string]any{"id": id, "name": "Mock", "contextWindow": 100000, "maxTokens": 4096}
+			if p.Vision {
+				models[i].(map[string]any)["input"] = []string{"text", "image"}
+			}
 		}
 		entries[name] = map[string]any{"baseUrl": p.Mock.URL, "apiKey": "x", "api": "openai-completions", "models": models}
 	}
@@ -71,6 +74,8 @@ func (h *Home) WriteModels(t testing.TB, providers map[string]ProviderModels) {
 type ProviderModels struct {
 	Mock   *MockLLM
 	Models []string
+	// Vision enables image input on the mock models.
+	Vision bool
 }
 
 // RunOptions tune one pig invocation.

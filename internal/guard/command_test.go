@@ -61,16 +61,16 @@ func (h *harness) run(args string) string {
 
 func TestNoArgumentTogglesTheModeAndPersistsIt(t *testing.T) {
 	h := newHarness(t)
-	if got := h.run(""); got != "smart-approve-lancet: strict - lancet off" {
+	if got := h.run(""); got != "smart-approve-lancet: on - auto - lancet off" {
 		t.Errorf("first toggle: %q", got)
 	}
 	if h.gate.Mode() != Strict || LoadSettings(h.file).Mode != Strict {
 		t.Error("strict was not applied and saved")
 	}
-	if got := h.run(""); got != "smart-approve-lancet: interactive - lancet off" || h.gate.Mode() != Interactive {
+	if got := h.run(""); got != "smart-approve-lancet: on - interactive - lancet off" || h.gate.Mode() != Interactive {
 		t.Errorf("second toggle: %q mode=%s", got, h.gate.Mode())
 	}
-	h.run("STRICT")
+	h.run("AUTO")
 	if h.gate.Mode() != Strict || h.announce != 3 {
 		t.Errorf("explicit mode: mode=%s announces=%d", h.gate.Mode(), h.announce)
 	}
@@ -78,8 +78,8 @@ func TestNoArgumentTogglesTheModeAndPersistsIt(t *testing.T) {
 
 func TestUnknownOptionChangesNothing(t *testing.T) {
 	h := newHarness(t)
-	got := h.run("auto")
-	want := `smart-approve-lancet: unknown option "auto"; ` + CommandHelp
+	got := h.run("bogus")
+	want := `smart-approve-lancet: unknown option "bogus"; ` + CommandHelp
 	if got != want || h.levels[0] != "error" {
 		t.Errorf("got %q (%s)", got, h.levels[0])
 	}
@@ -102,7 +102,7 @@ func TestModeIsNotChangedWhenTheFileCannotBeSaved(t *testing.T) {
 func TestStatusMentionsModeAndTheOmittedFeatures(t *testing.T) {
 	h := newHarness(t)
 	got := h.run("status")
-	for _, want := range []string{"smart-approve-lancet: interactive - lancet off", "LLM risk analysis and auto mode are not part of this port", "settings: " + h.file} {
+	for _, want := range []string{"smart-approve-lancet: on - interactive - lancet off", "LLM risk analysis is not part of this port", "settings: " + h.file} {
 		if !strings.Contains(got, want) {
 			t.Errorf("status lacks %q:\n%s", want, got)
 		}
@@ -232,10 +232,10 @@ func TestCompletions(t *testing.T) {
 		}
 		return out
 	}
-	if got := values(""); !slices.Equal(got, []string{"interactive", "strict", "status", "lancet"}) {
+	if got := values(""); !slices.Equal(got, []string{"on", "off", "interactive", "auto", "status", "lancet"}) {
 		t.Errorf("empty: %v", got)
 	}
-	if got := values("st"); !slices.Equal(got, []string{"strict", "status"}) {
+	if got := values("st"); !slices.Equal(got, []string{"status"}) {
 		t.Errorf("st: %v", got)
 	}
 	if got := values("lancet "); !slices.Equal(got, []string{"lancet status", "lancet setup", "lancet on", "lancet off", "lancet check"}) {
@@ -251,7 +251,7 @@ func TestCompletions(t *testing.T) {
 
 func TestChip(t *testing.T) {
 	h := newHarness(t)
-	if got := h.ctl.Chip(); got != "smart-approve-lancet interactive - lancet off" {
+	if got := h.ctl.Chip(); got != "smart-approve-lancet on - interactive - lancet off" {
 		t.Errorf("chip = %q", got)
 	}
 }

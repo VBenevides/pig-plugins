@@ -24,7 +24,7 @@ func TestControllerUsesPersistedModeForUncertainty(t *testing.T) {
 	d := &dialog{answer: true}
 	call := Call{Tool: "bash", Input: bash("echo review"), HasUI: true, Confirm: d.confirm}
 	judge := func() Decision { return controller.Check(context.Background(), call, func() { announced++ }) }
-	if got := judge(); !got.Block || !strings.Contains(got.Reason, "strict mode") || len(d.asked) != 0 {
+	if got := judge(); !got.Block || !strings.Contains(got.Reason, "auto mode") || len(d.asked) != 0 {
 		t.Fatalf("strict = %+v, dialogs=%q", got, d.asked)
 	}
 	// A different session/handler saves the same explicit mode. The controller
@@ -35,7 +35,7 @@ func TestControllerUsesPersistedModeForUncertainty(t *testing.T) {
 	if got := judge(); got.Block || len(d.asked) != 1 {
 		t.Fatalf("persisted interactive = %+v, dialogs=%q", got, d.asked)
 	}
-	if gate.Mode() != Interactive || !gate.LancetOn() || announced != 1 || controller.Chip() != "smart-approve-lancet interactive - lancet on" {
+	if gate.Mode() != Interactive || !gate.LancetOn() || announced != 1 || controller.Chip() != "smart-approve-lancet on - interactive - lancet on" {
 		t.Fatalf("runtime disagrees with settings: chip=%q, announced=%d", controller.Chip(), announced)
 	}
 	d.answer = false
@@ -50,7 +50,7 @@ func TestControllerUsesPersistedModeForUncertainty(t *testing.T) {
 		t.Fatal(err)
 	}
 	call.HasUI = true
-	if got := judge(); !got.Block || !strings.Contains(got.Reason, "strict mode") || len(d.asked) != 2 || announced != 2 {
+	if got := judge(); !got.Block || !strings.Contains(got.Reason, "auto mode") || len(d.asked) != 2 || announced != 2 {
 		t.Fatalf("persisted strict = %+v, dialogs=%q, announced=%d", got, d.asked, announced)
 	}
 }

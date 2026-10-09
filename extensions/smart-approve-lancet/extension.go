@@ -5,7 +5,7 @@
 //   - with LANCET on (/smart-approve-lancet lancet on), every other bash command is scored by the local model: risky
 //     is blocked, review needs confirmation, not_flagged continues, and an unavailable model blocks;
 //   - other dangerous bash behaviors and protected write/edit paths need confirmation, and are blocked when no UI
-//     exists or the mode is strict.
+//     exists or the mode is auto. Turning the guard off bypasses all these checks.
 //
 // Unknown-scope confirmation dialogs use the current session LLM for advisory risk and target descriptions.
 package smartapprovelancet
@@ -55,7 +55,7 @@ func Extension() *sdk.Extension {
 	})
 
 	e.RegisterCommand(guard.CommandName, sdk.CommandOptions{
-		Description: "Show or set the guard's approval mode (interactive|strict) and manage local LANCET scoring (lancet ...)",
+		Description: "Turn the guard on/off, set its approval mode (interactive|auto), and manage local LANCET scoring (lancet ...)",
 		GetArgumentCompletions: func(prefix string) ([]sdk.AutocompleteItem, error) {
 			var items []sdk.AutocompleteItem
 			for _, c := range guard.Completions(prefix) {

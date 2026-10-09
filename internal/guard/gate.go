@@ -67,13 +67,14 @@ type Gate struct {
 	mu       sync.RWMutex
 	mode     Mode
 	lancetOn bool
+	disabled bool
 	// allowlist keeps the "Always allow" answers; nil turns that choice off.
 	allowlist *Allowlist
 }
 
 // NewGate creates a gate with the loaded settings. scorer may be nil only while LANCET is off.
 func NewGate(settings Settings, scorer Scorer) *Gate {
-	return &Gate{matcher: DefaultPathMatcher(), scorer: scorer, mode: settings.Mode, lancetOn: settings.Lancet}
+	return &Gate{matcher: DefaultPathMatcher(), scorer: scorer, mode: settings.Mode, lancetOn: settings.Lancet, disabled: settings.Disabled}
 }
 
 // UseAllowlist turns on the "Always allow" choice and honors the grants already stored in list.
@@ -97,6 +98,20 @@ func (g *Gate) LancetOn() bool {
 	return g.lancetOn
 }
 
+// Enabled reports whether the guard is active.
+func (g *Gate) Enabled() bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return !g.disabled
+}
+
+// SetEnabled turns all guard checks on or off.
+func (g *Gate) SetEnabled(enabled bool) {
+	g.mu.Lock()
+	g.disabled = !enabled
+	g.mu.Unlock()
+}
+
 // SetMode changes the approval mode.
 func (g *Gate) SetMode(mode Mode) {
 	g.mu.Lock()
@@ -116,8 +131,8 @@ func (g *Gate) SetLancet(on bool) {
 func (g *Gate) applySettings(settings Settings) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	changed := g.mode != settings.Mode || g.lancetOn != settings.Lancet
-	g.mode, g.lancetOn = settings.Mode, settings.Lancet
+	changed := g.mode != settings.Mode || g.lancetOn != settings.Lancet || g.disabled != settings.Disabled
+	g.mode, g.lancetOn, g.disabled = settings.Mode, settings.Lancet, settings.Disabled
 	return changed
 }
 
@@ -131,7 +146,7 @@ func ScoreText(score *float64) string {
 
 // Check judges one call. Calls of other tools are allowed. Any failure to judge a gated call blocks it.
 func (g *Gate) Check(ctx context.Context, call Call) (decision Decision) {
-	if !Gated(call.Tool) {
+	if !Gated(call.Tool) || !g.Enabled() {
 		return allow
 	}
 	defer func() {
@@ -155,7 +170,7 @@ func (g *Gate) Check(ctx context.Context, call Call) (decision Decision) {
 func (g *Gate) cannotAsk(call Call) string {
 	switch {
 	case g.Mode() == Strict:
-		return "strict mode blocks it without asking"
+		return "auto mode blocks it without asking"
 	case !call.HasUI || (call.Confirm == nil && call.Select == nil):
 		return "no UI is available to confirm it"
 	}

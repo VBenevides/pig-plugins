@@ -1,0 +1,252 @@
+--- a/coding/extension/host/subprocess/ui_bridge.go
++++ b/coding/extension/host/subprocess/ui_bridge.go
+@@ -1232,6 +1232,8 @@
+ 		return b.handlePasteToEditor(ui, call.Args)
+ 	case "ui.setEditorText":
+ 		return b.handleSetEditorText(ui, call.Args)
++	case "ui.compareAndSetEditorText":
++		return b.handleCompareAndSetEditorText(ctx, ui, call.Args)
+ 	case "ui.getEditorText":
+ 		return b.handleGetEditorText(ui)
+ 	case "ui.getEditorComponent":
+--- /dev/null
++++ b/coding/extension/host/subprocess/conditional_editor.go
+@@ -0,0 +1,38 @@
++package subprocess
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++
++	"github.com/MichaelKinsy/PiG/coding/extension"
++)
++
++// Optional additive capability: compare and replacement must share the editor owner loop.
++type conditionalEditorUI interface {
++	CompareAndSetEditorText(context.Context, string, string) (bool, error)
++}
++
++func (b *UIBridge) handleCompareAndSetEditorText(ctx context.Context, ui extension.UIContext, args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Expected string `json:"expected"`
++		Text     string `json:"text"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse compareAndSetEditorText args: %w", err)
++	}
++	applied := false
++	if ui != extension.NoopUIContext {
++		conditional, ok := ui.(conditionalEditorUI)
++		if !ok {
++			return nil, fmt.Errorf("UI does not support atomic editor replacement")
++		}
++		var err error
++		applied, err = conditional.CompareAndSetEditorText(ctx, p.Expected, p.Text)
++		if err != nil {
++			return nil, fmt.Errorf("replace unchanged editor text: %w", err)
++		}
++	}
++	result, err := json.Marshal(map[string]bool{"applied": applied})
++	return &CallResultPayload{Result: result}, err
++}
+--- /dev/null
++++ b/coding/extension/host/subprocess/conditional_editor_test.go
+@@ -0,0 +1,51 @@
++package subprocess
++
++import (
++	"context"
++	"encoding/json"
++	"testing"
++)
++
++type conditionalEditorMock struct{ mockUIContext }
++
++func (u *conditionalEditorMock) CompareAndSetEditorText(_ context.Context, expected, text string) (bool, error) {
++	if u.editorText != expected {
++		return false, nil
++	}
++	u.editorText = text
++	return true, nil
++}
++
++func TestUIBridgeConditionalEditorReplacement(t *testing.T) {
++	ui := &conditionalEditorMock{mockUIContext: mockUIContext{editorText: "path"}}
++	bridge := newTestBridge(ui)
++	for _, want := range []bool{true, false} {
++		result, err := call(bridge, "ui.compareAndSetEditorText", `{"expected":"path","text":"marker"}`)
++		if err != nil || result.Error != nil {
++			t.Fatalf("result=%+v err=%v", result, err)
++		}
++		var out struct {
++			Applied bool `json:"applied"`
++		}
++		if err := json.Unmarshal(result.Result, &out); err != nil {
++			t.Fatal(err)
++		}
++		if out.Applied != want {
++			t.Fatalf("applied=%v want=%v", out.Applied, want)
++		}
++	}
++	if ui.editorText != "marker" {
++		t.Fatal(ui.editorText)
++	}
++}
++
++func TestUIBridgeConditionalEditorWithoutCapability(t *testing.T) {
++	ui := &mockUIContext{editorText: "new typing"}
++	_, err := call(newTestBridge(ui), "ui.compareAndSetEditorText", `{"expected":"path","text":"marker"}`)
++	if err == nil {
++		t.Fatal("unsupported UI silently accepted a transform")
++	}
++	if ui.editorText != "new typing" {
++		t.Fatal("unsupported UI changed editor")
++	}
++}
+--- /dev/null
++++ b/internal/codingagent/ext_ui_conditional_editor.go
+@@ -0,0 +1,62 @@
++package codingagent
++
++import (
++	"context"
++	"sync"
++	"time"
++)
++
++// CompareAndSetEditorText applies a background draft transform only if typing or
++// submission has not changed the expanded text. All editor access stays on its owner.
++func (u *ExtUIContext) CompareAndSetEditorText(ctx context.Context, expected, text string) (bool, error) {
++	// Bound cleanup even if the owner loop is shutting down or in a modal phase.
++	ctx, cancel := context.WithTimeout(ctx, time.Second)
++	defer cancel()
++	apply := func() bool {
++		if ctx.Err() != nil || u.m.editor == nil || u.m.editor.GetExpandedText() != expected {
++			return false
++		}
++		u.m.editor.SetText(text)
++		if u.m.tuiInst != nil {
++			u.m.requestRender()
++		}
++		return true
++	}
++	if err := ctx.Err(); err != nil {
++		return false, err
++	}
++	if u.m.runCtx == nil {
++		return apply(), nil
++	}
++	var mu sync.Mutex
++	applied, cancelled := false, false
++	result := make(chan struct{}, 1)
++	if err := u.m.postToMain(ctx, func() {
++		mu.Lock()
++		if !cancelled {
++			applied = apply()
++		}
++		mu.Unlock()
++		result <- struct{}{}
++	}); err != nil {
++		return false, err
++	}
++	var err error
++	select {
++	case <-result:
++	case <-ctx.Done():
++		err = ctx.Err()
++	case <-u.m.runCtx.Done():
++		err = context.Cause(u.m.runCtx)
++	}
++	mu.Lock()
++	defer mu.Unlock()
++	cancelled = true
++	if applied {
++		return true, nil
++	}
++	if err == nil {
++		err = ctx.Err()
++	}
++	return false, err
++}
+--- /dev/null
++++ b/internal/codingagent/ext_ui_conditional_editor_test.go
+@@ -0,0 +1,78 @@
++package codingagent
++
++import (
++	"context"
++	"errors"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestConditionalEditorReplacementRunsOnOwner(t *testing.T) {
++	for _, currText := range []string{"/tmp/paste.png", "new typing", ""} {
++		t.Run(currText, func(t *testing.T) {
++			m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++			m.editor.SetText("/tmp/paste.png")
++			ui := &ExtUIContext{m: m}
++			type result struct {
++				applied bool
++				err     error
++			}
++			done := make(chan result, 1)
++			go func() {
++				applied, err := ui.CompareAndSetEditorText(t.Context(), "/tmp/paste.png", "[Image #1]")
++				done <- result{applied, err}
++			}()
++			task := <-m.uiTaskCh
++			// Typing or submission can win before the owner accepts the transform.
++			m.editor.SetText(currText)
++			task()
++			got := <-done
++			wantApplied := currText == "/tmp/paste.png"
++			if got.err != nil || got.applied != wantApplied {
++				t.Fatalf("result=%+v", got)
++			}
++			want := currText
++			if wantApplied {
++				want = "[Image #1]"
++			}
++			if text := m.editor.GetExpandedText(); text != want {
++				t.Fatalf("text=%q want=%q", text, want)
++			}
++		})
++	}
++}
++
++func TestConditionalEditorReplacementCancellation(t *testing.T) {
++	m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++	m.editor.SetText("/tmp/paste.png")
++	ctx, cancel := context.WithCancel(t.Context())
++	done := make(chan error, 1)
++	go func() {
++		_, err := (&ExtUIContext{m: m}).CompareAndSetEditorText(ctx, "/tmp/paste.png", "[Image #1]")
++		done <- err
++	}()
++	task := <-m.uiTaskCh
++	cancel()
++	task()
++	if err := <-done; err == nil {
++		t.Fatal("cancelled transform succeeded")
++	}
++	if text := m.editor.Text(); text != "/tmp/paste.png" {
++		t.Fatalf("cancelled transform changed draft: %q", text)
++	}
++}
++
++func TestConditionalEditorReplacementTimeoutRejectsLateTask(t *testing.T) {
++	m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++	m.editor.SetText("/tmp/paste.png")
++	applied, err := (&ExtUIContext{m: m}).CompareAndSetEditorText(t.Context(), "/tmp/paste.png", "[Image #1]")
++	if applied || !errors.Is(err, context.DeadlineExceeded) {
++		t.Fatalf("applied=%v err=%v", applied, err)
++	}
++	// A queued task must not change the draft after its caller has abandoned it.
++	(<-m.uiTaskCh)()
++	if text := m.editor.Text(); text != "/tmp/paste.png" {
++		t.Fatalf("late task changed draft: %q", text)
++	}
++}

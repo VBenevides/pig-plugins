@@ -10,4 +10,5 @@ require (
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/shota3506/onnxruntime-purego v0.0.0-20260315223538-8db8bd7424b2
+	golang.org/x/image v0.45.0
 )

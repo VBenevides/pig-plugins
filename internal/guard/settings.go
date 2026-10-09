@@ -16,13 +16,15 @@ type Mode string
 const (
 	// Interactive asks through a dialog before a dangerous command or a protected path.
 	Interactive Mode = "interactive"
-	// Strict blocks them without asking.
-	Strict Mode = "strict"
+	// Strict (auto mode) blocks them without asking.
+	Strict Mode = "auto"
 )
 
 // ParseMode returns the mode named by s.
 func ParseMode(s string) (Mode, bool) {
 	switch Mode(s) {
+	case "strict": // Accept settings written before auto was renamed.
+		return Strict, true
 	case Interactive, Strict:
 		return Mode(s), true
 	}
@@ -39,8 +41,9 @@ func SettingsFile(getenv func(string) string) string {
 
 // Settings are the values read from the settings file.
 type Settings struct {
-	Mode   Mode
-	Lancet bool
+	Mode     Mode
+	Lancet   bool
+	Disabled bool
 	// Problem is set when the file could not be used. The mode is then Strict and Lancet is off: a damaged setting
 	// must never loosen the guard.
 	Problem string
@@ -57,7 +60,7 @@ func LoadSettings(file string) Settings {
 	}
 	settings, err := parseSettings(data)
 	if err != nil {
-		return Settings{Mode: Strict, Problem: fmt.Sprintf("%s is invalid (%v); using strict", file, err)}
+		return Settings{Mode: Strict, Problem: fmt.Sprintf("%s is invalid (%v); using auto", file, err)}
 	}
 	return settings
 }
@@ -68,11 +71,18 @@ func parseSettings(data []byte) (Settings, error) {
 		return Settings{}, err
 	}
 	settings := Settings{Mode: Interactive}
+	if raw, present := object["enabled"]; present {
+		enabled, ok := raw.(bool)
+		if !ok {
+			return Settings{}, errors.New("enabled must be a boolean")
+		}
+		settings.Disabled = !enabled
+	}
 	if raw, present := object["mode"]; present {
 		name, _ := raw.(string)
 		mode, ok := ParseMode(name)
 		if !ok {
-			return Settings{}, errors.New("mode must be interactive or strict")
+			return Settings{}, errors.New("mode must be interactive or auto")
 		}
 		settings.Mode = mode
 	}
@@ -94,8 +104,9 @@ func parseSettings(data []byte) (Settings, error) {
 
 // Change names the settings to write; nil fields stay as they are.
 type Change struct {
-	Mode   *Mode
-	Lancet *bool
+	Mode    *Mode
+	Lancet  *bool
+	Enabled *bool
 }
 
 // SaveSettings writes only the changed keys and keeps every other key in the file. It refuses to overwrite an
@@ -110,6 +121,9 @@ func SaveSettings(file string, change Change) error {
 		}
 	case !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("read %s: %w", file, err)
+	}
+	if change.Enabled != nil {
+		current["enabled"] = *change.Enabled
 	}
 	if change.Mode != nil {
 		current["mode"] = string(*change.Mode)

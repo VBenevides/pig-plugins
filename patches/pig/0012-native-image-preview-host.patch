@@ -1,0 +1,148 @@
+--- a/coding/extension/host/subprocess/ui_bridge.go
++++ b/coding/extension/host/subprocess/ui_bridge.go
+@@ -1197,6 +1197,10 @@
+ 		return b.handleSetHiddenThinkingLabel(ui, call.Args)
+ 	case "ui.setWidget":
+ 		return b.handleSetWidget(extName, call.Args)
++	case "ui.renderImage":
++		return b.handleRenderImage(call.Args)
++	case "ui.setPreviewWidget":
++		return b.handleSetPreviewWidget(extName, call.Args)
+ 
+ 	// ── Category 2: User Interaction (blocking) ──────────────────────────
+ 	case "ui.select":
+--- /dev/null
++++ b/coding/extension/host/subprocess/image_preview.go
+@@ -0,0 +1,53 @@
++package subprocess
++
++import (
++	"encoding/json"
++	"fmt"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++// Render through the host's configured image protocol and cell geometry, not
++// subprocess environment detection. Returned rows use the normal widget cache
++// and TUI image placement/cropping lifecycle.
++func (b *UIBridge) handleRenderImage(args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Data   string `json:"data"`
++		Width  int    `json:"width"`
++		Height int    `json:"height"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse renderImage args: %w", err)
++	}
++	if len(p.Data) > 8<<20 || p.Width < 1 || p.Width > 240 || p.Height < 1 || p.Height > 40 {
++		return nil, fmt.Errorf("renderImage exceeds preview bounds")
++	}
++	dimensions := tui.GetPNGDimensions(p.Data)
++	if dimensions == nil || dimensions.WidthPx <= 0 || dimensions.HeightPx <= 0 || dimensions.WidthPx > 24000000/dimensions.HeightPx {
++		return nil, fmt.Errorf("renderImage requires a bounded PNG")
++	}
++	supported := tui.GetCapabilities().Images != ""
++	var lines []string
++	if supported {
++		preview := tui.NewImage(p.Data, "image/png", tui.ImageOptions{MaxWidthCells: p.Width, MaxHeightCells: p.Height}, dimensions)
++		lines = preview.Render(p.Width + 2)
++	}
++	result, err := json.Marshal(map[string]any{"frame": map[string]any{"lines": lines, "supported": supported}})
++	return &CallResultPayload{Result: result}, err
++}
++
++func (b *UIBridge) handleSetPreviewWidget(extName string, args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Key   string   `json:"key"`
++		Lines []string `json:"lines"`
++		Width int      `json:"width"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse setPreviewWidget args: %w", err)
++	}
++	if len(args) > 24<<20 || len(p.Lines) > 200 || p.Width < 1 || p.Width > 10000 || p.Key == "" {
++		return nil, fmt.Errorf("setPreviewWidget exceeds preview bounds")
++	}
++	b.updateWidget(extName, p.Key, p.Lines, p.Width, "aboveEditor")
++	return &CallResultPayload{}, nil
++}
+--- /dev/null
++++ b/coding/extension/host/subprocess/image_preview_test.go
+@@ -0,0 +1,76 @@
++package subprocess
++
++import (
++	"bytes"
++	"encoding/base64"
++	"encoding/json"
++	"image"
++	"image/png"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestNativePreviewGraphicsAndFallback(t *testing.T) {
++	previous := tui.GetCapabilities()
++	defer tui.SetCapabilities(previous)
++	var buf bytes.Buffer
++	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 432, 240))); err != nil {
++		t.Fatal(err)
++	}
++	args, err := json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString(buf.Bytes()), "width": 36, "height": 10})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, protocol := range []tui.ImageProtocol{"", tui.ImageProtocolKitty, tui.ImageProtocolITerm2} {
++		tui.SetCapabilities(tui.TerminalCapabilities{Images: protocol})
++		result, err := (&UIBridge{}).handleRenderImage(args)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var value struct {
++			Frame struct {
++				Lines     []string
++				Supported bool
++			}
++		}
++		if err := json.Unmarshal(result.Result, &value); err != nil {
++			t.Fatal(err)
++		}
++		if value.Frame.Supported != (protocol != "") {
++			t.Fatalf("protocol %q: %+v", protocol, value)
++		}
++		if protocol != "" && (len(value.Frame.Lines) == 0 || !strings.Contains(strings.Join(value.Frame.Lines, ""), "\x1b")) {
++			t.Fatalf("missing graphics for %q", protocol)
++		}
++	}
++	if _, err := (&UIBridge{}).handleRenderImage(json.RawMessage(`{"data":"invalid","width":36,"height":10}`)); err == nil {
++		t.Fatal("invalid PNG accepted")
++	}
++}
++
++func TestPreviewWidgetKeepsAllRowsAndRejectsStaleWidth(t *testing.T) {
++	bridge := newTestBridge(&mockUIContext{})
++	lines := make([]string, 44)
++	for i := range lines {
++		lines[i] = "preview"
++	}
++	args, err := json.Marshal(map[string]any{"key": "gallery", "lines": lines, "width": 80})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := bridge.handleSetPreviewWidget("images", args); err != nil {
++		t.Fatal(err)
++	}
++	proxy := bridge.widgets["images:gallery"]
++	if proxy == nil {
++		t.Fatal("missing gallery widget")
++	}
++	if got := proxy.Render(80); len(got) != len(lines) {
++		t.Fatalf("gallery truncated: %d rows", len(got))
++	}
++	if got := proxy.Render(40); len(got) != 0 {
++		t.Fatalf("stale frame painted: %v", got)
++	}
++}

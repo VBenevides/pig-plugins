@@ -6,7 +6,7 @@
 curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts/install.sh | sh
 ```
 
-Requires `git`, `go`, Node.js 22.13 or newer, and `curl`. If `pig` is not on `PATH`, the script first installs PiG 0.4.1
+Requires `git`, `go`, and `curl`. If `pig` is not on `PATH`, the script first installs PiG 0.4.1
 (the version the bundled patches target; override with `PIG_VERSION`) into `~/.local/bin`.
 The script clones the repository into a temporary directory and builds the fused executable at `~/.pig/bin/pig-plugins`.
 Only after that build succeeds does it copy the plugins, prompts and skills into `~/.pig` and remove the clone. Details are under
@@ -14,8 +14,8 @@ Only after that build succeeds does it copy the plugins, prompts and skills into
 
 ## About
 
-Go extensions for [PiG](https://github.com/MichaelKinsy/PiG) (the Go port of Pi), plus the original
-Node/TypeScript `pi-image-view` extension. Each native folder under `extensions/<name>/`
+Native Go extensions for [PiG](https://github.com/MichaelKinsy/PiG), including the Go port of
+`pi-image-view`. Each native folder under `extensions/<name>/`
 exports `func Extension() *sdk.Extension`. The repository uses one Go module for shared `internal/` packages.
 
 Upstream authors, repositories and licences for the ported extensions are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
@@ -78,7 +78,6 @@ then use `/accounts` to choose the account used for native model requests.
 
 `patches/pig/0004-mid-prompt-skill-autocomplete.patch` lets you type `/` after prompt text to complete a skill, as in Oh My Pi.
 The popup lists skills only and matches the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting inserts `/skill:name` and does not submit.
-`patches/pig/0005-node-editor-mid-prompt-skill-autocomplete.patch` does the same for the Node editor that `pi-image-view` installs in place of the host editor.
 Submitting a prompt that holds `/skill:name` tokens adds each known skill's block once, before the unchanged text. Commands still work only at the start of the message.
 `patches/pig/0006-scrollable-extension-dialogs.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows. PageUp and PageDown scroll the rest, and a status row shows the visible range.
 
@@ -99,34 +98,35 @@ installed; targeted native lifecycle, refresh, cancellation and bridge tests
 are covered independently.
 
 
-### Numbered images (Node, not a Go port)
+### Numbered images (native Go)
 
-The development binary includes [`pi-image-view@0.4.0`](https://www.npmjs.com/package/pi-image-view/v/0.4.0),
-the [alchemistklk fork](https://github.com/alchemistklk/pi-image-view) of
-[RielJ/pi-image-preview](https://github.com/RielJ/pi-image-preview).
-It replaces pasted image paths with stable `[Image #N]` references.
-The original extension builds 480-pixel PNG thumbnails for the draft gallery and model attachments.
-`/pi-image-view detail` requests a 1280-pixel image batch.
-`/pi-image-view clear` removes earlier images from future model context, but preserves session history.
+The Go port of [pi-image-view@0.4.0](https://github.com/alchemistklk/pi-image-view)
+numbers image paths, RPC attachments, and native `read` results using `[Image #N]`.
+PNG, JPEG, GIF (first frame), and WebP decode in Go. Submitted PNG previews are bounded
+to 480 pixels and 2 MiB; `/pi-image-view detail` arms the next submission for 1280 pixels.
+Input decoding is bounded to 32 MiB and 24 million pixels.
+`/pi-image-view clear` removes earlier images from future model context without changing history.
+Numbering resumes from user and tool-result messages on the current session branch.
+Prepared attachments persist atomically under `<agent-dir>/image-view/blobs/`, keyed by SHA-256.
+Display links resolve to local blobs; internal blob links are stripped from model-facing text.
+Existing native `read` and `edit` tools remain active.
 
-The package source and MIT license are under `extensions/pi-image-view/`.
-`upstream-lock.json` records the exact npm archive, version, and SHA-512 integrity.
-No `node_modules` directory or npm installation is required.
-PiG's Node loader supplies the package's peer APIs and Photon WASM image resizer.
-The small host adapter numbers native `read` image results and pathless RPC image inputs.
-It also restores numbering from saved user and tool-result messages.
-The blob store uses PiG's agent-directory API instead of the original `~/.pi/agent` fallback.
-Submitted previews persist under `<agent-dir>/image-view/blobs/`.
-All other package files retain the published implementation.
-The extension registers no tools. The existing native `read` and `edit` remain active.
-
-The binary mixes fused Go extensions with one Node subprocess.
-PiG derives each extension's realization from its language. The manifest does not accept a per-extension runtime declaration.
-Node.js 22.13 or newer must remain on `PATH` when you build and run this binary.
-The build applies `patches/pig/0003-node-piglet-source-cells.patch` to PiG 0.4.1.
-This patch records the Node runtime requirement and embeds the extension source with its relative imports.
-At startup, PiG extracts those files and uses its existing Node loader.
-The runtime comes from `PATH`, not from the binary.
+The native UI keeps PiG's editor and clipboard handling. In the patched bundle, pasted image
+paths automatically become `[Image #N]` markers before submission, with a gallery above the editor.
+Previews use PiG's native Kitty or iTerm2 graphics; other terminals use color-cell thumbnails.
+Images appear side by side (up to four per row), wrapping at narrow widths. Draft preview inputs
+retain up to 1280 pixels independently of the 480-pixel default model attachments.
+Draft scans run every 100 ms and replace text only if it is still unchanged.
+Up to 16 draft attachments are retained; deleting a marker removes its pending attachment.
+Submission preserves marker numbers and applies detail mode to the retained original image.
+The draft gallery clears after image submission; submitted image blocks remain in the transcript.
+Use `/pi-image-view preview PATH` for an explicit preview; command and shell drafts are not converted.
+Atomic marker editing is not ported. Standalone source extensions on unpatched PiG retain
+submission handling but require the patched host and SDK for the draft gallery.
+PiG still renders submitted image blocks using its normal terminal-image renderer.
+The MIT license remains in `extensions/pi-image-view/LICENSE`; pinned TypeScript source
+is retained only as reference material in `testfixtures/image-view/upstream/`.
+The fused bundle contains only Go extensions and needs no Node.js or npm runtime.
 
 #### Image settings and terminal support
 
@@ -140,19 +140,19 @@ Use these settings in the normal PiG agent directory's `settings.json`:
 ```
 
 These are the recommended image settings.
-The upstream draft gallery uses Kitty graphics and Unicode placeholders.
-Use a terminal that supports both, such as Kitty or Ghostty.
-The upstream gallery shows text labels instead of thumbnails in other terminals, including iTerm2-only terminals.
-PiG's stock image renderer can separately use the iTerm2 protocol.
+Use a graphics-capable terminal, such as Kitty or Ghostty, for sharp previews.
+The native gallery uses the host's configured Kitty or iTerm2 renderer; Unicode placeholders
+are not required. With no graphics protocol, all images still appear as color-cell thumbnails.
+PiG disables iTerm2 graphics in fullscreen mode; use `tuiMode: "regular"` for iTerm2 previews.
 Print, JSON, and RPC modes retain numbered references and model attachments, but do not display the draft gallery.
 
 PiG disables automatic image protocol detection inside tmux and screen.
-The upstream gallery can detect a Kitty-capable outer terminal and emit tmux passthrough sequences.
-This requires working passthrough and Unicode-placeholder support in the multiplexer and outer terminal.
-For a known-compatible setup, use `terminal.images: "kitty"` or `PI_IMAGE_PROTOCOL=kitty`.
+The native gallery follows the host renderer and does not add multiplexer passthrough.
+Use PiG outside the multiplexer for reliable previews. Force `terminal.images: "kitty"` or
+`PI_IMAGE_PROTOCOL=kitty` only when the terminal and multiplexer can forward the graphics protocol.
 The setting takes precedence over the environment variable.
 Use PiG outside the multiplexer if forwarding fails.
-Stock `showImages` and `blockImages` settings control the transcript, not the upstream gallery.
+Stock `showImages` and `blockImages` settings control the transcript, not the draft gallery.
 Do not use `blockImages` as a privacy boundary: PiG 0.4.1 still sends those images to the model.
 
 #### Host smoke test
@@ -166,16 +166,20 @@ Do not use `blockImages` as a privacy boundary: PiG 0.4.1 still sends those imag
 2. Run the deterministic host integration test:
 
    ```sh
-   PIG_IMAGE_SMOKE_BINARY="$binary" go test ./testfixtures/image-view -run TestBundledImageView -count=1 -v
+   PIG_IMAGE_SMOKE_BINARY="$binary" go test ./testfixtures/image-view -run TestBundledImage -count=1 -v
    ```
 
    This test starts the actual bundled host with an isolated HOME and a local mock model.
-   It checks Node and Go commands, pathless image input, image paths, native image reads, and sequential references.
+   It checks native Go commands, pathless image input, image paths, native image reads, and sequential references.
    It also checks model attachments, actual 480-pixel resizing, and absence of duplicate tools.
+   On Linux with Python 3, it also drives the real editor in a pseudo-terminal and checks
+   that pasted paths and Ctrl+V images become markers and show side by side before submission.
+   It then submits immediately after typing and checks that both images reach the model request.
+   The smoke fixture checks Kitty, iTerm2, color-cell fallback, and narrow-width resizing.
    Without `PIG_IMAGE_SMOKE_BINARY`, the test skips. A skip is not smoke-test evidence.
 
 3. Start `"$binary"` in a Kitty-compatible terminal.
-4. Paste an image path and wait for `[Image #1]` and its thumbnail above the editor.
+4. Paste two images and expect `[Image #N]` markers with sharp previews side by side above the editor.
 5. Submit the image, then ask the model to read another PNG with `read`.
 
    Expect the next numbered reference and an inline image result, without another `read` tool.
@@ -220,7 +224,7 @@ Builds the fused executable at `~/.pig/bin/pig-plugins` and symlinks it as `~/.l
 
 ### Build a bundled development binary
 
-Requires `pig`, Go, and Node.js 22.13 or newer on `PATH`. Run:
+Requires `pig` and Go on `PATH`. Run:
 
 ```sh
 binary=$(./scripts/dev_build.sh)
@@ -240,8 +244,8 @@ Build diagnostics go to stderr. To choose another output path:
 
 Relative output paths are relative to the invoking directory; the script can run from outside the repository.
 Successful builds replace an existing output binary. A failed build leaves the previous binary intact.
-`piglet.yaml` bundles all nine native extensions plus `pi-image-view` and disables ambient extension and skill discovery; a baked binary ignores ambient discovery entirely. The `user-resources` extension loads skills, prompts and themes from `~/.pig/agent` instead.
-The executable does not need Go or the source tree to run. Its image subprocess needs Node.js.
+`piglet.yaml` bundles all selected native Go extensions and disables ambient extension and skill discovery; a baked binary ignores ambient discovery entirely. The `user-resources` extension loads skills, prompts and themes from `~/.pig/agent` instead.
+The executable does not need Go, Node.js, or the source tree to run.
 It uses normal PiG model selection and credentials.
 Curator, language servers, and the optional LANCET model and ONNX Runtime library remain external prerequisites.
 The script does not install extensions into your default configuration.
@@ -249,7 +253,7 @@ The script does not install extensions into your default configuration.
 The first build downloads the source and dependencies for the installed PiG release.
 It uses a temporary workspace to resolve the extensions' dependency checksums and placeholder SDK version.
 The script applies the pinned host and SDK patches, then builds a temporary patched builder.
-Both the builder and the output binary use the Node source-cell fix.
+Both the builder and the output binary use the native host patches; no Node runtime repacking is needed.
 Cached source and repository Go files are not modified; the temporary source copy is removed on exit.
 For a development PiG checkout, set `PIG_SOURCE_ROOT` to its absolute path before running the script.
 Build artifacts are ignored by Git.
@@ -284,14 +288,19 @@ they are absent; set `LANCET_MODEL_DIR` and `LANCET_ORT_LIBRARY` to point at the
 
 ## smart-approve-lancet
 
-The safety layer: it registers no tool and gates `bash`, `write` and `edit` through `tool_call`. Hard-blocked bash
-behaviors (`rm -rf /`, `curl | sh`, fork bombs, ...) are always blocked. Other dangerous behaviors and protected paths
-(`~/.ssh`, `.env`, ... with `.env.example` allowed; symlinks are resolved, dangling ones included) ask for
-confirmation in `interactive` mode and are blocked in `strict` mode or when no UI exists. With `/smart-approve-lancet
-lancet on`, commands outside the verified read-only subset are scored locally first: `risky` is blocked, `review` asks, `not_flagged`
-continues, and an unavailable model blocks. A damaged settings file (`smart-approve-lancet.json` in the agent
-directory) means `strict` and is reported. Commands: `/smart-approve-lancet [interactive|strict|status]` (no argument
-toggles) and `/smart-approve-lancet lancet [status|setup|on|off|check <command>]`.
+The safety layer: it registers no tool and gates `bash`, `write` and `edit` through `tool_call`. It is on by default.
+Use `/smart-approve-lancet off` to bypass all guard checks, or `/smart-approve-lancet on` to restore them.
+The footer shows `smart-approve-lancet on - auto/interactive - lancet on/off` while enabled, and only
+`smart-approve-lancet off` while disabled. Both switches and the mode persist across sessions.
+While enabled, hard-blocked bash behaviors (`rm -rf /`, `curl | sh`, fork bombs, ...) are always blocked.
+Other dangerous behaviors and protected paths (`~/.ssh`, `.env`, ... with `.env.example` allowed; symlinks are
+resolved, dangling ones included) ask for confirmation in `interactive` mode and are blocked in `auto` mode
+or when no UI exists. `auto` is the renamed `strict` mode with unchanged behavior; legacy settings still load.
+With `/smart-approve-lancet lancet on`, commands outside the verified read-only subset are scored locally first:
+`risky` is blocked, `review` asks, `not_flagged` continues, and an unavailable model blocks.
+A damaged settings file (`smart-approve-lancet.json` in the agent directory) fails closed and is reported.
+Commands: `/smart-approve-lancet [on|off|interactive|auto|status]` (no argument toggles the mode) and
+`/smart-approve-lancet lancet [status|setup|on|off|check <command>]`.
 
 Verified read-only commands (`readlink`, `strings`, `rg`, `grep`, `head`, `tail`, `cat`, `ls`, `pwd`, `wc`, `stat`)
 bypass LANCET scoring and approval, including pipelines and lists made entirely from these commands.
