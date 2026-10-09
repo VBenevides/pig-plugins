@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
-	"github.com/VBenevides/pig-plugins/internal/agentdir"
 	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 	"github.com/VBenevides/pig-plugins/internal/websearch"
-	"io"
 	"os"
 	"slices"
 	"strings"
@@ -27,6 +25,7 @@ type extension struct {
 func Extension() *sdk.Extension {
 	x := &extension{}
 	e := sdk.New(Name)
+	registerSearchServers(e)
 	for _, name := range []string{"web_search", "url_context"} {
 		urlOnly := name == "url_context"
 		exposure := sdk.ToolExposureDirect
@@ -39,7 +38,7 @@ func Extension() *sdk.Extension {
 			urls["minItems"] = 1
 			required = append(required, "urls")
 		}
-		e.RegisterTool(sdk.ToolDefinition{Name: name, Exposure: exposure, Label: map[bool]string{true: "URL Context", false: "Web Search"}[urlOnly], Description: map[bool]string{true: "Analyze up to 20 public URLs using Gemini URL Context, including web pages, documents, images and YouTube videos.", false: "Search the web with the current or explicitly configured provider-native model, returning cited answers and search metadata. Optionally analyze URLs."}[urlOnly], Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}, "urls": urls}, "required": required}, Execute: func(ctx sdk.Context, p map[string]any) (any, error) { return execute(ctx, p, urlOnly) }})
+		e.RegisterTool(sdk.ToolDefinition{Name: name, Exposure: exposure, Label: map[bool]string{true: "URL Context", false: "Web Search"}[urlOnly], Description: map[bool]string{true: "Analyze up to 20 public URLs using Gemini URL Context, including web pages, documents, images and YouTube videos.", false: "Search with Parallel MCP, falling back to the current model's native web search, then Exa MCP. Optionally analyze URLs."}[urlOnly], Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}, "urls": urls}, "required": required}, Execute: func(ctx sdk.Context, p map[string]any) (any, error) { return execute(ctx, p, urlOnly) }})
 	}
 	for _, event := range []string{sdk.EventSessionStart, sdk.EventSessionTree, sdk.EventModelSelect} {
 		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
@@ -144,53 +143,6 @@ func decodeModel(raw map[string]any) (websearch.Model, error) {
 	err = json.Unmarshal(data, &m)
 	return m, err
 }
-func selectedModel(ctx sdk.Context, urlOnly bool) (websearch.Model, map[string]any, error) {
-	if !urlOnly {
-		path := os.Getenv("PI_WEB_SEARCH_CONFIG")
-		if path == "" {
-			path = agentdir.File(os.Getenv, "web-search.json")
-		}
-		file, err := os.Open(path)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return websearch.Model{}, map[string]any{"error": "invalid_config", "configPath": path}, err
-		}
-		if err == nil {
-			defer file.Close()
-			raw, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
-			if err != nil {
-				return websearch.Model{}, map[string]any{"error": "invalid_config", "configPath": path}, err
-			}
-			var config map[string]any
-			if len(raw) > 1<<20 {
-				err = errors.New("config exceeds 1 MiB")
-			} else {
-				err = json.Unmarshal(raw, &config)
-			}
-			if err == nil {
-				provider, _ := config["provider"].(string)
-				id, _ := config["model"].(string)
-				if config["model"] == nil {
-					id, _ = config["modelId"].(string)
-				}
-				provider = strings.TrimSpace(provider)
-				id = strings.TrimSpace(id)
-				if provider == "" || id == "" {
-					err = errors.New("provider and model must be nonempty strings")
-				} else {
-					model := ctx.ModelRegistry().Find(provider, id)
-					if model == nil {
-						return websearch.Model{}, map[string]any{"error": "configured_model_not_found", "configPath": path, "configuredProvider": provider, "configuredModel": id}, fmt.Errorf("configured search model %s/%s not found", provider, id)
-					}
-					m, err := decodeModel(model)
-					return m, map[string]any{"configPath": path, "configuredProvider": provider, "configuredModel": id}, err
-				}
-			}
-			return websearch.Model{}, map[string]any{"error": "invalid_config", "configPath": path}, err
-		}
-	}
-	m, err := currentModel(ctx)
-	return m, nil, err
-}
 func fail(err error, details map[string]any) sdk.ToolResult {
 	if details == nil {
 		details = map[string]any{"error": true}
@@ -221,9 +173,17 @@ func execute(ctx sdk.Context, p map[string]any, urlOnly bool) (any, error) {
 	if len(urls) > 20 || urlOnly && len(urls) == 0 {
 		return fail(errors.New("URL count is outside the supported range"), nil), nil
 	}
-	m, details, err := selectedModel(ctx, urlOnly)
+	if !urlOnly {
+		return searchWithFallback(ctx, query, urls), nil
+	}
+	return nativeSearch(ctx, query, urls, true), nil
+}
+
+func nativeSearch(ctx sdk.Context, query string, urls []string, urlOnly bool) sdk.ToolResult {
+	m, err := currentModel(ctx)
+	var details map[string]any
 	if err != nil {
-		return fail(err, details), nil
+		return fail(err, details)
 	}
 	kind := websearch.Kind(m)
 	if m.ID == "" || kind == "unsupported" || urlOnly && kind != "google" {
@@ -241,20 +201,20 @@ func execute(ctx sdk.Context, p map[string]any, urlOnly bool) (any, error) {
 		details["grounded"] = false
 		details["providerKind"] = kind
 		details["currentModel"] = fmt.Sprintf("%s (%s/%s)", m.ID, m.Provider, m.API)
-		return fail(errors.New("select or explicitly configure a supported provider-native search model; no automatic fallback is used to avoid unexpected API costs"), details), nil
+		return fail(errors.New("current model does not support provider-native search"), details)
 	}
 	rawModel := ctx.ModelRegistry().Find(m.Provider, m.ID)
 	authMap, err := ctx.ModelRegistry().GetApiKeyAndHeaders(rawModel)
 	if err != nil {
-		return fail(err, nil), nil
+		return fail(err, nil)
 	}
 	authBytes, err := json.Marshal(authMap)
 	if err != nil {
-		return fail(err, nil), nil
+		return fail(err, nil)
 	}
 	var auth websearch.Auth
 	if err = json.Unmarshal(authBytes, &auth); err != nil {
-		return fail(err, nil), nil
+		return fail(err, nil)
 	}
 	if auth.OK && auth.Key == "" && !hasAuthHeader(auth.Headers) {
 		env := map[string]string{"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "google": "GEMINI_API_KEY", "google-generative-ai": "GEMINI_API_KEY", "xai": "XAI_API_KEY", "opencode": "OPENCODE_API_KEY", "opencode-go": "OPENCODE_API_KEY"}
@@ -262,11 +222,11 @@ func execute(ctx sdk.Context, p map[string]any, urlOnly bool) (any, error) {
 	}
 	sessionID, err := ctx.GetSessionID()
 	if err != nil {
-		return fail(err, nil), nil
+		return fail(err, nil)
 	}
 	thinking, err := ctx.GetThinkingLevel()
 	if err != nil {
-		return fail(err, nil), nil
+		return fail(err, nil)
 	}
 	runCtx, cancel := sdkctx.Request(ctx)
 	defer cancel()
@@ -280,13 +240,15 @@ func execute(ctx sdk.Context, p map[string]any, urlOnly bool) (any, error) {
 		}
 	})
 	if updateErr != nil {
-		return fail(fmt.Errorf("stream tool update: %w", updateErr), nil), nil
+		result := fail(fmt.Errorf("stream tool update: %w", updateErr), nil)
+		result.Details.(map[string]any)["stopFallback"] = true
+		return result
 	}
 	if err != nil {
-		return fail(err, nil), nil
+		return fail(err, nil)
 	}
 	text, out := result.Format(m.ID, urlOnly)
-	return sdk.ToolResult{Content: text, Details: out}, nil
+	return sdk.ToolResult{Content: text, Details: out}
 }
 func hasAuthHeader(headers map[string]string) bool {
 	for k, v := range headers {

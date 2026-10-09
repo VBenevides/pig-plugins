@@ -44,7 +44,9 @@ mkdir -p -- "$(dirname -- "$out")"
 # Resolve local resources from the repository, even when invoked from elsewhere.
 cd "$root"
 
-# PiG 0.4.1's fused builder adds local module replacements, but not their sums.
+compatible_version=$(GOWORK=off go run ./cmd/compatibility "$root/COMPATIBILITY.json")
+
+# PiG's fused builder adds local module replacements, but not their sums.
 # A workspace makes the extension module's verified dependency graph available.
 source=${PIG_SOURCE_ROOT:-}
 if [ -z "$source" ]; then
@@ -90,9 +92,10 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0016-persist-tool-expansion.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0017-input-draft-commands-and-skill-previews.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0018-collapse-live-skill-messages.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0019-startup-distribution-versions.patch" >&2
 echo "dev_build: [4/6] preparing patched SDK" >&2
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
-sdk_ref="$sdk_module@v0.4.1"
+sdk_ref="$sdk_module@v$compatible_version"
 GOWORK=off go mod download "$sdk_ref" >&2
 sdk_source=$(GOWORK=off go list -m -f '{{.Dir}}' "$sdk_ref")
 mkdir "$stage/sdk"

@@ -18,8 +18,9 @@ class BuildScriptsTest(unittest.TestCase):
         self.root = Path(self.tmp.name) / "repo"
         self.root.mkdir()
         (self.root / "scripts").mkdir()
-        for name in ("dev_build.sh", "install.sh"):
+        for name in ("dev_build.sh", "install.sh", "pig-plugins.sh"):
             shutil.copy2(ROOT / "scripts" / name, self.root / "scripts" / name)
+        shutil.copy2(ROOT / "COMPATIBILITY.json", self.root / "COMPATIBILITY.json")
         # Source is an ancestor of build staging: unrestricted cp recursively
         # copies its own output. These fixtures must never reach staged source.
         for name in (".git", ".agent-work/worktrees/nested", "build/previous", "node_modules", ".ouro"):
@@ -54,8 +55,9 @@ class BuildScriptsTest(unittest.TestCase):
     *) exit 0 ;;
 esac
 ''')
-        self.tool("go", '''printf '%s|%s|%s\\n' "$GOFLAGS" "$GOMAXPROCS" "$*" >> "$TOOL_LOG"
+        self.tool("go", '''printf '%s|%s|%s\\n' "${GOFLAGS:-}" "${GOMAXPROCS:-}" "$*" >> "$TOOL_LOG"
 case "$1" in
+    run) python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dependencies"]["pig"]["version"])' "$3" ;;
     list) echo "$SDK_FIXTURE" ;;
     build)
         for name in .git .agent-work build node_modules .ouro; do
@@ -118,6 +120,9 @@ chmod +x "$2"
         for stage in range(1, 7):
             self.assertIn(f"install: [{stage}/6]", result.stderr)
         self.assertTrue((Path(self.env["PIG_PLUGINS_LINK_DIR"]) / "pig-plugins").is_symlink())
+        launcher = Path(self.env["PIG_HOME"]) / "bin/pig-plugins"
+        self.assertIn("--update", launcher.read_text())
+        self.assertTrue((launcher.parent / "pig-plugins-native").is_file())
 
     def test_install_failure_does_not_install_prompts(self):
         self.env["FAIL_BUILD"] = "1"
@@ -126,6 +131,53 @@ chmod +x "$2"
         self.assertIn("fixture compile failed", result.stderr)
         self.assertIn("install: build failed", result.stderr)
         self.assertFalse((Path(self.env["PIG_HOME"]) / "agent/SYSTEM.md").exists())
+
+    def test_launcher_update_download_and_execution(self):
+        self.tool("curl", '''while [ "$1" != -o ]; do shift; done
+printf '#!/bin/sh\\nprintf "%%s" "$PIG_PLUGINS_UPDATE" > "$TOOL_LOG"\\n' > "$2"
+''')
+        result = self.run_script("pig-plugins.sh", "--update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(self.env["TOOL_LOG"]).read_text(), "1")
+
+    def test_failed_update_download_is_not_executed(self):
+        self.tool("curl", '''while [ "$1" != -o ]; do shift; done
+printf 'touch "$TOOL_LOG"\\n' > "$2"
+exit 22
+''')
+        result = self.run_script("pig-plugins.sh", "--update")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(Path(self.env["TOOL_LOG"]).exists())
+
+    def test_update_reinstalls_compatible_pig(self):
+        self.tool("curl", '''while [ "$1" != -o ]; do shift; done
+printf '#!/bin/sh\\nprintf "%%s" "$PIG_VERSION" > "$TOOL_LOG"\\n' > "$2"
+''')
+        (self.root / "COMPATIBILITY.json").write_text(
+            '{"dependencies":{"pig":{"path":"github.com/MichaelKinsy/PiG","version":"0.4.2"}}}\n')
+        self.env["PIG_PLUGINS_UPDATE"] = "1"
+        self.env["PIG_INSTALL_DIR"] = str(self.tools)
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = Path(self.env["TOOL_LOG"]).read_text()
+        self.assertTrue(log.startswith("0.4.2"))
+        self.assertIn("extensions/sdk@v0.4.2", log)
+
+    def test_launcher_preserves_arguments_and_host_version(self):
+        native = Path(self.env["PIG_HOME"]) / "bin/pig-plugins-native"
+        native.parent.mkdir(parents=True)
+        native.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo 0.4.1+1.0.3; else printf "%s|%s|%s" "$PIG_PLUGINS_HOST_VERSION" "$1" "$2"; fi\n')
+        native.chmod(0o755)
+        result = self.run_script("pig-plugins.sh", "-p", "hello world")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "0.4.1+1.0.3|-p|hello world")
+
+    def test_missing_compatibility_stops_before_build(self):
+        (self.root / "COMPATIBILITY.json").unlink()
+        result = self.run_script("install.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((Path(self.env["PIG_HOME"]) / "bin/pig-plugins-native").exists())
+        self.assertNotIn("build -v", Path(self.env["TOOL_LOG"]).read_text())
 
 
 if __name__ == "__main__":

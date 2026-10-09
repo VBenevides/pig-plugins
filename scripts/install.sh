@@ -1,10 +1,11 @@
 #!/bin/sh
 # Install pig-plugins by copying (never linking) it into PiG's home.
-# Installs PiG 0.4.1 first (override with PIG_VERSION) when `pig` is not on PATH, then builds the
+# Installs the compatible PiG release (override with PIG_VERSION) when `pig` is not on PATH, then builds the
 # fused executable; prompts and skills are installed only after that build succeeds.
 #
 #   <home>/pig-plugins/            tracked repository files, including every extension and prompts/
-#   <home>/bin/pig-plugins         fused PiG executable built from that copy
+#   <home>/bin/pig-plugins-native  fused PiG executable built from that copy
+#   <home>/bin/pig-plugins         launcher with --update support
 #   <agent>/{SYSTEM,APPEND_SYSTEM,AGENTS}.md   copied from prompts/agent/; a differing existing file is
 #                                              kept as <file>.pig-plugins-backup-<timestamp>
 #   <agent>/skills/<name>/         copied from skills/ (every directory holding a SKILL.md); a differing
@@ -40,6 +41,8 @@ for tool in git tar; do
     command -v "$tool" >/dev/null 2>&1 || { echo "install: $tool is required on PATH" >&2; exit 1; }
 done
 [ -d "$root/.git" ] || [ -f "$root/.git" ] || { echo "install: run from a git checkout of pig-plugins" >&2; exit 1; }
+command -v go >/dev/null 2>&1 || { echo "install: Go is required on PATH" >&2; exit 1; }
+compatible_version=$(cd "$root" && GOWORK=off go run ./cmd/compatibility "$root/COMPATIBILITY.json")
 for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
     [ -f "$root/prompts/agent/$f" ] || { echo "install: missing prompts/agent/$f" >&2; exit 1; }
 done
@@ -55,11 +58,20 @@ fail_with_log() {
     exit 1
 }
 
-# 1. Ensure PiG is installed. The host and SDK patches target PiG 0.4.1, so that version is installed by default.
+# 1. Ensure PiG is installed at the release declared in COMPATIBILITY.json.
 echo "install: [1/6] checking PiG installation" >&2
-if ! command -v pig >/dev/null 2>&1; then
+if [ "${PIG_PLUGINS_UPDATE:-0}" = 1 ] || ! command -v pig >/dev/null 2>&1; then
     command -v curl >/dev/null 2>&1 || { echo "install: curl is required to install pig" >&2; exit 1; }
-    curl -fsSL https://pi-in-go.dev/install.sh | PIG_VERSION="${PIG_VERSION:-0.4.1}" sh >"$log" 2>&1 || fail_with_log "pig installation failed"
+    upstream_installer=$(mktemp "${TMPDIR:-/tmp}/pig-install.XXXXXX")
+    if ! curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 10 --max-time 60 https://pi-in-go.dev/install.sh -o "$upstream_installer" >"$log" 2>&1; then
+        rm -f "$upstream_installer"
+        fail_with_log "PiG installer download failed"
+    fi
+    if ! PIG_VERSION="${PIG_VERSION:-$compatible_version}" sh "$upstream_installer" >"$log" 2>&1; then
+        rm -f "$upstream_installer"
+        fail_with_log "pig installation failed"
+    fi
+    rm -f "$upstream_installer"
     # The installer writes to ~/.local/bin by default, which may not be on PATH yet.
     PATH="${PIG_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
     export PATH
@@ -68,7 +80,7 @@ fi
 
 # 2. Build the fused executable. Prompts and skills are installed only after this succeeds.
 echo "install: [2/6] building executable" >&2
-binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins") || { echo "install: build failed (see diagnostics above)" >&2; exit 1; }
+binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins-native") || { echo "install: build failed (see diagnostics above)" >&2; exit 1; }
 
 # 3. Copy tracked files to a staging directory, then swap it in.
 echo "install: [3/6] copying repository files" >&2
@@ -115,6 +127,12 @@ for skill in "$dest"/skills/*/; do
         mv -- "$target.tmp.$$" "$target"
     fi
 done
+
+# Publish the launcher only after the native build and resource installation succeed.
+cp -- "$root/scripts/pig-plugins.sh" "$pig_home/bin/pig-plugins.tmp.$$"
+chmod 755 "$pig_home/bin/pig-plugins.tmp.$$"
+mv -- "$pig_home/bin/pig-plugins.tmp.$$" "$pig_home/bin/pig-plugins"
+binary="$pig_home/bin/pig-plugins"
 
 # 6. Link the executable into the user bin directory so `pig-plugins` is on PATH.
 echo "install: [6/6] linking executable" >&2

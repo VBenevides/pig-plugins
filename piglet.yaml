@@ -1,6 +1,10 @@
 name: pig-plugins-dev
 description: Development binary with the implemented pig-plugins extensions.
 extensions:
+  - name: check-update
+    origins: [local:./extensions/check-update]
+  - name: tool-search
+    origins: [local:./extensions/tool-search]
   - name: hashline-edit
     origins: [local:./extensions/hashline-edit]
   - name: smart-approve-lancet

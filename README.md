@@ -6,11 +6,63 @@
 curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts/install.sh | sh
 ```
 
-Requires `git`, `go`, and `curl`. If `pig` is not on `PATH`, the script first installs PiG 0.4.1
-(the version the bundled patches target; override with `PIG_VERSION`) into `~/.local/bin`.
-The script clones the repository into a temporary directory and builds the fused executable at `~/.pig/bin/pig-plugins`.
+Requires `git`, `go`, and `curl`. If `pig` is not on `PATH`, the script first installs
+the PiG version declared in `COMPATIBILITY.json` (currently `0.4.1`; override with
+`PIG_VERSION`) into `~/.local/bin`.
+The script clones the repository into a temporary directory and builds the fused executable at `~/.pig/bin/pig-plugins-native`.
+The `~/.pig/bin/pig-plugins` launcher starts it and supports `--update`.
 Only after that build succeeds does it copy the plugins, prompts and skills into `~/.pig` and remove the clone. Details are under
 [Install into `~/.pig`](#install-into-pig). Set `PIG_PLUGINS_REPO` to install from another clone or fork.
+
+## Versions and updates
+
+`VERSION` starts at `0.1.0` and is embedded in the plugin build. At session startup,
+the bundled `check-update` extension shows `PiG - XXX | PiG Plugins - YYY`.
+The installed launcher supplies the native binary's PiG version; when loaded
+separately, the extension falls back to `pig --version` on `PATH`.
+
+`COMPATIBILITY.json` lists each dependency's repository path and latest supported
+version. Its initial PiG entry is:
+
+```json
+{
+  "dependencies": {
+    "pig": {
+      "path": "github.com/MichaelKinsy/PiG",
+      "version": "0.4.1"
+    }
+  }
+}
+```
+
+Installation and SDK setup read this manifest instead of separate version pins.
+Update checks are on by default. They read this repository's
+`main/COMPATIBILITY.json` and `main/VERSION`, with a three-second timeout and a
+4 KiB response limit per source. PiG prompts appear only when the running PiG
+version is below the manifest's supported version. A newer unsupported upstream
+release does not trigger a suggestion, and the upstream release endpoint is not
+queried. Plugin updates are checked independently, even if PiG needs no update.
+Failures warn without preventing startup or checking the other source.
+`PI_OFFLINE=1` skips network checks.
+`/check-update off` and `/check-update on` save the preference in
+`~/.pig/agent/check-update.json` (respecting the agent-directory overrides).
+Changes apply to future startups and reloads; the version line is always shown.
+
+When PiG is below the supported version or pig-plugins is outdated, the extension suggests:
+
+```sh
+pig-plugins --update
+```
+
+This downloads the official plugin installer completely before executing it.
+The installer refreshes PiG through its official curl installer to the version
+declared in the newly cloned `COMPATIBILITY.json` (currently `0.4.1`), then
+rebuilds the latest plugins. `--update` does not force incompatible upstream
+upgrades. An explicit `PIG_VERSION`
+override remains available at your own compatibility risk.
+The existing native executable survives a failed rebuild. Updates are never
+installed automatically, and the check preference survives reinstalls.
+`--update` belongs to the installed launcher, not the raw development binary.
 
 ## About
 
@@ -38,6 +90,7 @@ An `openai` API-audience OAuth token is rejected by that endpoint (401), so it i
 `/auto-model` offers only the session's scoped models (`--models` or `enabledModels`). With no scope it offers every authenticated model.
 Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. The patched native host stores OAuth accounts in `oauth-accounts.json` and lazily migrates existing singleton OAuth logins from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
+When a saved cooldown would force startup onto fallback, supported native-account quota is checked first. Confirmed remaining quota clears the cooldown; exhausted, unknown, or failed checks retain it.
 On quota failure, auto-models first tries another native account for the same provider with at least 5% known quota remaining, retaining the model. Only if none is eligible does it try the configured fallback. Account or model recovery shares one continuation budget per interrupted task; explicit `--model` disables both. Background low-quota rotation still waits until the session is idle.
 In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.
 Differences from upstream: only OAuth credentials are used, quota requests have a timeout, size limit, and no redirects, and persistence errors are reported, not ignored.
@@ -229,7 +282,7 @@ Tests that start `pig` skip when it is not on `PATH`.
 Copies (no symlinks) the tracked repository, including every extension and `prompts/`, to `~/.pig/pig-plugins`.
 Copies `prompts/agent/SYSTEM.md`, `prompts/agent/APPEND_SYSTEM.md` and `prompts/agent/AGENTS.md` into `~/.pig/agent/`; an existing different file is first saved as `<file>.pig-plugins-backup-<timestamp>`.
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
-Builds the fused executable at `~/.pig/bin/pig-plugins` and symlinks it as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Run it instead of `pig`.
+Builds the fused executable at `~/.pig/bin/pig-plugins-native`, installs the launcher at `~/.pig/bin/pig-plugins`, and symlinks the launcher as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
 
 ### Build a bundled development binary
@@ -442,40 +495,51 @@ Do not enable `harness-code`, the TypeScript twin, at the same time.
 ## web-search
 
 The native Go extension ports `pi-web-search@1.6.0`.
-`web_search` uses provider-native tools, not a general HTTP search service.
+`web_search` tries **Parallel MCP → current-model native search → Exa MCP**, stopping at the first success.
 `web_search` is deferred. Enable `builtin:tool-search` or `codemode` to discover it.
 Sessions without either discovery tool activate it directly.
-With an explicit `--tools` allowlist, include `web_search` in that allowlist; its deferred exposure still keeps it out of the initial model declaration.
+Enable PiG's `builtin:mcp` support. With an explicit `--tools` allowlist, include `web_search`,
+`mcp__parallel__web_search`, and `mcp__exa__web_search_exa`; deferred exposure keeps them out of the initial model declaration.
 Supported transports are Google Gemini, OpenAI Responses (including Azure, Codex and Copilot),
 xAI Responses, and Anthropic Messages. OpenCode Zen/Go receive their session attribution headers.
 `url_context` uses Gemini URL Context and sends YouTube URLs as video parts.
 It is active only for a compatible conversation model. Tool activation remembers manual enable/disable choices.
 Both tools accept `query`; `web_search` accepts an optional `urls` array, while `url_context` requires 1–20 URLs.
 
-Search uses the current conversation model unless `<agent dir>/web-search.json` explicitly selects one:
+The extension registers hosted streamable-HTTP servers named `parallel` and `exa`:
 
-```json
-{"provider": "openai", "model": "gpt-5.5"}
-```
+- [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp): `https://search.parallel.ai/mcp`. Optional `PARALLEL_API_KEY` is sent as a Bearer token.
+- [Exa MCP](https://docs.exa.ai/reference/exa-mcp): `https://mcp.exa.ai/mcp`. Optional `EXA_API_KEY` is sent in `x-api-key`.
 
-`modelId` is accepted as the upstream alternative. `PI_WEB_SEARCH_CONFIG` selects another configuration file.
-Invalid configuration and unsupported models return visible tool errors. There is no automatic model fallback or unexpected billable request.
-Authentication and headers come from PiG's model registry. Explicit auth headers remain authoritative.
+Both endpoints support keyless, rate-limited access. File-configured servers with these names take precedence,
+so existing `mcp.json` entries can override endpoints, credentials, and timeouts. Each registration has a
+30-second request timeout; tool readiness is checked for up to 30 seconds per MCP stage.
+MCP calls pass through PiG's normal tool hooks and permission checks. Cancellation, permission refusals,
+and unclassified hook/host failures stop the chain. Provider failures and missing tools trigger fallback.
+Failed attempts remain visible in result details, including when a later stage succeeds. If all stages fail,
+the error reports every attempt. MCP results retain the server's text and structured content; optional URLs
+are included in the search objective, not fetched by a separate MCP call.
+
+The native fallback always uses the current conversation model. `web-search.json` and
+`PI_WEB_SEARCH_CONFIG` model overrides are no longer used. Native search can incur the model provider's API costs.
+Native authentication and headers come from PiG's model registry. Explicit auth headers remain authoritative.
 OpenAI reasoning effort follows the live session setting and the `pi-ai@0.80.3` supported-level clamp.
 Search does not change the active conversation model.
 
-SSE updates stream to the tool surface. Results include cited answers, sources, queries, native-search calls,
+Native SSE updates stream to the tool surface. Native results include cited answers, sources, queries, native-search calls,
 search-result metadata, and URL retrieval status. Unicode citations use Gemini byte offsets or OpenAI UTF-16 offsets.
 Provider POST redirects are refused. Google grounding redirects use unauthenticated, bounded HEAD requests;
 a failed optional resolution retains its original URL and records a warning.
-The request deadline is 90 seconds. Limits are 32 MiB per stream, 1 MiB per event, 8 MiB of answer text,
+The native request deadline is 90 seconds. Native limits are 32 MiB per stream, 1 MiB per event, 8 MiB of answer text,
 256 result/citation/call/query entries, and bounded metadata depth and size.
 Unlike upstream, incomplete terminal responses and streams without a terminal response are errors, not partial success.
 Cancellation remains an error even during grounding resolution.
 
 The four transport fixtures were replayed through the original TypeScript adapters and formatter.
 Go output matches cited text, sources, native-search status and query lists.
-Mock-provider PiG execution also verifies explicit search-model configuration, discovery through the real `builtin:tool-search`, and Gemini-only tool suppression.
+Mock-provider PiG execution verifies hosted MCP calls, primary success without Exa, Exa fallback after
+Parallel failure and an unsupported current model, and obsolete model overrides being ignored.
+Unit tests verify fallback ordering, failure metadata, cancellation, empty results, and permission refusals.
 Live paid-provider calls were not used for verification.
 Do not enable the TypeScript web-search twin at the same time.
 
@@ -582,6 +646,15 @@ For trusted projects, it also loads the literal `.local/APPEND_SYSTEM.md` and
 Missing files are optional; content already loaded by the host is not repeated.
 Files must be regular UTF-8 files within the project, at most 256 KiB each.
 `local/APPEND_SYSTEM.md` is not substituted for `.local/APPEND_SYSTEM.md`.
+
+## tool-search
+
+Enables the built-in `tool_search` tool at session start. `/tool-search on` and
+`/tool-search off` enable or disable discovery; `/tool-search` shows its current state.
+New sessions and `/reload` enable it again. Other active tools are preserved.
+Turning discovery off does not unload previously discovered tools or disable MCP
+servers, and tools remain reachable through `codemode` if it is active.
+Discovery searches registered session tools; it does not scan directories or install tools.
 
 ## ask-mode
 

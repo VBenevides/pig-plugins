@@ -222,11 +222,11 @@ func Polled(key string) bool {
 	return key == CopilotProvider || key == CodexProvider || key == ClaudeProvider || IsZaiProvider(key) || IsOpenCodeGoProvider(key)
 }
 
-// PollInterval is the base polling cadence of an account: 2 minutes for every source; 0 when it has no source.
+// PollInterval is the base polling cadence of an account: 5 minutes for every source; 0 when it has no source.
 func PollInterval(key string) time.Duration {
 	key = QuotaSource(key)
 	if Polled(key) {
-		return 2 * time.Minute
+		return 5 * time.Minute
 	}
 	return 0
 }

@@ -144,6 +144,10 @@ func newExtension(store quota.Store, client quota.Client, enabled bool) *extensi
 }
 
 func (x *extension) report(ctx sdk.Context, err error) {
+	if quota.IsTransient(err) {
+		log.Printf("auto-models: %v", err)
+		return
+	}
 	if !notice.Show(ctx, "auto-models: "+clean(err.Error()), "warning") {
 		log.Printf("auto-models: %v", err)
 	}
@@ -241,12 +245,12 @@ func (x *extension) selected(ctx sdk.Context, primary bool) {
 func (x *extension) startup(ctx sdk.Context) error {
 	primary, fallback := x.slots()
 	now := time.Now()
-	left, err := x.cooldown(primary.Provider, now)
+	left, err := x.startupCooldown(ctx, primary, now)
 	if err != nil {
-		return err
-	}
-	if passive := quota.PassiveCooldown(x.rate(primary.Provider), now); passive > left {
-		left = passive
+		if left <= 0 {
+			return err
+		}
+		x.report(ctx, err)
 	}
 	if left > 0 {
 		if err := x.setCooldown(primary.Provider, now.Add(left)); err != nil {

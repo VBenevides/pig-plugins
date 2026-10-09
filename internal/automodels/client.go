@@ -20,6 +20,18 @@ const (
 	quotaHTTPTimeout = 15 * time.Second
 )
 
+// TransientError marks a usage failure that heals by itself: a timeout, a transport failure, or HTTP 429/5xx.
+type TransientError struct{ msg string }
+
+func (e *TransientError) Error() string { return e.msg }
+
+// IsTransient reports whether err is a temporary usage failure. Callers log such errors instead of notifying
+// the user, because the next refresh retries.
+func IsTransient(err error) bool {
+	var transient *TransientError
+	return errors.As(err, &transient) || errors.Is(err, context.DeadlineExceeded)
+}
+
 // Client only calls the two fixed production OAuth usage endpoints. HTTP allows
 // deterministic transports; timeout and redirect protection cannot be disabled.
 type Client struct{ HTTP *http.Client }
@@ -91,10 +103,10 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 		}
 		var timeout net.Error
 		if errors.As(err, &timeout) && timeout.Timeout() {
-			return fmt.Errorf("%s usage: request timed out", provider)
+			return &TransientError{fmt.Sprintf("%s usage: request timed out", provider)}
 		}
 		// Transport errors may contain request headers, URLs, or credentials.
-		return fmt.Errorf("%s usage: HTTP request failed", provider)
+		return &TransientError{fmt.Sprintf("%s usage: HTTP request failed", provider)}
 	}
 	if response.Body == nil {
 		return fmt.Errorf("%s usage: missing response body", provider)
@@ -105,7 +117,11 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 		}
 	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("%s usage HTTP %d", provider, response.StatusCode)
+		status := fmt.Sprintf("%s usage HTTP %d", provider, response.StatusCode)
+		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
+			return &TransientError{status}
+		}
+		return errors.New(status)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxReadBytes+1))
 	if err != nil {

@@ -2,7 +2,8 @@
 # Create the ignored workspace using the patched SDK required by native extensions.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
-ref=github.com/MichaelKinsy/PiG/extensions/sdk@v0.4.1
+version=$(cd "$root" && GOWORK=off go run ./cmd/compatibility "$root/COMPATIBILITY.json")
+ref="github.com/MichaelKinsy/PiG/extensions/sdk@v$version"
 GOWORK=off go mod download "$ref"
 source=$(GOWORK=off go list -m -f '{{.Dir}}' "$ref")
 mkdir -p "$root/build"

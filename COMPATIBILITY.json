@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "pig": {
+      "path": "github.com/MichaelKinsy/PiG",
+      "version": "0.4.1"
+    }
+  }
+}
