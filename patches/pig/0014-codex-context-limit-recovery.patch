@@ -1,0 +1,78 @@
+--- a/ai/overflow.go
++++ b/ai/overflow.go
+@@ -31,7 +31,7 @@
+ 	lazyregexp.New(`(?i)model_context_window_exceeded`),                                                             // z.ai non-standard finish_reason surfaced as error text
+ 	lazyregexp.New(`(?i)prompt too long; exceeded (?:max )?context length`),                                         // Ollama explicit overflow error
+ 	lazyregexp.New(`(?i)range of input length should be`),                                                           // DashScope / Qwen Token Plan
+-	lazyregexp.New(`(?i)context[_ ]length[_ ]exceeded`),                                                             // Generic fallback
++	lazyregexp.New(`(?i)context[_ ](?:length|limit)[_ ]exceeded`),                                                   // Codex and generic context overflow
+ 	lazyregexp.New(`(?i)too many tokens`),                                                                           // Generic fallback
+ 	lazyregexp.New(`(?i)token limit exceeded`),                                                                      // Generic fallback
+ }
+--- /dev/null
++++ b/ai/codex_context_limit_test.go
+@@ -0,0 +1,18 @@
++package ai
++
++import "testing"
++
++func TestCodexContextLimitOverflow(t *testing.T) {
++	for _, text := range []string{"Context limit exceeded", "Codex error: context_limit_exceeded", "context_length_exceeded"} {
++		message := AssistantMessage{Provider: "openai-codex", StopReason: StopReasonError, ErrorMessage: text}
++		if !IsContextOverflow(message, 200000) {
++			t.Errorf("%q was not recognized as context overflow", text)
++		}
++	}
++	for _, text := range []string{"Usage limit exceeded", "Rate limit: context limit exceeded", "websocket: close 1000 (normal)"} {
++		message := AssistantMessage{Provider: "openai-codex", StopReason: StopReasonError, ErrorMessage: text}
++		if IsContextOverflow(message, 200000) {
++			t.Errorf("%q was incorrectly recognized as context overflow", text)
++		}
++	}
++}
+--- /dev/null
++++ b/internal/codingagent/codex_context_limit_test.go
+@@ -0,0 +1,43 @@
++package codingagent_test
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/MichaelKinsy/PiG/ai"
++)
++
++func TestInteractiveCodexContextLimitRecoversInRunningSession(t *testing.T) {
++	pair := newSessionPair(t, `{"compaction":{"keepRecentTokens":1},"retry":{"enabled":false}}`, 100000, nil,
++		replyError("Context limit exceeded"),
++		reply("compaction summary", ai.Usage{}),
++		reply("recovered answer", ai.Usage{Input: 10, Output: 10}),
++		reply("next answer", ai.Usage{Input: 10, Output: 10}),
++	)
++	pair.harness.Do(func() { pair.harness.Enter(strings.Repeat("x", 5000)) })
++	pair.harness.WaitIdle(t, 10*time.Second)
++	if got := len(pair.provider.requestLog()); got != 3 {
++		t.Fatalf("model requests = %d, want overflow, compaction, recovery", got)
++	}
++	if last := pair.session.LastAssistantText(); last == nil || *last != "recovered answer" {
++		t.Fatalf("last answer = %v", last)
++	}
++	var compactions, omissions int
++	for _, entry := range pair.session.Inner().Entries() {
++		switch entry.Base.Type {
++		case "compaction":
++			compactions++
++		case "context_edit":
++			omissions++
++		}
++	}
++	if compactions != 1 || omissions != 1 {
++		t.Fatalf("compactions=%d omissions=%d, want one durable recovery", compactions, omissions)
++	}
++	pair.harness.Do(func() { pair.harness.Enter("continue without restarting") })
++	pair.harness.WaitIdle(t, 10*time.Second)
++	if last := pair.session.LastAssistantText(); last == nil || *last != "next answer" {
++		t.Fatalf("session did not accept the next prompt: %v", last)
++	}
++}
