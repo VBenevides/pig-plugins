@@ -1,0 +1,731 @@
+diff --git a/internal/codingagent/interactive_commands.go b/internal/codingagent/interactive_commands.go
+index ab37ca6..ee83586 100644
+--- a/internal/codingagent/interactive_commands.go
++++ b/internal/codingagent/interactive_commands.go
+@@ -19,7 +19,7 @@ import (
+ 	"github.com/MichaelKinsy/PiG/tui/widthx"
+ )
+ 
+-func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string) {
++func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string, afterDispatch ...func()) {
+ 	sc := m.buildSlashContext(ctx)
+ 	// Mirror any extension-registered commands into the registry just
+ 	// before dispatch so a freshly loaded command resolves.
+@@ -28,14 +28,20 @@ func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string) {
+ 	if canonical, ok := m.slashRegistry.Resolve(name); ok && canonical == "model" && args != "" {
+ 		m.findExactModelMatch(ctx, args, func(spec string, found bool) {
+ 			sc.ResolveModel = func(string) (string, bool) { return spec, found }
+-			m.dispatchSlashContext(sc, line)
++			m.dispatchSlashContext(sc, line, afterDispatch...)
+ 		})
+ 		return
+ 	}
+-	m.dispatchSlashContext(sc, line)
++	m.dispatchSlashContext(sc, line, afterDispatch...)
+ }
+ 
+-func (m *InteractiveMode) dispatchSlashContext(sc *SlashContext, line string) {
++func (m *InteractiveMode) dispatchSlashContext(sc *SlashContext, line string, afterDispatch ...func()) {
++	if len(afterDispatch) > 0 {
++		defer func() {
++			afterDispatch[0]()
++			m.tuiInst.Render()
++		}()
++	}
+ 	extCtx := m.extCtx
+ 	if err := m.slashRegistry.Dispatch(sc, line, extCtx); err != nil {
+ 		if errors.Is(err, ErrInteractiveCrashed) {
+@@ -48,7 +54,9 @@ func (m *InteractiveMode) dispatchSlashContext(sc *SlashContext, line string) {
+ 		}
+ 		m.showError(err.Error())
+ 	}
+-	m.tuiInst.Render()
++	if len(afterDispatch) == 0 {
++		m.tuiInst.Render()
++	}
+ }
+ 
+ // writeDebugLog dumps the current frame and message history to a debug log
+@@ -226,6 +234,8 @@ func resolveModelFromItems(input string, items []tui.ModelSelectorItem) (string,
+ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
+ 	var sc *SlashContext
+ 	sc = &SlashContext{
++		ClearEditor: m.editor.Clear,
++		SendEditor:  func(queue bool) { m.sendEditorDraft(ctx, queue) },
+ 		Append:      func(s string) { m.appendToChat(tui.NewMarkdown(s)) },
+ 		AppendText:  func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 0, nil)) },
+ 		AppendBlock: func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 1, nil)) },
+diff --git a/internal/codingagent/interactive_draft_commands.go b/internal/codingagent/interactive_draft_commands.go
+new file mode 100644
+index 0000000..44478b9
+--- /dev/null
++++ b/internal/codingagent/interactive_draft_commands.go
+@@ -0,0 +1,83 @@
++package codingagent
++
++import (
++	"context"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/MichaelKinsy/PiG/coding/extension"
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++func clearEditorHandler(sc *SlashContext) error {
++	if sc.Args != "" {
++		return fmt.Errorf("usage: /clear")
++	}
++	if sc.ClearEditor == nil {
++		return fmt.Errorf("/clear requires an interactive editor")
++	}
++	sc.ClearEditor()
++	return nil
++}
++
++func sendEditorHandler(sc *SlashContext) error {
++	args := strings.ToLower(strings.TrimSpace(sc.Args))
++	if args != "" && args != "queue" {
++		return fmt.Errorf("usage: /send [queue]")
++	}
++	if sc.SendEditor == nil {
++		return fmt.Errorf("/send requires an interactive editor")
++	}
++	sc.SendEditor(args == "queue")
++	return nil
++}
++
++// handleInlineEditorCommand runs local commands before the editor submit path
++// can clear the draft or resolve the idle getUserInput promise.
++func (m *InteractiveMode) handleInlineEditorCommand(ctx context.Context) bool {
++	m.syncExtensionSlashCommands()
++	command, ok := m.editor.TakeInlineCommand(func(name string) bool {
++		_, found := m.slashRegistry.Resolve(name)
++		return found
++	})
++	if !ok {
++		return false
++	}
++	name, _ := parseSlashLine(command)
++	canonical, _ := m.slashRegistry.Resolve(name)
++	if canonical == "clear" || canonical == "send" || canonical == "quit" {
++		m.dispatchSlash(ctx, command)
++	} else {
++		m.dispatchSlash(ctx, command, m.editor.RestoreDraftIfCleared())
++	}
++	return true
++}
++
++func (m *InteractiveMode) sendEditorDraft(ctx context.Context, queue bool) {
++	text := widthx.JSTrim(m.editor.GetExpandedText())
++	if text == "" {
++		return
++	}
++	m.editor.AddToHistory(text)
++	m.editor.Clear()
++	if !queue {
++		// Send as prompt text, not another command: /send must not execute a
++		// second slash token left in the draft.
++		if m.isCompacting {
++			m.compactionQueue = append(m.compactionQueue, compactionQueuedMessage{text: text, mode: compactionQueueSteer})
++			m.statusLine.Flash("Queued message for after compaction", 2*time.Second)
++			m.updatePendingMessagesDisplay()
++			return
++		}
++		m.promptUserInput(ctx, text, nil, false, extension.InputSourceUser, true)
++		return
++	}
++	if m.isCompacting {
++		m.compactionQueue = append(m.compactionQueue, compactionQueuedMessage{text: text, mode: compactionQueueFollowUp})
++		m.statusLine.Flash("Queued message for after compaction", 2*time.Second)
++		m.updatePendingMessagesDisplay()
++		return
++	}
++	m.promptUserInput(ctx, text, nil, true, extension.InputSourceUser, true)
++}
+diff --git a/internal/codingagent/interactive_draft_commands_test.go b/internal/codingagent/interactive_draft_commands_test.go
+new file mode 100644
+index 0000000..56c9192
+--- /dev/null
++++ b/internal/codingagent/interactive_draft_commands_test.go
+@@ -0,0 +1,91 @@
++package codingagent
++
++import (
++	"context"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestInlineCommandRunsWithoutSubmittingDraft(t *testing.T) {
++	for _, idle := range []bool{true, false} {
++		q := newInputQueueMode(t)
++		q.isIdle = idle
++		q.editor.SetText("explain this /mode ask")
++		q.editor.OnSubmit = func(string) { t.Fatal("local command submitted the draft") }
++		calls := 0
++		q.slashRegistry.Register(BuiltinSlashCommand{Name: "mode", Handler: func(sc *SlashContext) error {
++			calls++
++			if sc.Args != "ask" {
++				t.Fatalf("args = %q", sc.Args)
++			}
++			q.editor.Clear() // Commands that clear input must still preserve the draft.
++			return nil
++		}})
++		if err := q.handleEditorAction(context.Background(), actionSubmit, "\r"); err != nil {
++			t.Fatal(err)
++		}
++		if calls != 1 || q.editor.Text() != "explain this " {
++			t.Fatalf("idle=%v calls=%d draft=%q", idle, calls, q.editor.Text())
++		}
++		q.stop()
++		q.backgroundCancel()
++	}
++}
++
++func TestInlineClearDiscardsOnlyInput(t *testing.T) {
++	q := newInputQueueMode(t)
++	defer q.stop()
++	defer q.backgroundCancel()
++	q.chatContainer.Add(tui.NewText("conversation remains"))
++	q.editor.SetText("discard this /clear")
++	if !q.handleInlineEditorCommand(context.Background()) {
++		t.Fatal("clear not handled")
++	}
++	if q.editor.Text() != "" || len(q.chatContainer.Render(80)) == 0 {
++		t.Fatal("clear did not discard just the input")
++	}
++}
++
++func TestInlineSendQueuesDraftOnceDuringCompaction(t *testing.T) {
++	for _, tc := range []struct {
++		command string
++		mode    compactionQueueMode
++	}{
++		{"/send", compactionQueueSteer},
++		{"/send queue", compactionQueueFollowUp},
++	} {
++		t.Run(tc.command, func(t *testing.T) {
++			q := newInputQueueMode(t)
++			defer q.stop()
++			defer q.backgroundCancel()
++			q.isCompacting = true
++			q.editor.SetText("send this draft " + tc.command)
++			if !q.handleInlineEditorCommand(context.Background()) {
++				t.Fatal("send not handled")
++			}
++			if q.editor.Text() != "" || len(q.compactionQueue) != 1 || q.compactionQueue[0].text != "send this draft" || q.compactionQueue[0].mode != tc.mode {
++				t.Fatalf("draft=%q queue=%+v", q.editor.Text(), q.compactionQueue)
++			}
++			if q.handleInlineEditorCommand(context.Background()) || len(q.compactionQueue) != 1 {
++				t.Fatal("send duplicated a queued message")
++			}
++		})
++	}
++}
++
++func TestDraftCommandValidationDoesNotDiscardInput(t *testing.T) {
++	q := newInputQueueMode(t)
++	defer q.stop()
++	defer q.backgroundCancel()
++	q.editor.SetText("keep this /send invalid")
++	if !q.handleInlineEditorCommand(context.Background()) || q.editor.Text() != "keep this " {
++		t.Fatal("invalid send lost draft")
++	}
++	for _, line := range []string{"/clear invalid", "/send invalid"} {
++		sc := q.buildSlashContext(context.Background())
++		if err := q.slashRegistry.Dispatch(sc, line, nil); err == nil {
++			t.Fatalf("%q accepted invalid arguments", line)
++		}
++	}
++}
+diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
+index 784a2e7..b03d78c 100644
+--- a/internal/codingagent/interactive_input.go
++++ b/internal/codingagent/interactive_input.go
+@@ -794,6 +794,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
+ 		return nil
+ 
+ 	case outcomeSubmit:
++		if m.handleInlineEditorCommand(ctx) {
++			m.tuiInst.RequestRender()
++			return nil
++		}
+ 		text := widthx.JSTrim(m.editor.GetExpandedText())
+ 		if text == "" {
+ 			return nil
+@@ -815,6 +819,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
+ 		m.editor.HandleInput("\n")
+ 
+ 	case outcomeFollowUp:
++		if m.handleInlineEditorCommand(ctx) {
++			m.tuiInst.RequestRender()
++			return nil
++		}
+ 		// Alt+Enter: if idle, act as regular submit; if working, enqueue
+ 		// as follow-up (delivered after the agent has no more tool calls
+ 		// or steering messages).
+diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash_commands.go
+index 4484ab5..1bb1b06 100644
+--- a/internal/codingagent/slash_commands.go
++++ b/internal/codingagent/slash_commands.go
+@@ -121,6 +121,8 @@ type SlashContext struct {
+ 	AppendBlock func(string)
+ 	Clear       func() // clear the chat transcript
+ 	Quit        func() // request session exit
++	ClearEditor func()
++	SendEditor  func(queue bool)
+ 	Reset       func() // /new: keep transcript visible but reset agent messages
+ 	// NewSession creates a fresh session file and resets agent state.
+ 	// Mirrors upstream runtimeHost.newSession(). May be nil in test contexts.
+@@ -591,6 +593,8 @@ func defaultBuiltins() []BuiltinSlashCommand {
+ 		{Name: "resume", Description: "Resume a different session", Handler: resumeHandler},
+ 		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", Handler: reloadHandler},
+ 		{Name: "quit", Aliases: []string{"exit"}, Description: "Quit " + AppName, Handler: quitHandler},
++		{Name: "clear", Description: "Discard the current input draft", Handler: clearEditorHandler},
++		{Name: "send", Description: "Send the current draft (steer, or /send queue)", ArgumentHint: "[queue]", Handler: sendEditorHandler},
+ 		// Hidden: dispatchable but absent from /help and autocomplete, matching
+ 		// upstream (handled inline in the submit handler, not in the canonical
+ 		// slash-commands.js completion list). /debug writes a debug log; it is
+diff --git a/internal/codingagent/slash_commands_test.go b/internal/codingagent/slash_commands_test.go
+index 56aa882..bf3811e 100644
+--- a/internal/codingagent/slash_commands_test.go
++++ b/internal/codingagent/slash_commands_test.go
+@@ -73,7 +73,7 @@ func TestSlashRegistryBuiltinsSeeded(t *testing.T) {
+ 	if got := findDesc("login"); got != "Configure provider authentication" {
+ 		t.Fatalf("/login description = %q", got)
+ 	}
+-	if got := findDesc("logout"); got != "Remove stored provider authentication" {
++	if got := findDesc("logout"); got != "Remove the selected OAuth account or stored API key" {
+ 		t.Fatalf("/logout description = %q", got)
+ 	}
+ }
+@@ -85,7 +85,7 @@ func TestSlashRegistryResolves(t *testing.T) {
+ 		t.Fatal("/quit did not resolve")
+ 	}
+ 	command, ok := r.Resolve("exit")
+-	if !ok || command.Name != "quit" {
++	if !ok || command != "quit" {
+ 		t.Fatal("/exit did not resolve to /quit")
+ 	}
+ }
+@@ -381,13 +381,13 @@ func TestBuiltinSlashCommands_MatchesRegistry(t *testing.T) {
+ 	for _, c := range got {
+ 		names[c.Name] = true
+ 	}
+-	for _, want := range []string{"quit", "model", "scoped-models", "copy", "session", "hotkeys", "new", "settings", "export", "import", "login", "logout"} {
++	for _, want := range []string{"quit", "model", "scoped-models", "copy", "session", "hotkeys", "new", "settings", "export", "import", "login", "logout", "clear", "send"} {
+ 		if !names[want] {
+ 			t.Errorf("BuiltinSlashCommands missing %q", want)
+ 		}
+ 	}
+ 	// Verify removed commands are NOT present.
+-	for _, removed := range []string{"clear", "agent", "agents", "tools", "cost", "save", "help", "models"} {
++	for _, removed := range []string{"agent", "agents", "tools", "cost", "save", "help", "models"} {
+ 		if names[removed] {
+ 			t.Errorf("BuiltinSlashCommands should NOT contain removed command %q", removed)
+ 		}
+@@ -746,8 +746,8 @@ func TestFormatNumber(t *testing.T) {
+ func TestBuiltinSlashCommandsFollowUpstreamOrder(t *testing.T) {
+ 	want := []string{
+ 		"settings", "model", "tree", "thinking", "scoped-models", "export", "import", "share", "bug",
+-		"copy", "name", "session", "changelog", "hotkeys", "fork", "clone", "trust", "login", "logout",
+-		"new", "compact", "resume", "reload", "quit",
++		"copy", "name", "session", "changelog", "hotkeys", "fork", "clone", "trust", "login", "accounts", "logout",
++		"new", "compact", "resume", "reload", "quit", "clear", "send",
+ 	}
+ 	var got []string
+ 	for _, cmd := range BuiltinSlashCommands() {
+diff --git a/tui/collapsible_message_upstream_test.go b/tui/collapsible_message_upstream_test.go
+index 4d043c1..92c0ff9 100644
+--- a/tui/collapsible_message_upstream_test.go
++++ b/tui/collapsible_message_upstream_test.go
+@@ -13,7 +13,7 @@ func TestCollapsibleMessageClicksThroughTerminal(t *testing.T) {
+ 	}{
+ 		{"compaction", "compaction details", NewCompactionSummaryComponent("compaction details", 1234)},
+ 		{"branch", "branch details", NewBranchSummaryComponent("branch details")},
+-		{"skill", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: "skill details"})},
++		{"skill", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: strings.Repeat("preview\n", 10) + "skill details"})},
+ 	} {
+ 		t.Run(tc.name, func(t *testing.T) {
+ 			h := newAltHarness(t, 80, 24, TuiAltScreenOptions{})
+@@ -54,7 +54,7 @@ func TestCollapsibleMessageComponentsUpstream(t *testing.T) {
+ 		// .upstream/v0.87.1/packages/coding-agent/test/collapsible-message-components.test.ts:55
+ 		{"toggles a branch summary when clicked", "[branch]", "branch details", NewBranchSummaryComponent("branch details")},
+ 		// .upstream/v0.87.1/packages/coding-agent/test/collapsible-message-components.test.ts:71
+-		{"toggles a skill invocation when clicked", "[skill]", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: "skill details"})},
++		{"toggles a skill invocation when clicked", "[skill]", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: strings.Repeat("preview\n", 10) + "skill details"})},
+ 	}
+ 	for _, tc := range cases {
+ 		t.Run(tc.name, func(t *testing.T) {
+diff --git a/tui/file_autocomplete.go b/tui/file_autocomplete.go
+index 8ea2116..eb114b1 100644
+--- a/tui/file_autocomplete.go
++++ b/tui/file_autocomplete.go
+@@ -199,7 +199,7 @@ func (p *CombinedProvider) ApplyCompletion(lines []string, cursorLine, cursorCol
+ 		afterCursor = afterCursor[1:]
+ 	}
+ 	out := slices.Clone(lines)
+-	if strings.HasPrefix(prefix, "/") && strings.HasPrefix(item.Value, skillCommandPrefix) && widthx.JSTrim(beforePrefix) != "" {
++	if strings.HasPrefix(prefix, "/") && p.slash.hasCommand(item.Value) && proseBefore(lines, cursorLine, len(beforePrefix)) {
+ 		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
+ 		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
+ 	}
+diff --git a/tui/inline_command.go b/tui/inline_command.go
+new file mode 100644
+index 0000000..480adbe
+--- /dev/null
++++ b/tui/inline_command.go
+@@ -0,0 +1,77 @@
++package tui
++
++import (
++	"slices"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/MichaelKinsy/PiG/internal/jsstring"
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++// TakeInlineCommand removes a known slash command ending at the cursor without
++// clearing surrounding text, paste markers, or the draft's undo history.
++func (e *Editor) TakeInlineCommand(known func(string) bool) (string, bool) {
++	if e.remote != nil {
++		return "", false
++	}
++	row, col := e.cursor[0], e.cursor[1]
++	before := jsstring.Slice(e.lines[row], 0, col)
++	// Search backwards so slashes in command arguments (such as model IDs)
++	// do not hide the command name.
++	for end := len(before); end > 0; {
++		slash := strings.LastIndexByte(before[:end], '/')
++		if slash < 0 {
++			break
++		}
++		end = slash
++		if slash > 0 {
++			r, _ := utf8.DecodeLastRuneInString(before[:slash])
++			if !widthx.IsJSSpace(r) {
++				continue
++			}
++		}
++		command := strings.TrimSpace(before[slash:])
++		fields := strings.Fields(command)
++		if len(fields) == 0 || !known(strings.TrimPrefix(fields[0], "/")) {
++			continue
++		}
++		// Leading commands with no surrounding draft retain the normal submit path.
++		after := jsstring.Slice(e.lines[row], col)
++		if !proseBefore(e.lines, row, slash) && strings.TrimSpace(after+strings.Join(e.lines[row+1:], "\n")) == "" {
++			return "", false
++		}
++		e.saveHistory()
++		e.lastAction = ""
++		e.lines[row] = before[:slash] + after
++		e.setCursorCol(jsstring.Length(before[:slash]))
++		e.AutocompleteCancel()
++		e.Invalidate()
++		if e.OnChange != nil {
++			e.OnChange(e.Text())
++		}
++		return command, true
++	}
++	return "", false
++}
++
++// RestoreDraftIfCleared captures draft state for a command that may clear the
++// input. A newer nonempty draft is never overwritten by delayed completion.
++func (e *Editor) RestoreDraftIfCleared() func() {
++	lines, cursor := slices.Clone(e.lines), e.cursor
++	pastes, counter := clonePastes(e.pastes), e.pasteCounter
++	history := slices.Clone(e.history)
++	return func() {
++		if e.Text() != "" {
++			return
++		}
++		e.lines, e.cursor = lines, cursor
++		e.pastes, e.pasteCounter = pastes, counter
++		e.history = history
++		e.lastAction = ""
++		e.Invalidate()
++		if e.OnChange != nil {
++			e.OnChange(e.Text())
++		}
++	}
++}
+diff --git a/tui/input_demands_test.go b/tui/input_demands_test.go
+new file mode 100644
+index 0000000..ede3b75
+--- /dev/null
++++ b/tui/input_demands_test.go
+@@ -0,0 +1,123 @@
++package tui
++
++import (
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/internal/jsstring"
++)
++
++func TestTakeInlineCommandPreservesDraftAndCursor(t *testing.T) {
++	for _, tc := range []struct {
++		text, before, command, want string
++		row                         int
++	}{
++		{"fix it /mode ask", "fix it /mode ask", "/mode ask", "fix it ", 0},
++		{"fix /mode ask then explain", "fix /mode ask", "/mode ask", "fix  then explain", 0},
++		{"🧠 explain /model openai/gpt-6.1 then continue", "🧠 explain /model openai/gpt-6.1", "/model openai/gpt-6.1", "🧠 explain  then continue", 0},
++		{"first line\n/mode act\nlast line", "/mode act", "/mode act", "first line\n\nlast line", 1},
++		{"/mode ask suffix", "/mode ask", "/mode ask", " suffix", 0},
++	} {
++		t.Run(tc.text, func(t *testing.T) {
++			e := NewEditor()
++			e.SetText(tc.text)
++			e.cursor = [2]int{tc.row, jsstring.Length(tc.before)}
++			got, ok := e.TakeInlineCommand(func(name string) bool { return name == "mode" || name == "model" })
++			if !ok || got != tc.command || e.Text() != tc.want {
++				t.Fatalf("command=%q ok=%v draft=%q; want %q / %q", got, ok, e.Text(), tc.command, tc.want)
++			}
++			if e.GetCursor().Line != tc.row || e.GetCursor().Col != jsstring.Length(tc.before[:strings.Index(tc.before, "/")]) {
++				t.Fatalf("cursor = %+v", e.GetCursor())
++			}
++		})
++	}
++}
++
++func TestInlineCommandsLeavePathsSkillsAndLeadingCommandsAlone(t *testing.T) {
++	for _, text := range []string{"/mode ask", "read /tmp/file", "use path/mode", "use /skill:demo", "use /unknown", "use `/mode`"} {
++		e := NewEditor()
++		e.SetText(text)
++		if command, ok := e.TakeInlineCommand(func(name string) bool { return name == "mode" }); ok || e.Text() != text {
++			t.Fatalf("%q changed: %q %v %q", text, command, ok, e.Text())
++		}
++	}
++}
++
++func TestInlineCommandRetainsPasteMarkersAndUndo(t *testing.T) {
++	e := NewEditor()
++	pasted := strings.Repeat("pasted line\n", 15)
++	e.HandleInput("\x1b[200~" + pasted + "\x1b[201~")
++	e.InsertTextAtCursor(" /mode ask")
++	original := e.Text()
++	if _, ok := e.TakeInlineCommand(func(name string) bool { return name == "mode" }); !ok {
++		t.Fatal("command not found")
++	}
++	if !strings.Contains(e.GetExpandedText(), pasted) {
++		t.Fatal("paste content lost")
++	}
++	e.HandleInput("\x1f")
++	if e.Text() != original || !strings.Contains(e.GetExpandedText(), pasted) {
++		t.Fatalf("undo lost draft/paste: %q", e.GetExpandedText())
++	}
++}
++
++func TestMidPromptCommandCompletionPreservesSuffix(t *testing.T) {
++	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
++	lines := []string{"fix it /hel later"}
++	got := provider.GetSuggestions(lines, 0, len("fix it /hel"))
++	if got == nil || len(got.Items) != 1 {
++		t.Fatalf("suggestions = %+v", got)
++	}
++	out, _, col := provider.ApplyCompletion(lines, 0, len("fix it /hel"), got.Items[0], got.Prefix)
++	if out[0] != "fix it /help  later" || col != len("fix it /help ") || acceptSubmits(lines, 0, len("fix it /hel"), got.Prefix) {
++		t.Fatalf("completion = %q, col=%d", out, col)
++	}
++}
++
++func TestSkillPreviewCapsVisualRowsWithoutTruncatingContent(t *testing.T) {
++	var body []string
++	for i := 0; i < 15; i++ {
++		body = append(body, fmt.Sprintf("skill row %02d", i))
++	}
++	content := strings.Join(body, "\n")
++	component := NewSkillInvocationMessage(ParsedSkillBlock{Name: "demo", Content: content})
++	collapsed := stripANSI(strings.Join(component.Render(80), "\n"))
++	if strings.Count(collapsed, "skill row") != 10 || !strings.Contains(collapsed, "5 more lines") {
++		t.Fatalf("collapsed = %q", collapsed)
++	}
++	component.SetExpanded(true)
++	if expanded := strings.Join(component.Render(80), "\n"); !strings.Contains(expanded, "skill row 14") || component.skillBlock.Content != content {
++		t.Fatal("full skill content was lost")
++	}
++	component.SetExpanded(false)
++	component.skillBlock.Content = strings.Repeat("long skill content ", 30)
++	rows := component.Render(12)
++	allRows := wrapText(component.skillBlock.Content, 10)
++	for i := 0; i < 10; i++ {
++		if !strings.HasPrefix(stripANSI(rows[i+2]), " "+allRows[i]) {
++			t.Fatalf("preview row %d = %q, want %q", i, rows[i+2], allRows[i])
++		}
++	}
++	if strings.Contains(stripANSI(strings.Join(rows[12:], "\n")), "skill") {
++		t.Fatal("skill body continued past the tenth visual row")
++	}
++}
++
++func TestRestoreDraftPreservesPasteAndDoesNotOverwriteNewTyping(t *testing.T) {
++	e := NewEditor()
++	pasted := strings.Repeat("pasted line\n", 15)
++	e.HandleInput("\x1b[200~" + pasted + "\x1b[201~")
++	original, cursor := e.Text(), e.GetCursor()
++	restore := e.RestoreDraftIfCleared()
++	e.Clear()
++	restore()
++	if e.Text() != original || e.GetCursor() != cursor || !strings.Contains(e.GetExpandedText(), pasted) {
++		t.Fatal("restoration lost draft state")
++	}
++	e.SetText("new user input")
++	restore()
++	if e.Text() != "new user input" {
++		t.Fatal("delayed command overwrote newer typing")
++	}
++}
+diff --git a/tui/skill_invocation.go b/tui/skill_invocation.go
+index 7a63c6e..07c9a90 100644
+--- a/tui/skill_invocation.go
++++ b/tui/skill_invocation.go
+@@ -5,8 +5,6 @@ package tui
+ // Ports upstream skill-invocation-message.ts (55 LOC).
+ // Renders a skill block with collapsed/expanded state.
+ 
+-import "strings"
+-
+ // ParsedSkillBlock holds the parsed skill invocation data.
+ // Mirrors upstream's ParsedSkillBlock.
+ type ParsedSkillBlock struct {
+@@ -49,33 +47,13 @@ func (s *SkillInvocationMessageComponent) Render(width int) []string {
+ 	t := ActiveTheme()
+ 	customMsgBgOpen := t.CustomMessageBg
+ 
+-	if s.expanded {
+-		var lines []string
+-		// paddingY top
+-		lines = append(lines, paintBgWith(customMsgBgOpen, "", width))
+-		label := t.CustomMessageLabel + "\x1b[1m[skill]\x1b[22m\x1b[0m"
+-		lines = append(lines, paintBgWith(customMsgBgOpen, " "+label, width))
+-		// Header: bold skill name.
+-		header := "\x1b[1m" + s.skillBlock.Name + "\x1b[22m"
+-		lines = append(lines, paintBgWith(customMsgBgOpen, " "+t.CustomMessageText+header+"\x1b[0m", width))
+-		lines = append(lines, paintBgWith(customMsgBgOpen, "", width))
+-		// Content lines.
+-		for line := range strings.SplitSeq(s.skillBlock.Content, "\n") {
+-			lines = append(lines, paintBgWith(customMsgBgOpen, " "+t.CustomMessageText+line+"\x1b[0m", width))
+-		}
+-		// paddingY bottom
+-		lines = append(lines, paintBgWith(customMsgBgOpen, "", width))
+-		return lines
+-	}
+-
+-	// Collapsed: single line: [skill] name (hint to expand).
+-	// Upstream Box paddingY=1 adds 1 blank row above and below.
+-	line := t.CustomMessageLabel + "\x1b[1m[skill]\x1b[22m\x1b[0m " +
+-		t.CustomMessageText + s.skillBlock.Name + "\x1b[0m" +
+-		t.Dim + " (ctrl+o to expand)" + "\x1b[0m"
+-	return []string{
+-		paintBgWith(customMsgBgOpen, "", width), // paddingY top
+-		paintBgWith(customMsgBgOpen, " "+line, width),
+-		paintBgWith(customMsgBgOpen, "", width), // paddingY bottom
++	lines := []string{paintBgWith(customMsgBgOpen, "", width)}
++	label := t.CustomMessageLabel + "\x1b[1m[skill]\x1b[22m\x1b[0m " +
++		t.CustomMessageText + s.skillBlock.Name + "\x1b[0m"
++	lines = append(lines, paintBgWith(customMsgBgOpen, " "+label, width))
++	rows := collapsedPreviewRows(wrapText(s.skillBlock.Content, max(1, width-2)), width-2, !s.expanded)
++	for _, row := range rows {
++		lines = append(lines, paintBgWith(customMsgBgOpen, " "+t.CustomMessageText+row+"\x1b[0m", width))
+ 	}
++	return append(lines, paintBgWith(customMsgBgOpen, "", width))
+ }
+diff --git a/tui/skill_slash_autocomplete.go b/tui/skill_slash_autocomplete.go
+index 5a5ca2c..ae89fb2 100644
+--- a/tui/skill_slash_autocomplete.go
++++ b/tui/skill_slash_autocomplete.go
+@@ -1,8 +1,7 @@
+ package tui
+ 
+-// Mid-prompt skill autocomplete. A "/" that starts a line or follows whitespace, after prompt text, lists skills
+-// only. Commands stay limited to the start of the message, and a token that matches no skill falls through to path
+-// completion. The matching rules follow Oh My Pi (pi-tui/src/autocomplete.ts).
++// Mid-prompt slash autocomplete lists commands and skills after whitespace.
++// Unknown tokens still fall through to path completion.
+ 
+ import (
+ 	"strings"
+@@ -81,11 +80,11 @@ func midPromptSkillMatches(token, name string) bool {
+ 	return false
+ }
+ 
+-// midPromptSkillSuggestions lists skill commands for token, or returns nil when none match.
++// midPromptSkillSuggestions lists commands and skills for token.
+ func (p *SlashOnlyProvider) midPromptSkillSuggestions(token string) *AutocompleteSuggestions {
+ 	var matched []SlashCommand
+ 	for _, c := range p.Commands {
+-		if midPromptSkillMatches(token, c.Name) {
++		if midPromptSkillMatches(token, c.Name) || (!strings.HasPrefix(c.Name, skillCommandPrefix) && strings.HasPrefix(strings.ToLower(c.Name), strings.ToLower(token))) {
+ 			matched = append(matched, c)
+ 		}
+ 	}
+@@ -108,6 +107,15 @@ func acceptSubmits(lines []string, row, col int, prefix string) bool {
+ 	return strings.HasPrefix(prefix, "/") && !proseBefore(lines, row, col-len(prefix))
+ }
+ 
++func (p *SlashOnlyProvider) hasCommand(name string) bool {
++	for _, command := range p.Commands {
++		if command.Name == name {
++			return true
++		}
++	}
++	return false
++}
++
+ // midPromptSlashContext reports whether the cursor sits in a slash token after prompt text, which opens the popup
+ // without a trigger character.
+ func (e *Editor) midPromptSlashContext() bool {
+diff --git a/tui/skill_slash_autocomplete_test.go b/tui/skill_slash_autocomplete_test.go
+index 1341802..cfa0c6e 100644
+--- a/tui/skill_slash_autocomplete_test.go
++++ b/tui/skill_slash_autocomplete_test.go
+@@ -25,7 +25,7 @@ func suggestionValues(s *AutocompleteSuggestions) []string {
+ 	return values
+ }
+ 
+-func TestMidPromptSlashListsOnlySkills(t *testing.T) {
++func TestMidPromptSlashListsCommandsAndSkills(t *testing.T) {
+ 	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
+ 	tests := []struct {
+ 		name   string
+@@ -35,11 +35,11 @@ func TestMidPromptSlashListsOnlySkills(t *testing.T) {
+ 		want   []string
+ 		prefix string
+ 	}{
+-		{"bare slash lists every skill", []string{"fix it /"}, 0, 8, []string{"skill:humanizer", "skill:research-last30days", "skill:brainstorm"}, "/"},
++		{"bare slash lists commands and skills", []string{"fix it /"}, 0, 8, []string{"help", "skill:humanizer", "skill:research-last30days", "skill:brainstorm"}, "/"},
+ 		{"bare name prefix", []string{"fix it /hum"}, 0, 11, []string{"skill:humanizer"}, "/hum"},
+ 		{"hyphen segment prefix", []string{"fix it /last"}, 0, 12, []string{"skill:research-last30days"}, "/last"},
+ 		{"skill namespace query", []string{"fix it /skill:br"}, 0, 16, []string{"skill:brainstorm"}, "/skill:br"},
+-		{"commands are not offered", []string{"fix it /hel"}, 0, 11, nil, ""},
++		{"commands are offered", []string{"fix it /hel"}, 0, 11, []string{"help"}, "/hel"},
+ 		{"later line after prompt text", []string{"first line", "/hum"}, 1, 4, []string{"skill:humanizer"}, "/hum"},
+ 	}
+ 	for _, tt := range tests {
+diff --git a/tui/tool_preview.go b/tui/tool_preview.go
+index 7cb7e22..fb70da5 100644
+--- a/tui/tool_preview.go
++++ b/tui/tool_preview.go
+@@ -10,7 +10,11 @@ const collapsedToolPreviewRows = 10
+ // collapsedToolRows caps visible output, not the retained tool result. Headers,
+ // expansion hints and separately rendered images keep their normal framing.
+ func (c *ToolExecutionComponent) collapsedToolRows(rows []string, width int) []string {
+-	if !c.Collapsed || len(rows) <= collapsedToolPreviewRows {
++	return collapsedPreviewRows(rows, width, c.Collapsed)
++}
++
++func collapsedPreviewRows(rows []string, width int, collapsed bool) []string {
++	if !collapsed || len(rows) <= collapsedToolPreviewRows {
+ 		return rows
+ 	}
+ 	out := append([]string(nil), rows[:collapsedToolPreviewRows]...)

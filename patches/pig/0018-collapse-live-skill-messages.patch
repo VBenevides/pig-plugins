@@ -1,0 +1,162 @@
+diff --git a/internal/codingagent/interactive_chat.go b/internal/codingagent/interactive_chat.go
+index c2dc070..9528256 100644
+--- a/internal/codingagent/interactive_chat.go
++++ b/internal/codingagent/interactive_chat.go
+@@ -19,6 +19,30 @@ func (m *InteractiveMode) appendToChat(comp tui.Component) {
+ 	m.chatContainer.Add(comp)
+ }
+ 
++// appendUserMessage renders every leading skill block as a mounted expandable
++// component, keeping the remaining prompt and the model's full input unchanged.
++func (m *InteractiveMode) appendUserMessage(text string) {
++	for {
++		parsed := ParseSkillBlock(text)
++		if parsed == nil {
++			if text != "" {
++				m.appendToChat(m.newUserMessageBlock(text))
++			}
++			return
++		}
++		component := tui.NewSkillInvocationMessage(tui.ParsedSkillBlock{
++			Name: parsed.Name, Content: parsed.Content,
++		})
++		component.SetExpanded(m.toolsExpanded)
++		m.appendToChat(component)
++		text = parsed.UserMessage
++		if text == "" {
++			return
++		}
++		m.appendToChat(tui.NewSpacer(1))
++	}
++}
++
+ func (m *InteractiveMode) newUserMessageBlock(text string) *tui.UserMessageBlock {
+ 	block := tui.NewUserMessageBlock(text)
+ 	block.SetOutputPad(m.outputPad)
+diff --git a/internal/codingagent/interactive_events.go b/internal/codingagent/interactive_events.go
+index 8475be9..25a4938 100644
+--- a/internal/codingagent/interactive_events.go
++++ b/internal/codingagent/interactive_events.go
+@@ -149,7 +149,7 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
+ 				if !m.chatContainer.IsEmpty() {
+ 					m.appendToChat(tui.NewSpacer(1))
+ 				}
+-				m.appendToChat(m.newUserMessageBlock(text))
++				m.appendUserMessage(text)
+ 				m.tuiInst.RequestRender()
+ 			}
+ 			// A queued steering/follow-up message that just got injected as a
+diff --git a/internal/codingagent/interactive_transcript.go b/internal/codingagent/interactive_transcript.go
+index dbdb2e4..13e46a4 100644
+--- a/internal/codingagent/interactive_transcript.go
++++ b/internal/codingagent/interactive_transcript.go
+@@ -231,28 +231,7 @@ func (m *InteractiveMode) renderSessionEntryList(entries []SessionEntry, trim bo
+ 				if !m.chatContainer.IsEmpty() {
+ 					m.chatContainer.Add(tui.NewSpacer(1))
+ 				}
+-				// Parse skill blocks in user messages.
+-				// Mirrors upstream addMessageToChat case "user" which calls
+-				// parseSkillBlock(textContent) → SkillInvocationMessageComponent.
+-				if parsed := ParseSkillBlock(text); parsed != nil {
+-					comp := tui.NewSkillInvocationMessage(tui.ParsedSkillBlock{
+-						Name:    parsed.Name,
+-						Content: parsed.Content,
+-					})
+-					if m.toolsExpanded {
+-						comp.SetExpanded(true)
+-					}
+-					m.chatContainer.Add(comp)
+-					// Render trailing user message if present. Upstream #5371
+-					// (interactive-mode.ts) inserts a Spacer(1) between the skill
+-					// block and the user message.
+-					if parsed.UserMessage != "" {
+-						m.chatContainer.Add(tui.NewSpacer(1))
+-						m.chatContainer.Add(m.newUserMessageBlock(parsed.UserMessage))
+-					}
+-				} else {
+-					m.chatContainer.Add(m.newUserMessageBlock(text))
+-				}
++				m.appendUserMessage(text)
+ 			}
+ 
+ 		case msg.Assistant != nil:
+diff --git b/internal/codingagent/skill_message_collapse_test.go b/internal/codingagent/skill_message_collapse_test.go
+new file mode 100644
+index 0000000..a0bf7a9
+--- /dev/null
++++ b/internal/codingagent/skill_message_collapse_test.go
+@@ -0,0 +1,61 @@
++package codingagent
++
++import (
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/agent"
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestSkillMessagesCollapseLiveAndResumed(t *testing.T) {
++	for _, live := range []bool{true, false} {
++		for _, multiple := range []bool{false, true} {
++			t.Run(fmt.Sprintf("live=%v/multiple=%v", live, multiple), func(t *testing.T) {
++				m := statusBorderMode(t, false)
++				text := "<skill name=\"alpha\" location=\"/alpha.md\">\n" + strings.Repeat("preview\n", 20) + "ALPHA_END\n</skill>\n\n"
++				if multiple {
++					text += "<skill name=\"beta\" location=\"/beta.md\">\n" + strings.Repeat("preview\n", 20) + "BETA_END\n</skill>\n\n"
++				}
++				text += "Original prompt /skill:alpha"
++				if live {
++					message := agent.AgentMessage{User: &agent.UserMessage{Role: agent.RoleUser, Content: ai.UserContentBlocks{ai.TextContent{Text: text}}}}
++					m.handleAgentEvent(agent.MessageStartEvent{Message: message})
++					if extractAgentMessageText(message) != text {
++						t.Fatal("display changed model input")
++					}
++				} else {
++					entry := contextFixtureEntry(t, "skills", "", "message", map[string]any{"message": map[string]any{"role": "user", "content": text}})
++					m.renderSessionEntryList([]SessionEntry{entry}, false)
++				}
++				wantSkills := 1
++				if multiple {
++					wantSkills++
++				}
++				var skills int
++				for _, child := range m.chatContainer.Children() {
++					if _, ok := child.(*tui.SkillInvocationMessageComponent); ok {
++						skills++
++					}
++				}
++				if skills != wantSkills {
++					t.Fatalf("mounted skills = %d, want %d", skills, wantSkills)
++				}
++				for _, expanded := range []bool{false, true, false} {
++					if m.toolsExpanded != expanded {
++						m.toggleAllTools() // Ctrl+O action
++					}
++					view := strings.Join(m.chatContainer.Render(80), "\n")
++					if strings.Contains(view, "ALPHA_END") != expanded || (multiple && strings.Contains(view, "BETA_END") != expanded) {
++						t.Fatalf("expanded=%v: %q", expanded, view)
++					}
++					if !strings.Contains(view, "Original prompt /skill:alpha") || strings.Contains(view, "<skill name=") {
++						t.Fatalf("prompt or skill framing incorrect: %q", view)
++					}
++				}
++			})
++		}
++	}
++}
+diff --git a/internal/codingagent/tools_expansion_upstream_test.go b/internal/codingagent/tools_expansion_upstream_test.go
+index 9a7462e..58e457f 100644
+--- a/internal/codingagent/tools_expansion_upstream_test.go
++++ b/internal/codingagent/tools_expansion_upstream_test.go
+@@ -59,7 +59,7 @@ func TestToolsExpansionVisitsMountedChildrenOnce(t *testing.T) {
+ func TestToolsExpansionReachesPersistedSkillInvocation(t *testing.T) {
+ 	m := statusBorderMode(t, false)
+ 	entry := contextFixtureEntry(t, "skill", "", "message", map[string]any{
+-		"message": map[string]any{"role": "user", "content": "<skill name=\"inspect\" location=\"/skills/inspect/SKILL.md\">\nSKILL_BODY_MARKER\n</skill>\n\nInspect this"},
++		"message": map[string]any{"role": "user", "content": "<skill name=\"inspect\" location=\"/skills/inspect/SKILL.md\">\n" + strings.Repeat("preview\n", 10) + "SKILL_BODY_MARKER\n</skill>\n\nInspect this"},
+ 	})
+ 	m.renderSessionEntryList([]SessionEntry{entry}, false)
+ 	if got := strings.Join(m.chatContainer.Render(120), "\n"); !strings.Contains(got, "[skill]") || strings.Contains(got, "SKILL_BODY_MARKER") {

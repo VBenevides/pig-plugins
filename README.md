@@ -77,9 +77,10 @@ It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.
 
-`patches/pig/0004-mid-prompt-skill-autocomplete.patch` lets you type `/` after prompt text to complete a skill, as in Oh My Pi.
-The popup lists skills only and matches the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting inserts `/skill:name` and does not submit.
-Submitting a prompt that holds `/skill:name` tokens adds each known skill's block once, before the unchanged text. Commands still work only at the start of the message.
+`patches/pig/0004-mid-prompt-skill-autocomplete.patch` and `0017-input-draft-commands-and-skill-previews.patch` let you type `/` after prompt text to complete a command or skill.
+Skill matching supports the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting a mid-text completion inserts the token without submitting.
+On Enter, a registered command runs from its slash through the cursor. Text before the command and after the cursor stays in the input box, including compact paste contents. Place the cursor immediately after the command's arguments to keep later prose. `/clear` discards only the input, `/exit` closes the session, `/send` submits the remaining draft as steering input, and `/send queue` submits it as a follow-up. During compaction, sends queue with the selected delivery mode.
+Submitting a prompt with `/skill:name` tokens still adds each known skill's full block once, before the unchanged text.
 `patches/pig/0006-scrollable-extension-dialogs.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows. PageUp and PageDown scroll the rest, and a status row shows the visible range.
 
 `patches/pig/0007-dialog-page-keys.patch` lets an open dialog receive PageUp and PageDown before the full-screen chat viewport, which used to consume them.
@@ -101,6 +102,8 @@ are covered independently.
 ### Tool output previews
 
 `patches/pig/0016-persist-tool-expansion.patch` defaults tool output to collapsed previews of at most 10 output rows. Ctrl+O expands or collapses tools and saves the preference as `toolsExpanded` in the global `settings.json`. New and resumed sessions restore that preference; full tool results remain available to the model and in session history. Headers, expansion hints, and image previews are separate from the output-row limit.
+
+Skill invocation previews use the same 10-output-row limit, including wrapped lines. `patches/pig/0018-collapse-live-skill-messages.patch` applies this to live and resumed messages, including multiple skills in one prompt. Ctrl+O or a click reveals the complete skill; only the display is collapsed, not the content sent to the model. Skills follow the saved `toolsExpanded` preference, which defaults to collapsed.
 
 Saving does not block the input loop. Rapid toggles preserve the latest choice, shutdown waits for pending saves, and save failures show an error.
 
