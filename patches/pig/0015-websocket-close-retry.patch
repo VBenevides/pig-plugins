@@ -1,0 +1,135 @@
+--- a/ai/assistant_retry.go
++++ b/ai/assistant_retry.go
+@@ -68,6 +68,7 @@
+ 	"terminated",
+ 	// WebSocket transports can report close/error text.
+ 	"websocket.?closed",
++	"websocket:\\s*close\\b",
+ 	"websocket.?error",
+ 	// Premature stream endings from SDKs and transports.
+ 	"ended without",
+--- /dev/null
++++ b/ai/codex_normal_close_retry_test.go
+@@ -0,0 +1,69 @@
++package ai
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/gorilla/websocket"
++)
++
++func TestCodexNormalCloseBeforeCompletionRetriesOverSSE(t *testing.T) {
++	for _, partialTool := range []bool{false, true} {
++		t.Run(map[bool]string{false: "after response created", true: "during tool arguments"}[partialTool], func(t *testing.T) {
++			defer CloseOpenAICodexWebSocketSessions()
++			var wsRequests, sseRequests atomic.Int32
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				if r.Method == http.MethodPost {
++					sseRequests.Add(1)
++					w.Header().Set("Content-Type", "text/event-stream")
++					_, _ = w.Write([]byte(reviewSSEDone))
++					return
++				}
++				connection, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
++				if err != nil {
++					return
++				}
++				defer connection.Close()
++				if _, _, err := connection.ReadMessage(); err != nil {
++					return
++				}
++				wsRequests.Add(1)
++				_ = connection.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.created","response":{"id":"resp_interrupted"}}`))
++				if partialTool {
++					_ = connection.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_edit","call_id":"call_edit","name":"edit","arguments":""}}`))
++					_ = connection.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"path\":"}`))
++				}
++				_ = connection.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "server closed"), time.Now().Add(time.Second))
++			}))
++			defer server.Close()
++			provider := reviewCodexProvider(t, server.URL, "close-account")
++			options := StreamOptions{Transport: TransportAuto, SessionID: t.Name(), TimeoutMs: new(1000)}
++			var first *AssistantMessage
++			result, err := RetryAssistantCall(t.Context(), func() (AssistantMessage, error) {
++				stream, err := provider.Stream(context.Background(), reviewCodexCtx("edit a file"), options)
++				if err != nil {
++					return AssistantMessage{}, err
++				}
++				message := stream.Result()
++				if first == nil {
++					first = message
++				}
++				return *message, nil
++			}, &RetryPolicy{Enabled: true, MaxRetries: 1, BaseDelayMs: 1}, RetryCallbacks{})
++			if err != nil {
++				t.Fatal(err)
++			}
++			if first.StopReason != StopReasonError || !strings.Contains(first.ErrorMessage, "1000") {
++				t.Fatalf("interruption was hidden: %+v", first)
++			}
++			if result.StopReason != StopReasonStop || wsRequests.Load() != 1 || sseRequests.Load() != 1 {
++				t.Fatalf("stop=%s error=%s websocket=%d SSE=%d; want bounded SSE recovery", result.StopReason, result.ErrorMessage, wsRequests.Load(), sseRequests.Load())
++			}
++		})
++	}
++}
+--- /dev/null
++++ b/coding/websocket_close_retry_test.go
+@@ -0,0 +1,50 @@
++package coding
++
++import (
++	"testing"
++	"time"
++
++	"github.com/MichaelKinsy/PiG/agent"
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/coding/extension"
++)
++
++func TestWebSocketCloseRecoveryPreservesCompletedTools(t *testing.T) {
++	for _, interruptedTool := range []bool{false, true} {
++		t.Run(map[bool]string{false: "after completed edit", true: "partial next edit"}[interruptedTool], func(t *testing.T) {
++			tool := &retryEchoTool{}
++			failure := func([]ai.Message) *ai.AssistantMessage {
++				message := &ai.AssistantMessage{Provider: "faux", Model: "faux-1", StopReason: ai.StopReasonError, ErrorMessage: "websocket: close 1000 (normal): server closed", Timestamp: time.Now().UnixMilli()}
++				if interruptedTool {
++					message.Content = []ai.AssistantContentBlock{ai.ToolCall{ID: "partial", Name: "echo", Arguments: ai.JsonObject{"text": "must not execute"}}}
++				}
++				return message
++			}
++			h := newRetryEventsHarness(t, `{"retry":{"enabled":true,"maxRetries":1,"baseDelayMs":1}}`, extension.Extension{}, []agent.AgentTool{tool},
++				fauxToolCallOnly("echo", ai.JsonObject{"text": "completed edit"}), failure, fauxReply("recovered", ai.StopReasonStop, 0))
++			if _, err := h.session.Prompt(t.Context(), "edit", nil); err != nil {
++				t.Fatal(err)
++			}
++			if runs := tool.ran(); len(runs) != 1 || runs[0] != "completed edit" {
++				t.Fatalf("tool runs = %v", runs)
++			}
++			if last := h.session.LastAssistantText(); last == nil || *last != "recovered" {
++				t.Fatalf("did not recover: %v", last)
++			}
++			if got := h.provider.callCount(); got != 3 {
++				t.Fatalf("requests=%d, want edit, failed continuation, retry", got)
++			}
++		})
++	}
++}
++
++func TestWebSocketCloseRetryBudgetIsBounded(t *testing.T) {
++	failure := func([]ai.Message) *ai.AssistantMessage {
++		return &ai.AssistantMessage{Provider: "faux", Model: "faux-1", StopReason: ai.StopReasonError, ErrorMessage: "websocket: close 1000 (normal)", Timestamp: time.Now().UnixMilli()}
++	}
++	h := newRetryEventsHarness(t, `{"retry":{"enabled":true,"maxRetries":1,"baseDelayMs":1}}`, extension.Extension{}, nil, failure, failure)
++	_, _ = h.session.Prompt(t.Context(), "continue", nil)
++	if got := h.provider.callCount(); got != 2 {
++		t.Fatalf("requests=%d, want initial and one retry", got)
++	}
++}
