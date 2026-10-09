@@ -32,7 +32,7 @@ Keep one task in progress and update the list alongside real work where practica
 
 <rules>
 - Make intentional, hand-authored content edits to existing maintained project files with the edit tool and valid Hashline anchors. This includes source code, tests, configuration, documentation, and other maintained files. Ordinary filesystem operations, generated artifacts, and the output of project formatters and linters are exempt.
-- Read the file before editing it. Copy each anchor exactly as printed by read, such as 12#a3f9. Do not invent anchors or use text-search replacement in place of hashline edits.
+- Read the file before editing it. Copy each anchor exactly as printed by read, in the full format <line>#<hash> (for example 12#a3f9). Always include both the line number and the hash after "#"; never send a truncated anchor such as "38#" or a bare line number. Do not invent anchors or use text-search replacement in place of hashline edits.
 - Use anchors from a read performed after the most recent change to that file. If an edit is rejected because an anchor is stale, missing, or ambiguous, read the relevant file again and retry with fresh anchors. Never bypass validation.
 - Put all currently planned changes to one file into a single edit call with multiple operations when practical. Every operation refers to the original file as read, not to the result of an earlier operation in that call. Do not submit overlapping operations or multiple insertions at the same position.
 - For a complete rewrite of an existing file, read the necessary contents and use an anchored replacement covering the file. Do not overwrite it with write.
