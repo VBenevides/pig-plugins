@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	bf "github.com/VBenevides/pig-plugins/internal/betterfooter"
+	"github.com/VBenevides/pig-plugins/internal/notice"
 )
 
 func ref(model map[string]any) bf.ModelRef {
@@ -184,7 +185,7 @@ func (x *extension) skip(ctx sdk.Context, event map[string]any, gen, cycle uint6
 		if reasoning, _ := item.Model["reasoning"].(bool); reasoning && effort != "off" {
 			name += " (thinking: " + effort + ")"
 		}
-		ctx.Notify("Switched to "+bf.Sanitize(name)+"; skipped "+strings.Join(skipped, ", "), "info")
+		notice.Show(ctx, "Switched to "+bf.Sanitize(name)+"; skipped "+strings.Join(skipped, ", "), "info")
 		return
 	}
 	if x.superseded(ctx, selected, gen, cycle) {
@@ -207,5 +208,5 @@ func (x *extension) skip(ctx sdk.Context, event map[string]any, gen, cycle uint6
 	if restored {
 		message += "; staying on " + previous.Provider + "/" + previous.ModelID
 	}
-	ctx.Notify(message, "warning")
+	notice.Show(ctx, message, "warning")
 }

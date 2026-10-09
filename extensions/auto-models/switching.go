@@ -7,6 +7,7 @@ import (
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
+	"github.com/VBenevides/pig-plugins/internal/notice"
 )
 
 func (x *extension) accountRemaining(run context.Context, source accountSource, account sdk.OAuthAccount) (*float64, error) {
@@ -61,8 +62,9 @@ func (x *extension) rotateAccountWithPolicy(ctx accountSwitcher, account sdk.OAu
 		}
 		remaining, err := x.accountRemaining(x.life, ctx, candidate)
 		if err != nil {
-			ctx.Notify("auto-models: "+clean(err.Error()), "warning")
-			log.Printf("auto-models: %v", err)
+			if !notice.Show(ctx, "auto-models: "+clean(err.Error()), "warning") {
+				log.Printf("auto-models: %v", err)
+			}
 			continue
 		}
 		if remaining == nil || *remaining < 5 {
@@ -94,7 +96,7 @@ func (x *extension) rotateAccountWithPolicy(ctx accountSwitcher, account sdk.OAu
 		if err := x.clearPrimaryCooldown(account.Provider); err != nil {
 			return true, err
 		}
-		ctx.Notify("Switched to another "+clean(account.Provider)+" account with available quota", "info")
+		notice.Show(ctx, "Switched to another "+clean(account.Provider)+" account with available quota", "info")
 		return true, nil
 	}
 	return false, nil

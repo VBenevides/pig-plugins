@@ -17,10 +17,13 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
-	"github.com/VBenevides/pig-plugins/internal/sdkctx"
+	"github.com/VBenevides/pig-plugins/internal/notice"
 )
 
 const Name = "auto-models"
+
+// quotaRefreshInterval is the cadence of the footer quota badge refresh.
+const quotaRefreshInterval = 10 * time.Minute
 
 type refreshRequest struct {
 	ctx   sdk.Context
@@ -38,7 +41,6 @@ type extension struct {
 	quotaAt           time.Time
 	quotaProvider     string
 	quotaAccount      string
-	primaryQuotaAt    time.Time
 	lowQuotaAsked     string
 	retryPending      bool
 	retryUsed         bool
@@ -142,8 +144,9 @@ func newExtension(store quota.Store, client quota.Client, enabled bool) *extensi
 }
 
 func (x *extension) report(ctx sdk.Context, err error) {
-	ctx.Notify("auto-models: "+clean(err.Error()), "warning")
-	log.Printf("auto-models: %v", err)
+	if !notice.Show(ctx, "auto-models: "+clean(err.Error()), "warning") {
+		log.Printf("auto-models: %v", err)
+	}
 }
 func clean(value string) string {
 	return strings.Map(func(r rune) rune {
@@ -245,28 +248,13 @@ func (x *extension) startup(ctx sdk.Context) error {
 	if passive := quota.PassiveCooldown(x.rate(primary.Provider), now); passive > left {
 		left = passive
 	}
-	run, cancel := sdkctx.Request(ctx)
-	available, err := x.primaryAvailable(run, ctx, primary.Provider)
-	cancel()
-	if err != nil {
-		x.report(ctx, err)
-	} else if available != nil {
-		if *available {
-			if err := x.clearPrimaryCooldown(primary.Provider); err != nil {
-				return err
-			}
-			left = 0
-		} else if left <= 0 {
-			left = quota.Cooldown(nil, now)
-		}
-	}
 	if left > 0 {
 		if err := x.setCooldown(primary.Provider, now.Add(left)); err != nil {
 			return err
 		}
 		if ok, err := x.choose(ctx, fallback); ok {
 			x.selected(ctx, false)
-			ctx.Notify("Primary rate-limited, using "+clean(fallback.Model), "info")
+			notice.Show(ctx, "Primary rate-limited, using "+clean(fallback.Model), "info")
 			return nil
 		} else {
 			return err
@@ -315,7 +303,7 @@ func (x *extension) queueRefresh(ctx sdk.Context, force bool) {
 }
 func (x *extension) refreshLoop() {
 	defer close(x.done)
-	ticker := time.NewTicker(primaryQuotaInterval)
+	ticker := time.NewTicker(quotaRefreshInterval)
 	defer ticker.Stop()
 	var latest *sdk.Context
 	for {
@@ -346,11 +334,6 @@ func (x *extension) status(ctx sdk.Context, status *quota.StatusQuota) {
 	footerstatus.Set(ctx, "auto-model-quota", ctx.UITheme().Fg(color, text))
 }
 func (x *extension) refreshQuota(ctx sdk.Context, force bool) {
-	if err := x.recoverPrimary(ctx); err != nil {
-		if x.life.Err() == nil {
-			x.report(ctx, err)
-		}
-	}
 	provider := ctx.ModelProvider()
 	if provider == "" {
 		return
@@ -497,9 +480,8 @@ func (x *extension) switchOnLimit(ctx modelSwitcher, provider string) error {
 	x.mu.Lock()
 	x.retryPending, x.retryUsed = true, true
 	x.retryTarget = target
-	x.primaryQuotaAt = time.Now()
 	x.mu.Unlock()
-	ctx.Notify("Quota exhausted, switched to "+clean(target.Model)+" and continuing", "warning")
+	notice.Show(ctx, "Quota exhausted, switched to "+clean(target.Model)+" and continuing", "warning")
 	return nil
 }
 func (x *extension) response(ctx sdk.Context, data map[string]any) (any, error) {

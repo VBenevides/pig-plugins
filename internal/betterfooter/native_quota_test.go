@@ -55,23 +55,15 @@ func TestNativeQuotaInvalidationRejectsOlderRead(t *testing.T) {
 	}
 }
 
-func TestFailedNativeRefreshDropsExhaustionButKeepsNewerHeaders(t *testing.T) {
+func TestFailedNativeRefreshKeepsLastValue(t *testing.T) {
 	key := NativeQuotaKey(CodexProvider, "first")
-	for _, headers := range []bool{false, true} {
-		var store QuotaStore
-		store.Update(key, time.Now(), func(q *ProviderQuota) { q.Windows = []RateWindow{{Percent: 0, CapturedAt: time.Now()}} })
-		reader := Reader{Store: &store, Fetch: func(context.Context, string) ([]RateWindow, string, bool, error) {
-			if headers {
-				store.Update(key, time.Now(), func(q *ProviderQuota) { q.Windows = []RateWindow{{Percent: 80}} })
-			}
-			return nil, "", true, errors.New("HTTP failed")
-		}}
-		q, known, err := reader.Read(context.Background(), key, true, 0)
-		if err == nil || known != headers || IsQuotaExhausted(q, known, time.Now()) {
-			t.Fatal("failed native observation proved exhaustion", q, known, err)
-		}
-		if headers && q.Windows[0].Percent != 80 {
-			t.Fatal("native failure discarded newer headers", q)
-		}
+	var store QuotaStore
+	store.Update(key, time.Now(), func(q *ProviderQuota) { q.Windows = []RateWindow{{Percent: 42, CapturedAt: time.Now()}} })
+	reader := Reader{Store: &store, Fetch: func(context.Context, string) ([]RateWindow, string, bool, error) {
+		return nil, "", true, errors.New("HTTP 429")
+	}}
+	q, known, err := reader.Read(context.Background(), key, true, 0)
+	if err == nil || !known || len(q.Windows) != 1 || q.Windows[0].Percent != 42 {
+		t.Fatal("failed native refresh did not keep the last value", q, known, err)
 	}
 }

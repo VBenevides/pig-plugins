@@ -18,6 +18,7 @@ import (
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
 	bf "github.com/VBenevides/pig-plugins/internal/betterfooter"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
+	"github.com/VBenevides/pig-plugins/internal/notice"
 )
 
 const Name = "better-footer"
@@ -182,9 +183,8 @@ func (x *extension) report(ctx interface {
 }, err error) {
 	if err != nil {
 		message := bf.SanitizePlain(err.Error())
-		log.Printf("better-footer: %s", message)
-		if ctx.HasUI() {
-			ctx.Notify("better-footer: "+message, "warning")
+		if !ctx.HasUI() || !notice.Show(ctx, "better-footer: "+message, "warning") {
+			log.Printf("better-footer: %s", message)
 		}
 	}
 }

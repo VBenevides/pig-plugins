@@ -3,6 +3,7 @@ package betterfooter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -51,14 +52,21 @@ func nativeQuotaKey(source accountList, provider, base string) (string, error) {
 }
 
 func (x *extension) fetchNative(ctx context.Context, key string) ([]bf.RateWindow, string, bool, error) {
-	_, native := bf.NativeQuotaAccount(key)
-	if !native || bf.QuotaSource(key) != bf.CodexProvider {
+	id, native := bf.NativeQuotaAccount(key)
+	provider := bf.QuotaSource(key)
+	if !native || id == "" || (provider != bf.CodexProvider && provider != bf.ClaudeProvider) {
 		return nil, "", false, nil
 	}
 	x.mu.Lock()
 	source, gen := x.ctx, x.generation
 	x.mu.Unlock()
-	windows, err := fetchNativeCodex(ctx, source, x.client, key, time.Now())
+	var windows []bf.RateWindow
+	var err error
+	if provider == bf.ClaudeProvider {
+		windows, err = fetchNativeClaude(ctx, source, x.client, key, time.Now())
+	} else {
+		windows, err = fetchNativeCodex(ctx, source, x.client, key, time.Now())
+	}
 	x.mu.Lock()
 	current := gen == x.generation
 	x.mu.Unlock()
@@ -68,13 +76,15 @@ func (x *extension) fetchNative(ctx context.Context, key string) ([]bf.RateWindo
 	return windows, "", true, err
 }
 
-func fetchNativeCodex(ctx context.Context, source accountSource, client quota.Client, key string, now time.Time) ([]bf.RateWindow, error) {
+// nativeCredential reads the selected native account's credential and returns a check that fails once the
+// selection has moved to another account, so a slow read cannot be published under the wrong key.
+func nativeCredential(source accountSource, key, provider string) (quota.AuthEntry, func() error, error) {
 	id, native := bf.NativeQuotaAccount(key)
-	if !native || id == "" || bf.QuotaSource(key) != bf.CodexProvider {
-		return nil, errors.New("native Codex quota account unavailable")
+	if !native || id == "" || bf.QuotaSource(key) != provider {
+		return quota.AuthEntry{}, nil, fmt.Errorf("native %s quota account unavailable", provider)
 	}
 	check := func() error {
-		selected, err := nativeQuotaKey(source, bf.CodexProvider, bf.CodexProvider)
+		selected, err := nativeQuotaKey(source, provider, provider)
 		if err != nil {
 			return err
 		}
@@ -84,13 +94,62 @@ func fetchNativeCodex(ctx context.Context, source accountSource, client quota.Cl
 		return nil
 	}
 	if err := check(); err != nil {
-		return nil, err
+		return quota.AuthEntry{}, nil, err
 	}
 	auth, err := source.OAuthAccountAuth(id)
 	if err != nil {
-		return nil, errors.New("native account credential lookup failed")
+		return quota.AuthEntry{}, nil, errors.New("native account credential lookup failed")
 	}
-	entry := quota.AuthEntry{Type: text(auth, "type"), Access: text(auth, "access"), AccountID: text(auth, "accountId"), Expires: number(auth, "expires")}
+	return quota.AuthEntry{Type: text(auth, "type"), Access: text(auth, "access"), AccountID: text(auth, "accountId"), Expires: number(auth, "expires")}, check, nil
+}
+
+// fetchNativeClaude maps the selected Claude account's usage limits to footer windows.
+func fetchNativeClaude(ctx context.Context, source accountSource, client quota.Client, key string, now time.Time) ([]bf.RateWindow, error) {
+	entry, check, err := nativeCredential(source, key, bf.ClaudeProvider)
+	if err != nil {
+		return nil, err
+	}
+	usage, err := client.FetchClaude(ctx, entry)
+	if err != nil {
+		return nil, err // Client sanitizes HTTP/transport errors and never returns bodies.
+	}
+	if err := check(); err != nil {
+		return nil, err
+	}
+	if usage == nil {
+		return nil, errors.New("native Claude quota windows unavailable")
+	}
+	var windows []bf.RateWindow
+	for _, limit := range usage.Limits {
+		if limit.Percent == nil || math.IsNaN(*limit.Percent) || math.IsInf(*limit.Percent, 0) {
+			continue
+		}
+		window := bf.RateWindow{Percent: math.Min(100, math.Max(0, 100-*limit.Percent)), CapturedAt: now}
+		switch limit.Kind {
+		case "session":
+			window.Scope, window.WindowMins = "claude:session", 300
+		case "weekly_all":
+			window.Scope, window.WindowMins = "claude:weekly", 7*24*60
+		default:
+			continue // Model-scoped limits bind only some models; they are shown by /usage.
+		}
+		if reset, err := time.Parse(time.RFC3339, limit.ResetsAt); err == nil {
+			window.HasReset, window.ResetSec = true, math.Max(0, reset.Sub(now).Seconds())
+		}
+		windows = append(windows, window)
+	}
+	if len(windows) == 0 {
+		return nil, errors.New("native Claude quota windows unavailable")
+	}
+	bf.SortRateWindows(windows)
+	return windows, nil
+}
+
+func fetchNativeCodex(ctx context.Context, source accountSource, client quota.Client, key string, now time.Time) ([]bf.RateWindow, error) {
+	entry, check, err := nativeCredential(source, key, bf.CodexProvider)
+	if err != nil {
+		return nil, err
+	}
 	usage, err := client.FetchCodex(ctx, entry)
 	if err != nil {
 		return nil, err // Client sanitizes HTTP/transport errors and never returns bodies.

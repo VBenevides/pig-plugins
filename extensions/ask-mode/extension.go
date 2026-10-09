@@ -1,4 +1,4 @@
-// Package askmodeext is the PiG extension "ask-mode": /ask [on|off|status] makes the session read-only.
+// Package askmodeext provides /mode [act|ask|status] to switch session permissions.
 // The state lives in memory only and resets whenever a session starts.
 package askmodeext
 
@@ -34,11 +34,11 @@ func Extension() *sdk.Extension {
 		return nil, nil
 	})
 
-	e.RegisterCommand("ask", sdk.CommandOptions{
-		Description: "Toggle read-only ask mode (/ask, /ask on, /ask off, /ask status)",
+	e.RegisterCommand("mode", sdk.CommandOptions{
+		Description: "Switch ACT/ASK mode (/mode, /mode ask, /mode act, /mode status)",
 		GetArgumentCompletions: func(prefix string) ([]sdk.AutocompleteItem, error) {
 			var items []sdk.AutocompleteItem
-			for _, v := range []string{"on", "off", "status"} {
+			for _, v := range []string{"ask", "act", "status"} {
 				if strings.HasPrefix(v, prefix) {
 					items = append(items, sdk.AutocompleteItem{Value: v, Label: v})
 				}
@@ -49,21 +49,21 @@ func Extension() *sdk.Extension {
 			switch strings.ToLower(strings.TrimSpace(args)) {
 			case "":
 				on.Store(!on.Load())
-			case "on":
+			case "ask":
 				on.Store(true)
-			case "off":
+			case "act":
 				on.Store(false)
 			case "status":
 			default:
-				ctx.Notify("usage: /ask [on|off|status]", "warning")
+				ctx.Notify("usage: /mode [act|ask|status]", "warning")
 				return nil
 			}
 			announce(ctx)
-			state := "off"
+			state := "ACT"
 			if on.Load() {
-				state = "on (read-only)"
+				state = "ASK (read-only)"
 			}
-			ctx.Notify("ask mode "+state, "info")
+			ctx.Notify("Mode: "+state, "info")
 			return nil
 		},
 	})
@@ -102,7 +102,7 @@ func check(ctx sdk.Context, tool string, input map[string]any) string {
 	case tool == "bash":
 		command, _ := input["command"].(string)
 		if ok, why := askmode.ReadOnlyBash(command); !ok {
-			return prefix + "bash blocked: " + why + ". Ask the user to run /ask off."
+			return prefix + "bash blocked: " + why + ". Ask the user to run /mode act."
 		}
 		return ""
 	case askmode.WriteTool(tool):
@@ -112,7 +112,7 @@ func check(ctx sdk.Context, tool string, input map[string]any) string {
 			return prefix + tool + " blocked: " + err.Error()
 		}
 		if !inside {
-			return prefix + tool + " outside .agent-work/ is blocked. Ask the user to run /ask off."
+			return prefix + tool + " outside .agent-work/ is blocked. Ask the user to run /mode act."
 		}
 		if !ctx.HasUI() {
 			return prefix + tool + " blocked: no UI to confirm the .agent-work write."
@@ -126,5 +126,5 @@ func check(ctx sdk.Context, tool string, input map[string]any) string {
 		}
 		return ""
 	}
-	return prefix + "tool " + tool + " is not known to be read-only. Ask the user to run /ask off."
+	return prefix + "tool " + tool + " is not known to be read-only. Ask the user to run /mode act."
 }

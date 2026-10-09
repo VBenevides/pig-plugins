@@ -1,4 +1,4 @@
-// Package askmode is the read-only policy behind the /ask command.
+// Package askmode is the read-only policy behind /mode ask.
 package askmode
 
 import (
@@ -15,7 +15,7 @@ const Prompt = `
 # ASK MODE (read-only) — enforced by the host
 
 Ask mode is ON. You MUST NOT change anything: do not create, modify, delete, move or rename any file, do not run commands that write, install, commit or change state, and do not use tools with side effects.
-Only read, search and explain. If the user asks for a change, say it is blocked by ask mode and tell them to run "/ask off".
+Only read, search and explain. If the user asks for a change, say it is blocked by ask mode and tell them to run "/mode act".
 The only exception: a file inside the project's .agent-work/ directory, and only when the user EXPLICITLY asked you in this conversation to write it. Such writes also need the user's confirmation.
 Blocked tool calls are rejected by the host; do not try to work around them.`
 

@@ -145,14 +145,14 @@ func TestNativeCodexFailuresNeverInvokeCLIOrExposeSecrets(t *testing.T) {
 			})}}
 			var store bf.QuotaStore
 			key := bf.NativeQuotaKey(bf.CodexProvider, "first")
-			store.Update(key, time.Now(), func(q *bf.ProviderQuota) { q.Windows = []bf.RateWindow{{Percent: 0, CapturedAt: time.Now()}} })
+			store.Update(key, time.Now(), func(q *bf.ProviderQuota) { q.Windows = []bf.RateWindow{{Percent: 42, CapturedAt: time.Now()}} })
 			reader := bf.Reader{Store: &store, Fetch: func(ctx context.Context, key string) ([]bf.RateWindow, string, bool, error) {
 				w, err := fetchNativeCodex(ctx, source, client, key, time.Now())
 				return w, "", true, err
 			}, Codex: func(context.Context) ([]bf.RateWindow, error) { t.Fatal("native failure invoked CLI"); return nil, nil }}
 			q, known, err := reader.Read(context.Background(), key, true, 0)
-			if err == nil || known || bf.IsQuotaExhausted(q, known, time.Now()) || strings.Contains(err.Error(), "secret-first") || strings.Contains(err.Error(), "tenant-first") {
-				t.Fatal("unsafe native failure", known, err)
+			if err == nil || !known || len(q.Windows) != 1 || q.Windows[0].Percent != 42 || strings.Contains(err.Error(), "secret-first") || strings.Contains(err.Error(), "tenant-first") {
+				t.Fatal("native failure lost the last value or exposed secrets", known, err)
 			}
 		})
 	}
@@ -233,5 +233,41 @@ func TestNativeChatGPTAndGenericHeaderRendering(t *testing.T) {
 	q, _ = store.Get(key)
 	if len(q.Windows) != 1 || q.Windows[0].Percent != 50 {
 		t.Fatal("native generic rate parser changed", q)
+	}
+}
+
+type claudeAccounts struct{ quotaAccounts }
+
+func (s *claudeAccounts) OAuthAccounts() ([]sdk.OAuthAccount, error) {
+	return []sdk.OAuthAccount{{ID: "claude", Provider: bf.ClaudeProvider, Active: true}}, nil
+}
+
+func TestNativeClaudeQuotaWindowsReachFooterOnFallback(t *testing.T) {
+	now := time.Now()
+	reset := now.Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	source := &claudeAccounts{}
+	client := quota.Client{HTTP: &http.Client{Transport: quotaTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Authorization") != "Bearer secret-claude" {
+			t.Fatal("request did not use the selected native credential")
+		}
+		body := `{"limits":[{"kind":"weekly_all","percent":40},{"kind":"session","percent":25,"resets_at":"` + reset + `"},{"kind":"weekly_scoped","percent":99,"scope":{"model":{"display_name":"Fable"}}}]}`
+		return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}}
+	key, err := nativeQuotaKey(source, bf.ClaudeProvider, bf.ClaudeProvider)
+	if err != nil || !bf.Polled(key) {
+		t.Fatal("native Claude account is not polled", key, err)
+	}
+	var store bf.QuotaStore
+	reader := bf.Reader{Store: &store, Fetch: func(ctx context.Context, key string) ([]bf.RateWindow, string, bool, error) {
+		windows, err := fetchNativeClaude(ctx, source, client, key, now)
+		return windows, "", true, err
+	}}
+	q, known, err := reader.Read(context.Background(), key, true, 0)
+	if err != nil || !known || len(q.Windows) != 2 || q.Windows[0].Percent != 75 || !q.Windows[0].HasReset || q.Windows[1].Percent != 60 {
+		t.Fatalf("unexpected Claude windows: %+v %v %v", q, known, err)
+	}
+	state := bf.RenderState{Provider: bf.ClaudeProvider, Model: "claude-sonnet-5-5", QuotaKey: key, Quota: q, Statuses: map[string]string{"auto-model": "⚡ fallback"}}
+	if output := strings.Join(bf.RenderFooter(state, 240, bf.Theme{}, now), "\n"); !strings.Contains(output, "75%") || !strings.Contains(output, "60%") {
+		t.Fatal("fallback footer lacks Claude quota", output)
 	}
 }

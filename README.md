@@ -585,9 +585,9 @@ Files must be regular UTF-8 files within the project, at most 256 KiB each.
 
 ## ask-mode
 
-`/ask` toggles read-only mode; `/ask on`, `/ask off` and `/ask status` set or show it.
-The state is in memory only and resets to off when a session starts.
-While on, the footer shows `ASK`, the system prompt forbids any change, and `tool_call` blocks everything except read-only tools and provably read-only bash (no redirection, substitution or write-capable commands).
+`/mode` toggles between ACT and read-only ASK; `/mode ask`, `/mode act`, and `/mode status` set or show the mode. `/ask` is no longer registered.
+The state is in memory only and resets to ACT when a session starts.
+In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` blocks everything except read-only tools and provably read-only bash (no redirection, substitution or write-capable commands).
 `write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
 
 ## adhd-output

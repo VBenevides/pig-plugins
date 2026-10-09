@@ -79,20 +79,6 @@ func (s *QuotaStore) Invalidate(key string) {
 	s.versions[key]++
 }
 
-// invalidateRead drops failed native observations without discarding newer headers.
-func (s *QuotaStore) invalidateRead(key string, version uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.versions[key] != version {
-		return
-	}
-	if s.versions == nil {
-		s.quotas, s.versions = map[string]ProviderQuota{}, map[string]uint64{}
-	}
-	delete(s.quotas, key)
-	s.versions[key]++
-}
-
 // applyRead compares and publishes under one lock, so a response-header update
 // cannot be overwritten between a version check and publication.
 func (s *QuotaStore) applyRead(key string, version uint64, now time.Time, windows []RateWindow, credits string) {
@@ -233,17 +219,14 @@ func (r *Reader) now() time.Time {
 // Polled reports whether the account has an own quota source worth polling.
 func Polled(key string) bool {
 	key = QuotaSource(key)
-	return key == CopilotProvider || key == CodexProvider || IsZaiProvider(key) || IsOpenCodeGoProvider(key)
+	return key == CopilotProvider || key == CodexProvider || key == ClaudeProvider || IsZaiProvider(key) || IsOpenCodeGoProvider(key)
 }
 
-// PollInterval is the base polling cadence of an account: Copilot 30 s, the others 60 s; 0 when it has no source.
+// PollInterval is the base polling cadence of an account: 2 minutes for every source; 0 when it has no source.
 func PollInterval(key string) time.Duration {
 	key = QuotaSource(key)
-	switch {
-	case key == CopilotProvider:
-		return 30 * time.Second
-	case Polled(key):
-		return 60 * time.Second
+	if Polled(key) {
+		return 2 * time.Minute
 	}
 	return 0
 }
@@ -294,8 +277,6 @@ func (r *Reader) Read(ctx context.Context, key string, force bool, maxAge time.D
 	windows, credits, err := r.fetch(ctx, key)
 	if err == nil {
 		r.Store.applyRead(key, version, r.now(), windows, credits)
-	} else if _, native := NativeQuotaAccount(key); native {
-		r.Store.invalidateRead(key, version)
 	}
 	mine.err = err
 	r.mu.Lock()

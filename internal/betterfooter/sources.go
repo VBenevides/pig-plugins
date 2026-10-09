@@ -22,6 +22,7 @@ import (
 const (
 	CopilotProvider  = "github-copilot"
 	CodexProvider    = "openai-codex"
+	ClaudeProvider   = "anthropic"
 	OpenCodeGoID     = "opencode-go"
 	ChatGPTQuotaKey  = "openai:chatgpt"
 	ChatGPTUsageURL  = "https://chatgpt.com/settings/usage"
