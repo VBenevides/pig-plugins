@@ -1,4 +1,4 @@
-// Package todoext ports pi-todo's session-backed tool and read-only viewer.
+// Package todoext ports pi-todotools' session-backed phased todo tool.
 package todoext
 
 import (
@@ -6,7 +6,6 @@ import (
 	"fmt"
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	tasks "github.com/VBenevides/pig-plugins/internal/todo"
-	"slices"
 	"sync"
 )
 
@@ -15,54 +14,68 @@ const Name = "todo"
 func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	var mu sync.Mutex
-	state := tasks.New()
+	phases := []tasks.Phase{}
 	var restoreErr error
 	restore := func(ctx sdk.Context, _ map[string]any) (any, error) {
-		branch, err := ctx.SessionManager().GetBranch(nil)
-		var restored tasks.State
-		if err == nil {
-			restored, err = tasks.Restore(branch)
-		}
 		mu.Lock()
 		defer mu.Unlock()
+		branch, err := ctx.SessionManager().GetBranch(nil)
 		restoreErr = err
-		if err == nil {
-			state = restored
+		if err != nil {
+			return nil, fmt.Errorf("restore todo branch: %w", err)
 		}
-		return nil, err
+		var warnings []string
+		phases, warnings = tasks.Restore(branch)
+		for _, warning := range warnings {
+			ctx.Notify(warning, "warn")
+		}
+		return nil, nil
 	}
 	e.OnEvent(sdk.EventSessionStart, restore)
 	e.OnEvent(sdk.EventSessionTree, restore)
-	e.RegisterTool(sdk.ToolDefinition{Name: "todo", Label: "Todo", Description: "Manage a todo list. Actions: list, add (text), toggle (id), clear", Parameters: tasks.Schema(), ExecutionMode: "sequential", Execute: func(_ sdk.Context, raw map[string]any) (any, error) {
+	e.RegisterTool(sdk.ToolDefinition{Name: "todo", Label: "Todo", Description: "Manage phased tasks by exact content, never IDs. Ops: init (list or items), start (task), done/drop (task or phase), rm (task or phase; omit to clear), append (phase, items), view. The earliest open task auto-promotes when no task is in progress.", Parameters: tasks.PhasedSchema(), ExecutionMode: "sequential", Execute: func(ctx sdk.Context, raw map[string]any) (any, error) {
 		data, err := json.Marshal(raw)
 		if err != nil {
 			return nil, err
 		}
-		var p tasks.Params
-		if err = json.Unmarshal(data, &p); err != nil {
-			return nil, err
+		var op tasks.Operation
+		if err = json.Unmarshal(data, &op); err != nil {
+			return nil, fmt.Errorf("decode todo parameters: %w", err)
 		}
 		mu.Lock()
 		defer mu.Unlock()
 		if restoreErr != nil {
 			return nil, fmt.Errorf("todo state unavailable: %w", restoreErr)
 		}
-		text, details := state.Apply(p)
-		return sdk.ToolResult{Content: text, Details: details}, nil
+		file, err := ctx.GetSessionFile()
+		if err != nil {
+			return nil, fmt.Errorf("get todo session file: %w", err)
+		}
+		details, errors, err := tasks.CommitOperation(phases, op, func(entry tasks.StateEntry) error { return ctx.AppendEntry(tasks.StateEntryType, entry) })
+		if err != nil {
+			return nil, err
+		}
+		if file == nil {
+			details.Storage = "memory"
+		}
+		if op.Op != "view" && len(errors) == 0 {
+			phases = tasks.ClonePhases(details.Phases)
+		}
+		return sdk.ToolResult{Content: tasks.FormatSummary(details.Phases, errors, op.Op == "view"), Details: details, IsError: len(errors) > 0}, nil
 	}, RenderCall: renderCall, RenderResult: renderResult})
-	e.RegisterCommand("todos", sdk.CommandOptions{Description: "Show all todos on the current branch", Handler: func(ctx sdk.Context, _ string) error {
+	e.RegisterCommand("todos", sdk.CommandOptions{Description: "Show phased todos on the current branch", Handler: func(ctx sdk.Context, _ string) error {
 		if !ctx.HasUI() || ctx.Mode() != "tui" {
 			ctx.Notify("/todos requires interactive mode", "error")
 			return nil
 		}
 		mu.Lock()
 		err := restoreErr
-		items := slices.Clone(state.Todos)
+		snapshot := tasks.ClonePhases(phases)
 		mu.Unlock()
 		if err != nil {
 			return fmt.Errorf("todo state unavailable: %w", err)
 		}
-		_, err = ctx.Custom(&viewer{items: items, theme: ctx.UITheme()}, nil)
+		_, err = ctx.Custom(&viewer{phases: snapshot, theme: ctx.UITheme()}, nil)
 		return err
 	}})
 	return e

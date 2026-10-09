@@ -1,159 +1,165 @@
-// Package todo implements the session-snapshot contract of pi-todo@0.1.11.
+// Package todo implements pi-todotools' branch-local phased session state.
 package todo
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
-	"slices"
-	"strings"
 )
 
-//go:embed schema.json
-var schemaJSON []byte
-var schema = func() map[string]any {
-	var value map[string]any
-	if err := json.Unmarshal(schemaJSON, &value); err != nil {
-		panic(err)
-	}
-	return value
-}()
+const StateEntryType = "sanepi.todo-state"
 
-func Schema() map[string]any { return schema }
-
-type Item struct {
-	ID   int    `json:"id"`
-	Text string `json:"text"`
-	Done bool   `json:"done"`
-}
-type Params struct {
-	Action string   `json:"action"`
-	Text   string   `json:"text,omitempty"`
-	ID     *float64 `json:"id,omitempty"`
-}
-type Details struct {
-	Action string `json:"action"`
-	Todos  []Item `json:"todos"`
-	NextID int    `json:"nextId"`
-	Error  string `json:"error,omitempty"`
-}
-type State struct {
-	Todos  []Item
-	NextID int
+type StateEntry struct {
+	Schema string  `json:"schema"`
+	Phases []Phase `json:"phases"`
 }
 
-func New() State { return State{Todos: []Item{}, NextID: 1} }
-func Decode(raw any) (Details, error) {
+func Decode(raw any) (PhasedDetails, error) {
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return Details{}, err
+		return PhasedDetails{}, err
 	}
-	var value Details
+	var value PhasedDetails
 	err = json.Unmarshal(data, &value)
 	return value, err
 }
 
-// Restore decodes only the latest full snapshot on the active branch.
-func Restore(branch []map[string]any) (State, error) {
-	var latest any
-	for _, entry := range branch {
-		if entry["type"] != "message" {
-			continue
-		}
-		message, ok := entry["message"].(map[string]any)
-		if !ok || message["role"] != "toolResult" || message["toolName"] != "todo" {
-			continue
-		}
-		if message["details"] != nil {
-			latest = message["details"]
-		}
-	}
-	if latest == nil {
-		return New(), nil
-	}
-	d, err := Decode(latest)
-	if err != nil {
-		return State{}, fmt.Errorf("decode todo session snapshot: %w", err)
-	}
-	if d.Todos == nil || d.NextID < 1 || d.NextID > 1<<53-1 {
-		return State{}, fmt.Errorf("invalid todo session snapshot: missing list or invalid nextId")
-	}
-	seen := make(map[int]bool, len(d.Todos))
-	for _, item := range d.Todos {
-		if item.ID < 1 || item.ID >= d.NextID || seen[item.ID] {
-			return State{}, fmt.Errorf("invalid todo session snapshot: inconsistent ID %d", item.ID)
-		}
-		seen[item.ID] = true
-	}
-	return State{Todos: d.Todos, NextID: d.NextID}, nil
-}
-func (s *State) snapshot(action, err string) Details {
-	return Details{Action: action, Todos: slices.Clone(s.Todos), NextID: s.NextID, Error: err}
-}
-func number(value float64) string {
-	if value == 0 {
-		return "0"
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return err.Error()
-	}
-	return string(data)
-}
-func (s *State) Apply(p Params) (string, Details) {
-	switch p.Action {
-	case "list":
-		text := "No todos"
-		if len(s.Todos) > 0 {
-			var lines strings.Builder
-			for i, item := range s.Todos {
-				if i > 0 {
-					lines.WriteByte('\n')
-				}
-				check := " "
-				if item.Done {
-					check = "x"
-				}
-				fmt.Fprintf(&lines, "[%s] #%d: %s", check, item.ID, item.Text)
-			}
-			text = lines.String()
-		}
-		return text, s.snapshot("list", "")
-	case "add":
-		if p.Text == "" {
-			return "Error: text required for add", s.snapshot("add", "text required")
-		}
-		if s.NextID == 1<<53-1 {
-			return "Error: todo ID limit reached", s.snapshot("add", "ID limit reached")
-		}
-		item := Item{ID: s.NextID, Text: p.Text}
-		s.NextID++
-		s.Todos = append(s.Todos, item)
-		return fmt.Sprintf("Added todo #%d: %s", item.ID, item.Text), s.snapshot("add", "")
-	case "toggle":
-		if p.ID == nil {
-			return "Error: id required for toggle", s.snapshot("toggle", "id required")
-		}
-		for i := range s.Todos {
-			item := &s.Todos[i]
-			if float64(item.ID) != *p.ID {
+// Restore reads snapshots in branch order, matching upstream's latest valid
+// snapshot policy. Malformed entries are reported instead of silently ignored.
+func Restore(branch []map[string]any) ([]Phase, []string) {
+	phases := []Phase{}
+	warnings := []string{}
+	for i, entry := range branch {
+		var payload any
+		if entry["type"] == "custom" && entry["customType"] == StateEntryType {
+			payload = entry["data"]
+		} else if entry["type"] == "message" {
+			message, ok := entry["message"].(map[string]any)
+			if !ok || message["role"] != "toolResult" || (message["toolName"] != "todo" && message["toolName"] != "todowrite") {
 				continue
 			}
-			item.Done = !item.Done
-			status := "uncompleted"
-			if item.Done {
+			payload = message["details"]
+		} else {
+			continue
+		}
+		if payload == nil {
+			continue
+		}
+		parsed, err := parsePayload(payload)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("todo snapshot at branch entry %d: %v", i, err))
+			continue
+		}
+		phases = parsed
+	}
+	return ClonePhases(phases), warnings
+}
+
+func parsePayload(raw any) ([]Phase, error) {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]json.RawMessage
+	if err = json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	if value, ok := payload["phases"]; ok {
+		var phases []Phase
+		if err = json.Unmarshal(value, &phases); err != nil {
+			return nil, err
+		}
+		if phases == nil {
+			return nil, fmt.Errorf("missing phases array")
+		}
+		// Decode required string fields separately so missing fields are not accepted
+		// as empty strings. Empty strings themselves are allowed by upstream.
+		var required []struct {
+			Name  *string
+			Tasks []struct {
+				Content *string
+				Status  *string
+			}
+		}
+		if err = json.Unmarshal(value, &required); err != nil {
+			return nil, err
+		}
+		for i, p := range required {
+			if p.Name == nil || p.Tasks == nil {
+				return nil, fmt.Errorf("invalid phase %d", i)
+			}
+			for j, task := range p.Tasks {
+				if task.Content == nil || task.Status == nil {
+					return nil, fmt.Errorf("invalid task %d in phase %d", j, i)
+				}
+				status := *task.Status
+				if status == "cancelled" {
+					status = "abandoned"
+				}
+				if status != "pending" && status != "in_progress" && status != "completed" && status != "abandoned" {
+					return nil, fmt.Errorf("invalid task status %q", status)
+				}
+				phases[i].Tasks[j].Status = status
+			}
+		}
+		return ClonePhases(phases), nil
+	}
+	if string(payload["schema"]) == `"v2"` {
+		return nil, fmt.Errorf("v2 snapshot missing phases")
+	}
+	value, ok := payload["todos"]
+	if !ok {
+		return nil, fmt.Errorf("unrecognized snapshot")
+	}
+	var items []struct {
+		Content *string
+		Status  string
+		Text    *string
+		Done    *bool
+		ID      *int
+	}
+	if err = json.Unmarshal(value, &items); err != nil {
+		return nil, err
+	}
+	if items == nil {
+		return nil, fmt.Errorf("missing todos array")
+	}
+	tasks := []Task{}
+	for i, item := range items {
+		content := ""
+		status := item.Status
+		if item.Content != nil {
+			content = *item.Content
+			if status == "cancelled" {
+				status = "abandoned"
+			}
+			if status != "pending" && status != "in_progress" && status != "completed" && status != "abandoned" {
+				status = "pending"
+			}
+		} else if item.Text != nil && item.Done != nil && item.ID != nil {
+			content = *item.Text
+			status = "pending"
+			if *item.Done {
 				status = "completed"
 			}
-			return fmt.Sprintf("Todo #%d %s", item.ID, status), s.snapshot("toggle", "")
+		} else {
+			return nil, fmt.Errorf("invalid legacy task %d", i)
 		}
-		id := number(*p.ID)
-		return "Todo #" + id + " not found", s.snapshot("toggle", "#"+id+" not found")
-	case "clear":
-		count := len(s.Todos)
-		s.Todos = []Item{}
-		s.NextID = 1
-		return fmt.Sprintf("Cleared %d todos", count), s.snapshot("clear", "")
-	default:
-		return "Unknown action: " + p.Action, s.snapshot("list", "unknown action: "+p.Action)
+		tasks = append(tasks, Task{content, status})
 	}
+	return []Phase{{Name: "Tasks", Tasks: tasks}}, nil
+}
+
+// CommitOperation writes before publishing memory state. Failed validation and
+// view are read-only; a persistence error leaves the caller's state untouched.
+func CommitOperation(current []Phase, op Operation, persist func(StateEntry) error) (PhasedDetails, []string, error) {
+	next, errors := ApplyOperation(current, op)
+	details := PhasedDetails{Op: op.Op, Phases: ClonePhases(next), Storage: "session"}
+	if op.Op == "view" || len(errors) > 0 {
+		return details, errors, nil
+	}
+	if err := persist(StateEntry{Schema: "v2", Phases: ClonePhases(next)}); err != nil {
+		return PhasedDetails{}, nil, fmt.Errorf("persist todo %s: %w", op.Op, err)
+	}
+	details.CompletedTasks = CompletionTransitions(current, next)
+	return details, errors, nil
 }

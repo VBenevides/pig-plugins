@@ -1,25 +1,20 @@
 {
   "type": "object",
-  "required": [
-    "action"
-  ],
+  "required": ["op"],
   "properties": {
-    "action": {
-      "type": "string",
-      "enum": [
-        "list",
-        "add",
-        "toggle",
-        "clear"
-      ]
-    },
-    "text": {
-      "type": "string",
-      "description": "Todo text (for add)"
-    },
-    "id": {
-      "type": "number",
-      "description": "Todo ID (for toggle)"
+    "op": {"type": "string", "enum": ["init", "start", "done", "rm", "drop", "append", "view"]},
+    "task": {"type": "string", "description": "Task content"},
+    "phase": {"type": "string", "description": "Phase name"},
+    "items": {"type": "array", "items": {"type": "string", "description": "Task content"}, "description": "Tasks to append"},
+    "list": {
+      "type": "array", "description": "Phased task list for init",
+      "items": {
+        "type": "object", "required": ["phase", "items"],
+        "properties": {
+          "phase": {"type": "string", "description": "Phase name"},
+          "items": {"type": "array", "items": {"type": "string", "description": "Task content"}, "minItems": 1, "description": "Tasks for this phase"}
+        }
+      }
     }
   }
 }
