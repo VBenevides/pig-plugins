@@ -348,6 +348,9 @@ The extension retains at most 64 canonical files and 32 MiB of snapshot content 
 one current version per file. Reads refresh retention; oldest reads are evicted first. Eviction, a newer read
 version, or a successful mutation requires a fresh read before another edit. Oversized snapshots are displayed
 but not retained. Trusted internal callers can still use the stateless hashline functions directly.
+Retained authority is bound to the canonical file and host session ID. Identical content in an unread file or
+another session does not authorize editing. Switching sessions revokes previous authority, including when
+switching back; no source snapshots are persisted on disk.
 
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of

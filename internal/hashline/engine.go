@@ -25,6 +25,7 @@ type Engine struct {
 	order              []string // Least recently read first; edits never refresh retention.
 	bytes              int
 	maxFiles, maxBytes int
+	scope              string
 }
 
 func NewEngine() *Engine { return newEngine(MaxSnapshotFiles, MaxSnapshotBytes) }
@@ -46,6 +47,16 @@ func (engine *Engine) enter(request Cancellation) (func(), error) {
 	if err := request.Err(); err != nil {
 		engine.ready <- struct{}{}
 		return nil, err
+	}
+	scope := ""
+	if scoped, ok := request.(interface{ ReadScope() string }); ok {
+		scope = scoped.ReadScope()
+	}
+	if engine.scope != scope {
+		engine.reads = make(map[string]retainedRead)
+		engine.order = nil
+		engine.bytes = 0
+		engine.scope = scope
 	}
 	return func() { engine.ready <- struct{}{} }, nil
 }

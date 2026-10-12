@@ -39,7 +39,11 @@ func Extension() *sdk.Extension {
 
 func run(tool func(request hashline.Cancellation, cwd string, params map[string]any) (hashline.Result, error)) sdk.ToolFunc {
 	return func(ctx sdk.Context, params map[string]any) (any, error) {
-		result, err := tool(ctx, ctx.Cwd(), params)
+		session, err := ctx.GetSessionID()
+		if err != nil {
+			return nil, err
+		}
+		result, err := tool(hashline.WithScope(ctx, session), ctx.Cwd(), params)
 		if err != nil {
 			return nil, err
 		}
