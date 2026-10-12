@@ -89,9 +89,10 @@ type Snapshot struct {
 	// Target is the real path of the file that will be replaced (symlinks resolved).
 	Target string
 	Bytes  []byte
-	// Mode holds the permission, setuid, setgid and sticky bits.
-	Mode fs.FileMode
-	info fs.FileInfo // identity observed when the snapshot was taken
+	// Mode holds ordinary permission bits; privileged modes are rejected.
+	Mode          fs.FileMode
+	info          fs.FileInfo // identity observed when the snapshot was taken
+	securityLabel []byte      // exact inherited label; never printed
 }
 
 // TakeSnapshot opens the file for editing: refuses directories and special files, symlinks that leave cwd,
@@ -146,6 +147,10 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if stat.Size() > maxBytes {
 		return Snapshot{}, editErrorf("%s is larger than %d bytes.", absolute, maxBytes)
 	}
+	label, err := checkSupportedMetadata(target)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	content, err := os.ReadFile(target)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read %s: %w", target, err)
@@ -153,7 +158,7 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if IsBinary(content) {
 		return Snapshot{}, editErrorf("Refusing to edit %s: it is binary or not valid UTF-8.", absolute)
 	}
-	return Snapshot{Target: target, Bytes: content, Mode: stat.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky), info: stat}, nil
+	return Snapshot{Target: target, Bytes: content, Mode: stat.Mode().Perm(), info: stat, securityLabel: label}, nil
 }
 
 // ReplaceAtomically replaces the file with content through a temporary file in the same directory and a rename.
@@ -178,6 +183,20 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 			}
 		}
 	}()
+	replacementInfo, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect temporary file for %s: %w", snapshot.Target, err)
+	}
+	if snapshot.info == nil || !sameOwnership(snapshot.info, replacementInfo) {
+		return editErrorf("Refusing to replace %s: original ownership cannot be safely preserved; nothing was written.", snapshot.Target)
+	}
+	label, err := checkSupportedMetadata(temporary)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(label, snapshot.securityLabel) {
+		return editErrorf("Refusing to replace %s: inherited security label does not match the original; nothing was written.", snapshot.Target)
+	}
 	if _, err := file.WriteString(content); err != nil {
 		return fmt.Errorf("write temporary file for %s: %w", snapshot.Target, err)
 	}

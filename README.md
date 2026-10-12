@@ -343,8 +343,12 @@ the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-gol
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself; edits of one file are serialised by an
 in-process lock instead of Pi's file mutation queue. Hashline edits reject hard-linked targets rather than silently
-breaking the link relationship during atomic replacement. Unix platforms inspect the inode link count; platforms
-without a supported link-count check reject edits rather than assuming the target is safe.
+breaking the link relationship during atomic replacement. Read-only and privileged-bit targets are rejected.
+Linux edits preserve ordinary executable permissions and require the replacement's owner/group to match the
+original. Targets with ACLs or unsupported extended attributes are rejected rather than silently losing metadata.
+An inherited SELinux label is accepted only when the replacement's label exactly matches the original; label
+values are not copied or printed.
+Safe metadata inspection currently supports Linux only; other platforms reject edits. Reads remain available.
 
 ## LANCET model runtime
 
