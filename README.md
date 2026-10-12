@@ -332,8 +332,9 @@ Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate
 
 ## hashline-edit
 
-Replaces the built-in `read` and `edit` with anchored read (`<line>#<hash>|text`, four hex digits of SHA-1) and strict
-anchored edit. Every editable read result also returns `Version: <token>`; pass that token as the required `version`
+Replaces the built-in `read`, `edit`, and `write` with anchored read (`<line>#<hash>|text`, four hex digits of SHA-1),
+strict anchored edit, and coordinated UTF-8 text writes. Every editable read result returns `Version: <token>`;
+pass that token as the required `version`
 parameter alongside `path` and `edits`. Edits reject any whole-file byte change since that read, including changes
 outside the selected lines. Successful edits return the new token for chaining. Older versionless edit calls are
 intentionally rejected; reread instead of guessing a token. It does not match the upstream npm `pi-hashline-edit`
@@ -341,14 +342,20 @@ intentionally rejected; reread instead of guessing a token. It does not match th
 large source files uses the same regular expressions as the original; `internal/hashline/testdata/ts-golden.json` holds
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
-text, directories and missing files are handled by `internal/hashline` itself; edits of one file are serialised by an
-in-process lock instead of Pi's file mutation queue. Hashline edits reject hard-linked targets rather than silently
+text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of
+`hashline.WithMutationLock` share a canonical-target in-process coordinator, including directory aliases and
+not-yet-created files. This does not coordinate shell commands or unrelated processes, and the final external
+compare-to-rename race remains possible. Hashline mutations reject hard-linked targets rather than silently
 breaking the link relationship during atomic replacement. Read-only and privileged-bit targets are rejected.
 Linux edits preserve ordinary executable permissions and require the replacement's owner/group to match the
 original. Targets with ACLs or unsupported extended attributes are rejected rather than silently losing metadata.
 An inherited SELinux label is accepted only when the replacement's label exactly matches the original; label
 values are not copied or printed.
-Safe metadata inspection currently supports Linux only; other platforms reject edits. Reads remain available.
+Safe metadata inspection currently supports Linux only; other platforms reject mutations. Reads remain available.
+`write` retains the `path`/`content` interface and the host's guard hooks. It creates missing parent directories,
+publishes new files privately (0600) without overwriting a concurrently created target, and preserves supported
+metadata on explicit replacements. Identical writes leave the inode and mtime unchanged. An explicit whole-file
+write intentionally supersedes earlier edits in queue order; it is not a merge or a stale-edit recovery mechanism.
 Edits allow at most 256 operations and 100,000 replacement lines per request, with at most 16 MiB of replacement
 text. Final files must fit 100,000 lines and 16 MiB including BOM and line terminators. Oversized results are
 rejected before serialization or temporary-file creation. These limits are enforced by runtime validation.

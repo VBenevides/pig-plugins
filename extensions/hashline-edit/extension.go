@@ -1,5 +1,5 @@
-// Package hashlineedit is the PiG extension "hashline-edit": it replaces the built-in read and edit tools with
-// anchored read and strict anchored edit. The behavior lives in internal/hashline.
+// Package hashlineedit replaces the built-in read, edit, and write tools.
+// Anchored edits and explicit writes share internal/hashline's mutation coordinator.
 package hashlineedit
 
 import (
@@ -8,7 +8,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/hashline"
 )
 
-// Extension registers read and edit. Registering a built-in tool name replaces the built-in.
+// Extension replaces the built-in read, edit, and write tool registrations.
 func Extension() *sdk.Extension {
 	e := sdk.New("hashline-edit")
 	e.RegisterTool(sdk.ToolDefinition{
@@ -28,6 +28,10 @@ func Extension() *sdk.Extension {
 		PromptGuidelines: hashline.EditGuidelines,
 		Parameters:       hashline.EditSchema(),
 		Execute:          run(hashline.Edit),
+	})
+	e.RegisterTool(sdk.ToolDefinition{
+		Name: "write", Label: "write", Description: hashline.WriteDescription,
+		Parameters: hashline.WriteSchema(), Execute: run(hashline.Write),
 	})
 	return e
 }

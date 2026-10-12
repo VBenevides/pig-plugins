@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -356,7 +355,7 @@ type lockEntry struct {
 
 func lockPath(path string) (unlock func()) {
 	key := path
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+	if resolved, err := canonicalMutationPath(path); err == nil {
 		key = resolved
 	}
 	editLocks.Lock()
