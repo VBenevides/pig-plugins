@@ -45,9 +45,12 @@ func TestUnknownOperationFieldsRejectWholeBatch(t *testing.T) {
 func TestUnknownRequestFieldsAreRejected(t *testing.T) {
 	dir := realTempDir(t)
 	writeFile(t, filepath.Join(dir, "f.txt"), "one\n", 0644)
-	for name, tool := range map[string]func(string, map[string]any) (Result, error){"read": Read, "edit": Edit} {
+	for name, tool := range map[string]func(string, map[string]any) (Result, error){"read": Read, "edit": Edit, "write": Write} {
 		t.Run(name, func(t *testing.T) {
 			params := map[string]any{"path": "f.txt", "unexpected": "private-request-value"}
+			if name == "write" {
+				params["content"] = "changed"
+			}
 			if name == "edit" {
 				params["version"] = readVersion(t, dir, "f.txt")
 				params["edits"] = []any{map[string]any{"op": "replace", "anchor": FormatAnchor(1, "one"), "lines": []any{"changed"}}}
