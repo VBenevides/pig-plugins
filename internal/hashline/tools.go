@@ -73,11 +73,12 @@ var (
 // ReadSchema and EditSchema are the JSON schemas of the tool parameters.
 func ReadSchema() map[string]any {
 	return map[string]any{
-		"type": "object",
+		"type":                 "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
-			"path":   map[string]any{"type": "string", "description": "Path to the file to read (relative or absolute)"},
-			"offset": map[string]any{"type": "number", "description": "Line number to start reading from (1-indexed)"},
-			"limit":  map[string]any{"type": "number", "description": "Maximum number of lines to read"},
+			"path":   map[string]any{"type": "string", "minLength": 1, "description": "Path to the file to read (relative or absolute)"},
+			"offset": map[string]any{"type": "integer", "minimum": 1, "description": "Line number to start reading from (1-indexed)"},
+			"limit":  map[string]any{"type": "integer", "minimum": 1, "description": "Maximum number of lines to read"},
 		},
 		"required": []string{"path"},
 	}
@@ -85,20 +86,23 @@ func ReadSchema() map[string]any {
 
 func EditSchema() map[string]any {
 	return map[string]any{
-		"type": "object",
+		"type":                 "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "Path to the file to edit (relative or absolute)"},
+			"path":    map[string]any{"type": "string", "minLength": 1, "description": "Path to the file to edit (relative or absolute)"},
 			"version": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Version token from the same read as the anchors; required even if the selected lines are unchanged."},
 			"edits": map[string]any{
-				"type":        "array",
+				"type":     "array",
+				"minItems": 1, "maxItems": MaxEditOperations,
 				"description": "Anchored ops, all validated against the file as read.",
 				"items": map[string]any{
-					"type": "object",
+					"type":                 "object",
+					"additionalProperties": false,
 					"properties": map[string]any{
 						"op":     map[string]any{"type": "string", "enum": []string{"replace", "insert_before", "insert_after", "delete"}},
-						"anchor": map[string]any{"type": "string", "description": "First (or only) line, as <line>#<hash> from read."},
-						"end":    map[string]any{"type": "string", "description": "Last line of a range for replace/delete, as <line>#<hash>."},
-						"lines":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New lines, one string per line."},
+						"anchor": map[string]any{"type": "string", "pattern": "^[1-9][0-9]*#[0-9a-f]{4}$", "description": "First (or only) line, as <line>#<hash> from read."},
+						"end":    map[string]any{"type": "string", "pattern": "^[1-9][0-9]*#[0-9a-f]{4}$", "description": "Last line of a range for replace/delete, as <line>#<hash>."},
+						"lines":  map[string]any{"type": "array", "minItems": 1, "maxItems": MaxEditLines, "items": map[string]any{"type": "string"}, "description": "Required for replacement/insertion; forbidden for deletion. One string per line."},
 					},
 					"required": []string{"op", "anchor"},
 				},
