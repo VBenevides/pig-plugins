@@ -21,6 +21,7 @@ type retainedRead struct {
 // The low-level stateless functions remain available for trusted internal callers.
 type Engine struct {
 	ready              chan struct{}
+	slots              chan struct{}
 	reads              map[string]retainedRead
 	order              []string // Least recently read first; edits never refresh retention.
 	bytes              int
@@ -31,6 +32,7 @@ type Engine struct {
 func NewEngine() *Engine { return newEngine(MaxSnapshotFiles, MaxSnapshotBytes) }
 func newEngine(files, bytes int) *Engine {
 	engine := &Engine{ready: make(chan struct{}, 1), reads: make(map[string]retainedRead), maxFiles: files, maxBytes: bytes}
+	engine.slots = make(chan struct{}, MaxPathParticipants)
 	engine.ready <- struct{}{}
 	return engine
 }
@@ -40,12 +42,19 @@ func (engine *Engine) enter(request Cancellation) (func(), error) {
 		return nil, err
 	}
 	select {
+	case engine.slots <- struct{}{}:
+	default:
+		return nil, editErrorf("Read/mutation queue capacity reached; retry after pending operations finish.")
+	}
+	select {
 	case <-request.Done():
+		<-engine.slots
 		return nil, request.Err()
 	case <-engine.ready:
 	}
 	if err := request.Err(); err != nil {
 		engine.ready <- struct{}{}
+		<-engine.slots
 		return nil, err
 	}
 	scope := ""
@@ -58,7 +67,7 @@ func (engine *Engine) enter(request Cancellation) (func(), error) {
 		engine.bytes = 0
 		engine.scope = scope
 	}
-	return func() { engine.ready <- struct{}{} }, nil
+	return func() { engine.ready <- struct{}{}; <-engine.slots }, nil
 }
 
 func snapshotCost(read retainedRead) int {

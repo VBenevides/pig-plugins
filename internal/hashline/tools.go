@@ -365,10 +365,14 @@ func readNonText(request Cancellation, path, absolute string, content []byte, of
 	return Result{Text: text + notice, Details: map[string]any{"mode": "plain", "from": from, "to": to, "totalLines": len(lines)}}, nil
 }
 
+const MaxMutationParticipants = 1024
+const MaxPathParticipants = 64
+
 // editLocks serialises edits of one file in this process; entries are removed when the last holder leaves.
 var editLocks = struct {
 	sync.Mutex
-	held map[string]*lockEntry
+	held         map[string]*lockEntry
+	participants int
 }{held: map[string]*lockEntry{}}
 
 type lockEntry struct {
@@ -379,7 +383,7 @@ type lockEntry struct {
 func lockPath(path string) (unlock func()) {
 	unlock, err := lockPathContext(context.Background(), path)
 	if err != nil {
-		panic(err) // An uncancellable internal lock cannot otherwise fail.
+		panic(err) // Trusted internal callers require successful admission.
 	}
 	return unlock
 }
@@ -394,16 +398,22 @@ func lockPathContext(request Cancellation, path string) (func(), error) {
 	}
 	editLocks.Lock()
 	entry := editLocks.held[key]
+	if editLocks.participants >= MaxMutationParticipants || entry != nil && entry.holders >= MaxPathParticipants {
+		editLocks.Unlock()
+		return nil, editErrorf("Mutation coordinator capacity reached; retry only after pending operations finish.")
+	}
 	if entry == nil {
 		entry = &lockEntry{ready: make(chan struct{}, 1)}
 		entry.ready <- struct{}{}
 		editLocks.held[key] = entry
 	}
 	entry.holders++
+	editLocks.participants++
 	editLocks.Unlock()
 	dropRegistration := func() {
 		editLocks.Lock()
 		entry.holders--
+		editLocks.participants--
 		if entry.holders == 0 {
 			delete(editLocks.held, key)
 		}
