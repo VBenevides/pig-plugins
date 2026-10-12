@@ -360,6 +360,10 @@ The extension also revokes authority on `session_start`, `session_tree`, and `se
 completed tree navigation within the same session. Revocation cancels active work at its next pre-commit
 checkpoint; publication already beyond the commit boundary is not rolled back. A reload or process restart
 constructs an empty Engine, so previous process reads cannot authorize edits.
+There is no separate anchored-search tool: use search to locate candidate ranges, then read those ranges to
+obtain current version-bound anchors and displayed-content authority. Search snippets do not authorize edits.
+A future anchored-search feature would need the same bounded output, session binding, freshness, and complete
+source-coverage rules; it is not required for the current read/edit workflow.
 
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of
