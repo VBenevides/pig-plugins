@@ -349,6 +349,9 @@ original. Targets with ACLs or unsupported extended attributes are rejected rath
 An inherited SELinux label is accepted only when the replacement's label exactly matches the original; label
 values are not copied or printed.
 Safe metadata inspection currently supports Linux only; other platforms reject edits. Reads remain available.
+Edits allow at most 256 operations and 100,000 replacement lines per request, with at most 16 MiB of replacement
+text. Final files must fit 100,000 lines and 16 MiB including BOM and line terminators. Oversized results are
+rejected before serialization or temporary-file creation. These limits are enforced by runtime validation.
 
 ## LANCET model runtime
 
