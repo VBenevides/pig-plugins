@@ -240,6 +240,9 @@ func Read(cwd string, params map[string]any) (result Result, err error) {
 	if path == "" {
 		return Result{}, errors.New("path must be a non-empty string.")
 	}
+	if err := rejectUnknownFields(params, "read request", "path", "offset", "limit"); err != nil {
+		return Result{}, err
+	}
 	offset, err := positiveInteger(params, "offset")
 	if err != nil {
 		return Result{}, err
@@ -381,6 +384,9 @@ func Edit(cwd string, params map[string]any) (Result, error) {
 	path, _ := params["path"].(string)
 	if path == "" {
 		return Result{}, errors.New("path must be a non-empty string.")
+	}
+	if err := rejectUnknownFields(params, "edit request", "path", "version", "edits"); err != nil {
+		return Result{}, fmt.Errorf("edit rejected: %w", err)
 	}
 	absolute := ResolveToolPath(path, cwd)
 	unlock := lockPath(absolute)

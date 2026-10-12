@@ -212,12 +212,8 @@ func resolveOp(file ParsedFile, raw any, index int) (resolved, error) {
 	if !ok {
 		return resolved{}, editErrorf("%s: must be an object.", label)
 	}
-	for field := range op {
-		switch field {
-		case "op", "anchor", "end", "lines":
-		default:
-			return resolved{}, editErrorf(`%s: unknown fields; only "op", "anchor", "end", and "lines" are allowed.`, label)
-		}
+	if err := rejectUnknownFields(op, label, "op", "anchor", "end", "lines"); err != nil {
+		return resolved{}, err
 	}
 	kindText, _ := op["op"].(string)
 	kind := opKind(kindText)
