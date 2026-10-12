@@ -100,19 +100,24 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, editErrorf("Cannot edit %s: %s. The file must exist.", absolute, errnoName(err))
 	}
-	target := absolute
-	if link.Mode()&fs.ModeSymlink != 0 {
-		target, err = filepath.EvalSymlinks(absolute)
-		if err != nil {
+	target, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		if link.Mode()&fs.ModeSymlink != 0 {
 			return Snapshot{}, editErrorf("Cannot edit %s: broken symlink (%s).", absolute, errnoName(err))
 		}
-		root, err := filepath.EvalSymlinks(cwd)
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("resolve working directory %s: %w", cwd, err)
-		}
-		if target != root && !strings.HasPrefix(target, root+string(filepath.Separator)) {
-			return Snapshot{}, editErrorf("Refusing to edit %s: it is a symlink to %s, outside the working directory %s.", absolute, target, root)
-		}
+		return Snapshot{}, fmt.Errorf("resolve target %s: %w", absolute, err)
+	}
+	root, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("resolve working directory %s: %w", cwd, err)
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("compare target %s with working directory %s: %w", target, root, err)
+	}
+	outside := relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))
+	if target != absolute && outside {
+		return Snapshot{}, editErrorf("Refusing to edit %s: its path traverses a symlink to %s, outside the working directory %s.", absolute, target, root)
 	}
 	stat, err := os.Stat(target)
 	if err != nil {
