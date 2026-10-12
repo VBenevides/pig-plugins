@@ -199,6 +199,7 @@ func rangeResult(file ParsedFile, from, to, maxLines, maxBytes int, mode string)
 	}
 	return Result{Text: body + notice, Details: map[string]any{
 		"mode": mode, "from": from, "to": last, "totalLines": len(file.Lines), "truncated": stoppedEarly,
+		"fullyDisplayedRanges": fullyDisplayedRanges(file, from, last),
 	}}
 }
 
@@ -230,7 +231,7 @@ func largeFileResult(filePath string, file ParsedFile, size int) (Result, error)
 			"To see code, call read again with path and offset/limit for a range above (for example offset=%d, "+
 			"limit=%d). Lines come back as <line>#<hash>|text; use those anchors with edit.",
 			filePath, dimensions, RenderOutline(symbols), symbols[0].Start, symbols[0].End-symbols[0].Start+1),
-		Details: map[string]any{"mode": "outline", "symbols": len(symbols), "totalLines": len(file.Lines)},
+		Details: map[string]any{"mode": "outline", "symbols": len(symbols), "totalLines": len(file.Lines), "fullyDisplayedRanges": [][2]int{}},
 	}, nil
 }
 
@@ -295,7 +296,7 @@ func ReadContext(request Cancellation, cwd string, params map[string]any) (resul
 	}
 	total := len(file.Lines)
 	if total == 0 {
-		return Result{Text: "(empty file)", Details: map[string]any{"mode": "full", "totalLines": 0}}, nil
+		return Result{Text: "(empty file)", Details: map[string]any{"mode": "full", "totalLines": 0, "fullyDisplayedRanges": [][2]int{}}}, nil
 	}
 	if offset == 0 && limit == 0 {
 		if total > LargeFileLines || len(content) > LargeFileBytes {

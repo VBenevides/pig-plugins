@@ -341,6 +341,10 @@ intentionally rejected; reread instead of guessing a token. It does not match th
 0.8.3, which uses a different anchor format (`LINE#HASH:` with two-character hashes) and extra ops. The outline for
 large source files uses the same regular expressions as the original; `internal/hashline/testdata/ts-golden.json` holds
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
+Anchored read details include `fullyDisplayedRanges`: inclusive source-line ranges whose complete text was
+shown. Outlines and empty files have empty coverage; shortened lines and omitted tails are excluded. This
+metadata records display coverage only and does not yet enforce session-specific edit authority.
+
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of
 `hashline.WithMutationLock` share a canonical-target in-process coordinator, including directory aliases and

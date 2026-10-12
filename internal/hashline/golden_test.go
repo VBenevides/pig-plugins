@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -118,6 +119,37 @@ func versionedOutcome(want goldenOutcome, content string) goldenOutcome {
 	return goldenOutcome{Text: &text, Details: details}
 }
 
+// Derive the added coverage contract from the legacy rendered text, not from
+// the production coverage helper. Every legacy text/detail assertion remains.
+func readCoverageOutcome(want goldenOutcome, content string) goldenOutcome {
+	if want.Error != nil {
+		return want
+	}
+	originals := strings.Split(strings.TrimPrefix(content, "\ufeff"), "\n")
+	ranges := make([][2]int, 0)
+	if want.Details["mode"] != "outline" {
+		for _, row := range strings.Split(*want.Text, "\n") {
+			prefix, shown, ok := strings.Cut(row, "|")
+			if !ok {
+				continue
+			}
+			number, _, ok := strings.Cut(prefix, "#")
+			line, err := strconv.Atoi(number)
+			if !ok || err != nil || line < 1 || line > len(originals) || shown != strings.TrimSuffix(originals[line-1], "\r") {
+				continue
+			}
+			if len(ranges) > 0 && ranges[len(ranges)-1][1] == line-1 {
+				ranges[len(ranges)-1][1] = line
+			} else {
+				ranges = append(ranges, [2]int{line, line})
+			}
+		}
+	}
+	want = versionedOutcome(want, content)
+	want.Details["fullyDisplayedRanges"] = ranges
+	return want
+}
+
 func TestLineHashAgainstTypeScript(t *testing.T) {
 	for _, c := range loadGolden(t).Hashes {
 		if got := LineHash(c.Text); got != c.Hash {
@@ -144,7 +176,7 @@ func TestReadAgainstTypeScript(t *testing.T) {
 				params[key] = value
 			}
 			got, err := Read(dir, params)
-			compareOutcome(t, versionedOutcome(c.Outcome, g.ReadFiles[c.File]), got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
+			compareOutcome(t, readCoverageOutcome(c.Outcome, g.ReadFiles[c.File]), got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
 		})
 	}
 }
