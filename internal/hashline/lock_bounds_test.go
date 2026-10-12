@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGlobalMutationAdmissionIsBoundedAndReleased(t *testing.T) {
@@ -79,5 +80,50 @@ func TestEngineAdmissionRejectsOverflowAndCancellationDoesNotLeak(t *testing.T) 
 	release()
 	if len(engine.slots) != 0 {
 		t.Fatal("cancelled request leaked admission")
+	}
+}
+
+func TestFloodedEngineQueueRefusesOverflowAndCancelsWaiters(t *testing.T) {
+	engine := NewEngine()
+	release, err := engine.enter(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, MaxPathParticipants-1)
+	for range MaxPathParticipants - 1 {
+		go func() {
+			unlock, err := engine.enter(ctx)
+			if err == nil {
+				unlock()
+			}
+			done <- err
+		}()
+	}
+	for deadline := time.Now().Add(time.Second); len(engine.slots) < MaxPathParticipants && time.Now().Before(deadline); {
+		time.Sleep(time.Millisecond)
+	}
+	if len(engine.slots) != MaxPathParticipants {
+		t.Fatal("waiters did not fill bounded admission")
+	}
+	if unlock, err := engine.enter(context.Background()); err == nil {
+		unlock()
+		t.Fatal("flooded queue accepted overflow")
+	}
+	cancel()
+	for range MaxPathParticipants - 1 {
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("waiter not cancelled: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("cancelled waiter remained blocked")
+		}
+	}
+	if len(engine.slots) != 1 {
+		t.Fatal("waiter admissions leaked after cancellation")
 	}
 }
