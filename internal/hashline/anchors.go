@@ -373,11 +373,11 @@ func ApplyEditsContext(request Cancellation, file ParsedFile, ops any) (EditResu
 				earlier, item.index)
 		}
 		gaps[item.gap] = item.index
-		for _, rng := range ranges {
-			if rng.first < item.gap && item.gap <= rng.last {
-				return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] inserts inside the lines changed by edits[%d]. Nothing was edited.",
-					item.index, rng.index)
-			}
+		// Disjoint ranges are sorted; only the preceding start can contain this gap.
+		position := sort.Search(len(ranges), func(index int) bool { return ranges[index].first >= item.gap }) - 1
+		if position >= 0 && item.gap <= ranges[position].last {
+			return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] inserts inside the lines changed by edits[%d]. Nothing was edited.",
+				item.index, ranges[position].index)
 		}
 	}
 
