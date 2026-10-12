@@ -138,10 +138,10 @@ func TakeSnapshotContext(request Cancellation, absolute, cwd string, maxBytes in
 		return Snapshot{}, editErrorf("Refusing to edit %s: it is not a regular file.", absolute)
 	}
 	if stat.Mode()&(fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky) != 0 {
-		return Snapshot{}, editErrorf("Refusing to edit %s: it has privileged permission bits that atomic replacement must not restore.", absolute)
+		return Snapshot{}, categorizedEditError(CategoryPermission, "Refusing to edit %s: it has privileged permission bits that atomic replacement must not restore.", absolute)
 	}
 	if stat.Mode().Perm()&0222 == 0 {
-		return Snapshot{}, editErrorf("Refusing to edit %s: it is read-only; replacement must not bypass its write permissions.", absolute)
+		return Snapshot{}, categorizedEditError(CategoryPermission, "Refusing to edit %s: it is read-only; replacement must not bypass its write permissions.", absolute)
 	}
 	links, err := linkCount(stat)
 	if err != nil {
@@ -241,34 +241,34 @@ func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content 
 	}
 	currentInfo, err := os.Lstat(snapshot.Target)
 	if err != nil {
-		return editErrorf("%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
+		return categorizedEditError(CategoryConcurrent, "%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
 	}
 	if snapshot.info == nil || !currentInfo.Mode().IsRegular() || !os.SameFile(snapshot.info, currentInfo) {
-		return editErrorf("%s changed file identity while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+		return categorizedEditError(CategoryConcurrent, "%s changed file identity while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
 	links, err := linkCount(currentInfo)
 	if err != nil {
 		return fmt.Errorf("revalidate link count of %s: %w", snapshot.Target, err)
 	}
 	if links != 1 || currentInfo.Mode() != snapshot.info.Mode() || !sameOwnership(snapshot.info, currentInfo) {
-		return editErrorf("%s changed security-relevant metadata while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+		return categorizedEditError(CategoryConcurrent, "%s changed security-relevant metadata while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
 	currentLabel, err := checkSupportedMetadata(snapshot.Target)
 	if err != nil {
 		return fmt.Errorf("revalidate metadata of %s: %w", snapshot.Target, err)
 	}
 	if !bytes.Equal(currentLabel, snapshot.securityLabel) {
-		return editErrorf("%s changed security label while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+		return categorizedEditError(CategoryConcurrent, "%s changed security label while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
 	current, err := readBoundedFileContext(request, snapshot.Target, MaxEditBytes)
 	if err != nil {
 		if cancelled := request.Err(); cancelled != nil {
 			return fmt.Errorf("cancelled final read of %s: %w", snapshot.Target, errors.Join(err, cancelled))
 		}
-		return editErrorf("%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
+		return categorizedEditError(CategoryConcurrent, "%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
 	}
 	if !bytes.Equal(current, snapshot.Bytes) {
-		return editErrorf("%s was modified by someone else while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+		return categorizedEditError(CategoryConcurrent, "%s was modified by someone else while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
 	if err := request.Err(); err != nil {
 		return err

@@ -450,7 +450,7 @@ func EditContext(request Cancellation, cwd string, params map[string]any) (Resul
 	result, err := editLockedContext(request, cwd, absolute, params["version"], params["edits"], nil)
 	var rejected *EditError
 	if errors.As(err, &rejected) {
-		return Result{}, fmt.Errorf("edit rejected: %s", rejected.Message)
+		return Result{}, fmt.Errorf("edit rejected: %w", err)
 	}
 	return result, err
 }

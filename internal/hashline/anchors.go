@@ -30,7 +30,10 @@ import (
 )
 
 // EditError is a problem with the edit request or the file; the edit tool reports it as "edit rejected: ...".
-type EditError struct{ Message string }
+type EditError struct {
+	Message  string
+	Category ErrorCategory
+}
 
 func (e *EditError) Error() string { return e.Message }
 
@@ -356,7 +359,7 @@ func ApplyEditsContext(request Cancellation, file ParsedFile, ops any) (EditResu
 	sort.SliceStable(ranges, func(a, b int) bool { return ranges[a].first < ranges[b].first })
 	for i := 1; i < len(ranges); i++ {
 		if ranges[i].first <= ranges[i-1].last {
-			return EditResult{}, editErrorf("Ambiguous edits: edits[%d] and edits[%d] cover the same line(s). Merge them into one op. Nothing was edited.",
+			return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] and edits[%d] cover the same line(s). Merge them into one op. Nothing was edited.",
 				ranges[i-1].index, ranges[i].index)
 		}
 	}
@@ -366,13 +369,13 @@ func ApplyEditsContext(request Cancellation, file ParsedFile, ops any) (EditResu
 			continue
 		}
 		if earlier, seen := gaps[item.gap]; seen {
-			return EditResult{}, editErrorf("Ambiguous edits: edits[%d] and edits[%d] insert at the same position. Merge them into one insert. Nothing was edited.",
+			return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] and edits[%d] insert at the same position. Merge them into one insert. Nothing was edited.",
 				earlier, item.index)
 		}
 		gaps[item.gap] = item.index
 		for _, rng := range ranges {
 			if rng.first < item.gap && item.gap <= rng.last {
-				return EditResult{}, editErrorf("Ambiguous edits: edits[%d] inserts inside the lines changed by edits[%d]. Nothing was edited.",
+				return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] inserts inside the lines changed by edits[%d]. Nothing was edited.",
 					item.index, rng.index)
 			}
 		}

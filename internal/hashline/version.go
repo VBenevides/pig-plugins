@@ -21,7 +21,7 @@ func checkVersion(value any, content []byte) error {
 		return editErrorf("version must be the 64-character token returned by read. Read the file again.")
 	}
 	if version != ContentVersion(content) {
-		return editErrorf("stale version: the file changed since it was read. Read it again; nothing was edited.")
+		return categorizedEditError(CategoryStale, "stale version: the file changed since it was read. Read it again; nothing was edited.")
 	}
 	return nil
 }
