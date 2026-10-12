@@ -346,6 +346,9 @@ shown. Outlines and empty files have empty coverage; shortened lines and omitted
 coverage authorizes replacement/deletion only when every affected line was fully displayed at the retained
 version. Multiple range reads of the same version accumulate coverage; outlines alone authorize no destruction.
 Insertion relative to a valid anchor does not destroy source text and does not require full-line coverage.
+Lines longer than 2,000 UTF-16 units cannot be replaced or deleted through truncated read previews, even
+after repeated reads. Inspect their complete content through another suitable tool; deliberate whole-file
+replacement remains available through explicit write. No hidden-content override is inferred from anchors.
 The extension retains at most 64 canonical files and 32 MiB of snapshot content plus coverage metadata, with
 one current version per file. Reads refresh retention; oldest reads are evicted first. Eviction, a newer read
 version, or a successful mutation requires a fresh read before another edit. Oversized snapshots are displayed
