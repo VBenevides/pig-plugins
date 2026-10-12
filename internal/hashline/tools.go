@@ -50,7 +50,7 @@ type Result struct {
 var (
 	ReadDescription = "Read a file. Editable text results include a Version token required by edit. Text lines are printed as <line>#<hash>|text; the <line>#<hash> anchor is what edit takes. " +
 		fmt.Sprintf("A bare read of a small file returns it all. A large source file (over %d lines or %d KB) returns an outline of symbols with line ranges instead; read the range you need ", LargeFileLines, LargeFileBytes/1024) +
-		"with offset (first line, 1-based) and limit (number of lines). offset/limit always return exactly that range. " +
+		"with offset (first line, 1-based) and limit (number of lines). Explicit ranges are capped at 2,000 lines and 50 KiB; long lines are shortened. Follow truncation notices and continuation offsets. " +
 		"Images are returned as attachments."
 	ReadSnippet    = "Read file contents as anchored lines; large source files return a symbol outline"
 	ReadGuidelines = []string{
