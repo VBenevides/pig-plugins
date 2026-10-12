@@ -436,18 +436,34 @@ func editSummary(absolute string, ops int, file ParsedFile, regions [][2]int) st
 			wanted = append(wanted, window)
 		}
 	}
+	header := fmt.Sprintf("Applied %d edit(s) to %s. Anchors of the changed region now (line numbers moved):\n", ops, absolute)
+	// Reserve room for the truncation notice and the version envelope added by the caller.
+	remainingBytes := MaxRangeBytes - len(header) - 256
 	var rows []string
+	byteCapped := false
+windows:
 	for _, window := range wanted {
 		if len(rows) > 0 {
+			if remainingBytes < 4 || len(rows) >= resultMaxLines {
+				byteCapped = true
+				break
+			}
 			rows = append(rows, "...")
+			remainingBytes -= 4
 		}
 		for n := window[0]; n <= window[1] && len(rows) < resultMaxLines; n++ {
-			rows = append(rows, FormatLine(n, file.Lines[n-1].Text))
+			row, _ := renderWindow(file, n, n, 1, MaxRangeBytes)
+			if len(row)+1 > remainingBytes {
+				byteCapped = true
+				break windows
+			}
+			rows = append(rows, row)
+			remainingBytes -= len(row) + 1
 		}
 	}
 	truncated := ""
-	if len(rows) >= resultMaxLines {
+	if byteCapped || len(rows) >= resultMaxLines {
 		truncated = "\n[more changed lines not shown; read again for their anchors]"
 	}
-	return fmt.Sprintf("Applied %d edit(s) to %s. Anchors of the changed region now (line numbers moved):\n%s%s", ops, absolute, strings.Join(rows, "\n"), truncated)
+	return header + strings.Join(rows, "\n") + truncated
 }
