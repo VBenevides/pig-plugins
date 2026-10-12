@@ -8,10 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
-	"time"
 	"unicode/utf8"
 )
 
@@ -184,12 +182,12 @@ func ReplaceAtomicallyContext(request Cancellation, snapshot Snapshot, content s
 	if err := request.Err(); err != nil {
 		return err
 	}
-	directory, base := filepath.Split(snapshot.Target)
-	temporary := filepath.Join(directory, fmt.Sprintf(".%s.pig-plugins-%d-%s.tmp", base, os.Getpid(), strconv.FormatInt(time.Now().UnixMilli(), 36)))
-	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, snapshot.Mode&fs.ModePerm)
+	directory := filepath.Dir(snapshot.Target)
+	file, err := os.CreateTemp(directory, ".pig-plugins-edit-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temporary file for %s: %w", snapshot.Target, err)
 	}
+	temporary := file.Name()
 	committed := false
 	defer func() {
 		if file != nil {
