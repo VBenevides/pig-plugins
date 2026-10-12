@@ -130,6 +130,13 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if !stat.Mode().IsRegular() {
 		return Snapshot{}, editErrorf("Refusing to edit %s: it is not a regular file.", absolute)
 	}
+	links, err := linkCount(stat)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("inspect edit target %s: %w", absolute, err)
+	}
+	if links != 1 {
+		return Snapshot{}, editErrorf("Refusing to edit %s: it has %d hard links; atomic replacement would break the link relationship.", absolute, links)
+	}
 	if stat.Size() > maxBytes {
 		return Snapshot{}, editErrorf("%s is larger than %d bytes.", absolute, maxBytes)
 	}

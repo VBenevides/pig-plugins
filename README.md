@@ -342,7 +342,9 @@ large source files uses the same regular expressions as the original; `internal/
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself; edits of one file are serialised by an
-in-process lock instead of Pi's file mutation queue.
+in-process lock instead of Pi's file mutation queue. Hashline edits reject hard-linked targets rather than silently
+breaking the link relationship during atomic replacement. Unix platforms inspect the inode link count; platforms
+without a supported link-count check reject edits rather than assuming the target is safe.
 
 ## LANCET model runtime
 
