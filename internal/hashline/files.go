@@ -59,7 +59,7 @@ func isBMP(head []byte) bool {
 // IsBinary is true for images, content with NUL bytes and anything that is not valid UTF-8.
 func IsBinary(content []byte) bool {
 	head := content[:min(len(content), 8192)]
-	if ImageMIME(head) != "" || isBMP(head) || bytes.IndexByte(head, 0) >= 0 {
+	if ImageMIME(head) != "" || isBMP(head) || bytes.IndexByte(content, 0) >= 0 {
 		return true
 	}
 	return !utf8.Valid(content)

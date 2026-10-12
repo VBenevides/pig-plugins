@@ -310,7 +310,7 @@ func readNonText(path, absolute string, content []byte, offset, limit int) (Resu
 			Images:  []Image{{Data: base64.StdEncoding.EncodeToString(content), MimeType: mime}},
 		}, nil
 	}
-	if isBMP(head) || strings.IndexByte(string(head), 0) >= 0 {
+	if isBMP(head) || strings.IndexByte(string(content), 0) >= 0 {
 		return Result{}, fmt.Errorf("%s is a binary file; read does not print binary content.", path)
 	}
 	// Invalid UTF-8 without NUL bytes: show it as text with replacement characters, as Pi's own read does.
