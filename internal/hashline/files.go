@@ -130,6 +130,9 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if !stat.Mode().IsRegular() {
 		return Snapshot{}, editErrorf("Refusing to edit %s: it is not a regular file.", absolute)
 	}
+	if stat.Mode()&(fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky) != 0 {
+		return Snapshot{}, editErrorf("Refusing to edit %s: it has privileged permission bits that atomic replacement must not restore.", absolute)
+	}
 	if stat.Mode().Perm()&0222 == 0 {
 		return Snapshot{}, editErrorf("Refusing to edit %s: it is read-only; replacement must not bypass its write permissions.", absolute)
 	}
