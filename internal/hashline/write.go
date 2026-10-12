@@ -167,6 +167,10 @@ func WriteContext(request Cancellation, cwd string, params map[string]any) (Resu
 		return nil
 	})
 	if err != nil {
+		var committed *CommittedError
+		if errors.As(err, &committed) {
+			return Result{}, fmt.Errorf("write committed with post-commit failure: %w", err)
+		}
 		return Result{}, fmt.Errorf("write rejected: %w", err)
 	}
 	return result, nil
@@ -179,6 +183,10 @@ func createTextFile(target, content string) (err error) {
 }
 
 func createTextFileContext(request Cancellation, target, content string) (err error) {
+	return createTextFileWithSync(request, target, content, syncDirectory)
+}
+
+func createTextFileWithSync(request Cancellation, target, content string, syncParent func(string) error) (err error) {
 	if err := request.Err(); err != nil {
 		return err
 	}
@@ -195,18 +203,21 @@ func createTextFileContext(request Cancellation, target, content string) (err er
 	}
 	temporary := file.Name()
 	published := false
+	cleaned := false
 	defer func() {
 		if file != nil {
 			if closeErr := file.Close(); closeErr != nil {
 				err = errors.Join(err, fmt.Errorf("close preparation file for %s: %w", target, closeErr))
 			}
 		}
-		if removeErr := os.Remove(temporary); removeErr != nil {
-			state := "not published"
-			if published {
-				state = "already published; destination was written"
+		if !cleaned {
+			if removeErr := os.Remove(temporary); removeErr != nil {
+				cleanupErr := fmt.Errorf("cleanup new file %s: %w", target, removeErr)
+				if published {
+					cleanupErr = &CommittedError{Path: target, Err: cleanupErr}
+				}
+				err = errors.Join(err, cleanupErr)
 			}
-			err = errors.Join(err, fmt.Errorf("cleanup new file %s (%s): %w", target, state, removeErr))
 		}
 	}()
 	if _, err := checkSupportedMetadata(temporary); err != nil {
@@ -230,5 +241,12 @@ func createTextFileContext(request Cancellation, target, content string) (err er
 		return fmt.Errorf("publish new file %s without overwriting another writer: %w", target, err)
 	}
 	published = true
+	if err := os.Remove(temporary); err != nil {
+		return &CommittedError{Path: target, Err: fmt.Errorf("remove published preparation link: %w", err)}
+	}
+	cleaned = true
+	if err := syncParent(directory); err != nil {
+		return &CommittedError{Path: target, Err: err}
+	}
 	return nil
 }

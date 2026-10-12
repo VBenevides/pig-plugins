@@ -366,9 +366,13 @@ destination unchanged. An already-running filesystem syscall cannot be interrupt
 empty parent directories may remain after a cancelled write.
 The commit boundary is the final cancellation checkpoint followed by rename (replacement) or exclusive link
 publication (creation). Cancellation racing after that checkpoint does not roll back publication: a successful
-publication returns the committed result and its version, even if the request is now cancelled. Publication
-failure is reported as a filesystem failure, not as a successful cancellation. This describes observable
-publication, not crash durability; parent-directory syncing is not currently guaranteed.
+publication finishes required durability work despite cancellation, then returns the committed result and version.
+Publication failure is reported as a filesystem failure, not as a successful cancellation. Changed files are
+synced before publication; their containing directory is synced after publication and preparation cleanup.
+Post-publication sync failures return a `CommittedError` preserving the cause and warning that the content
+was committed but durability is uncertain. Reread before retrying. This guarantee depends on the filesystem
+honoring sync; it does not guarantee durability of newly created ancestor directories or protect against
+storage hardware failure. Identical writes and no-op edits do not publish or sync a new file.
 Edits allow at most 256 operations and 100,000 replacement lines per request, with at most 16 MiB of replacement
 text. Final files must fit 100,000 lines and 16 MiB including BOM and line terminators. Oversized results are
 rejected before serialization or temporary-file creation. These limits are enforced by runtime validation.

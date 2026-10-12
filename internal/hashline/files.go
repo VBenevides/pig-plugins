@@ -179,6 +179,10 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 }
 
 func ReplaceAtomicallyContext(request Cancellation, snapshot Snapshot, content string, beforeCommit func()) (err error) {
+	return replaceAtomicallyWithSync(request, snapshot, content, beforeCommit, syncDirectory)
+}
+
+func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content string, beforeCommit func(), syncParent func(string) error) (err error) {
 	if err := request.Err(); err != nil {
 		return err
 	}
@@ -273,5 +277,8 @@ func ReplaceAtomicallyContext(request Cancellation, snapshot Snapshot, content s
 		return fmt.Errorf("replace %s: %w", snapshot.Target, err)
 	}
 	committed = true
+	if err := syncParent(directory); err != nil {
+		return &CommittedError{Path: snapshot.Target, Err: err}
+	}
 	return nil
 }
