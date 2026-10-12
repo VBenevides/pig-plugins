@@ -11,6 +11,7 @@ import (
 // Extension replaces the built-in read, edit, and write tool registrations.
 func Extension() *sdk.Extension {
 	e := sdk.New("hashline-edit")
+	engine := hashline.NewEngine()
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:             "read",
 		Label:            "read",
@@ -18,7 +19,7 @@ func Extension() *sdk.Extension {
 		PromptSnippet:    hashline.ReadSnippet,
 		PromptGuidelines: hashline.ReadGuidelines,
 		Parameters:       hashline.ReadSchema(),
-		Execute:          run(hashline.ReadContext),
+		Execute:          run(engine.ReadContext),
 	})
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:             "edit",
@@ -27,11 +28,11 @@ func Extension() *sdk.Extension {
 		PromptSnippet:    hashline.EditSnippet,
 		PromptGuidelines: hashline.EditGuidelines,
 		Parameters:       hashline.EditSchema(),
-		Execute:          run(hashline.EditContext),
+		Execute:          run(engine.EditContext),
 	})
 	e.RegisterTool(sdk.ToolDefinition{
 		Name: "write", Label: "write", Description: hashline.WriteDescription,
-		Parameters: hashline.WriteSchema(), Execute: run(hashline.WriteContext),
+		Parameters: hashline.WriteSchema(), Execute: run(engine.WriteContext),
 	})
 	return e
 }

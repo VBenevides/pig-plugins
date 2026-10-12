@@ -39,9 +39,10 @@ type Image struct {
 
 // Result is what a tool returns to the model.
 type Result struct {
-	Text    string
-	Details map[string]any
-	Images  []Image
+	Text        string
+	Details     map[string]any
+	Images      []Image
+	readContent []byte // Private exact-byte snapshot, never serialized into tool details.
 }
 
 // ReadDescription, ReadSnippet, ReadGuidelines, EditDescription, EditSnippet and EditGuidelines are the model-facing
@@ -288,6 +289,7 @@ func ReadContext(request Cancellation, cwd string, params map[string]any) (resul
 	defer func() {
 		if err == nil {
 			result = withVersion(result, content)
+			result.readContent = content
 		}
 	}()
 	file, err := ParseFileContext(request, string(content))
