@@ -343,7 +343,9 @@ large source files uses the same regular expressions as the original; `internal/
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
 Anchored read details include `fullyDisplayedRanges`: inclusive source-line ranges whose complete text was
 shown. Outlines and empty files have empty coverage; shortened lines and omitted tails are excluded. This
-metadata records display coverage; unseen-range enforcement and session lifecycle isolation are separate policies.
+coverage authorizes replacement/deletion only when every affected line was fully displayed at the retained
+version. Multiple range reads of the same version accumulate coverage; outlines alone authorize no destruction.
+Insertion relative to a valid anchor does not destroy source text and does not require full-line coverage.
 The extension retains at most 64 canonical files and 32 MiB of snapshot content plus coverage metadata, with
 one current version per file. Reads refresh retention; oldest reads are evicted first. Eviction, a newer read
 version, or a successful mutation requires a fresh read before another edit. Oversized snapshots are displayed

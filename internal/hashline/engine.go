@@ -161,6 +161,9 @@ func (engine *Engine) EditContext(request Cancellation, cwd string, params map[s
 	if !ok || read.version != version {
 		return Result{}, fmt.Errorf("edit rejected: stale version or expired read authority for %s; read it again. Nothing was edited.", target)
 	}
+	if err := requireDisplayedEdits(request, read, params["edits"]); err != nil {
+		return Result{}, fmt.Errorf("edit rejected: %w", err)
+	}
 	result, err := EditContext(request, cwd, params)
 	var committed *CommittedError
 	if err == nil && result.Details["changed"] == true || errors.As(err, &committed) {
