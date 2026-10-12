@@ -10,7 +10,8 @@ import (
 )
 
 // testdata/ts-golden.json was produced by running the original TypeScript hashline extension
-// (.agent-work/scripts/hashline-golden/generate.mjs); these tests require byte-identical Go behavior.
+// (.agent-work/scripts/hashline-golden/generate.mjs). The original anchored text and edit behavior remain
+// byte-identical; the explicitly required Go version-token envelope is asserted separately below.
 
 type goldenOutcome struct {
 	Text    *string        `json:"text"`
@@ -102,6 +103,21 @@ func compareOutcome(t *testing.T, want goldenOutcome, got Result, err error, scr
 	}
 }
 
+// versionedOutcome retains every original golden assertion and adds the new version contract.
+func versionedOutcome(want goldenOutcome, content string) goldenOutcome {
+	if want.Error != nil {
+		return want
+	}
+	version := ContentVersion([]byte(content))
+	text := *want.Text + "\nVersion: " + version
+	details := make(map[string]any, len(want.Details)+1)
+	for key, value := range want.Details {
+		details[key] = value
+	}
+	details["version"] = version
+	return goldenOutcome{Text: &text, Details: details}
+}
+
 func TestLineHashAgainstTypeScript(t *testing.T) {
 	for _, c := range loadGolden(t).Hashes {
 		if got := LineHash(c.Text); got != c.Hash {
@@ -128,7 +144,7 @@ func TestReadAgainstTypeScript(t *testing.T) {
 				params[key] = value
 			}
 			got, err := Read(dir, params)
-			compareOutcome(t, c.Outcome, got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
+			compareOutcome(t, versionedOutcome(c.Outcome, g.ReadFiles[c.File]), got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
 		})
 	}
 }
@@ -148,8 +164,8 @@ func TestEditAgainstTypeScript(t *testing.T) {
 			if err := os.WriteFile(path, []byte(c.Content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			got, err := Edit(dir, map[string]any{"path": c.File, "edits": c.Edits})
-			compareOutcome(t, c.Outcome, got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
+			got, err := Edit(dir, map[string]any{"path": c.File, "version": ContentVersion([]byte(c.Content)), "edits": c.Edits})
+			compareOutcome(t, versionedOutcome(c.Outcome, c.After), got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
 			after, readErr := os.ReadFile(path)
 			if readErr != nil {
 				t.Fatal(readErr)

@@ -47,7 +47,7 @@ type Result struct {
 // ReadDescription, ReadSnippet, ReadGuidelines, EditDescription, EditSnippet and EditGuidelines are the model-facing
 // text of the two tools.
 var (
-	ReadDescription = "Read a file. Text lines are printed as <line>#<hash>|text; the <line>#<hash> anchor is what edit takes. " +
+	ReadDescription = "Read a file. Editable text results include a Version token required by edit. Text lines are printed as <line>#<hash>|text; the <line>#<hash> anchor is what edit takes. " +
 		fmt.Sprintf("A bare read of a small file returns it all. A large source file (over %d lines or %d KB) returns an outline of symbols with line ranges instead; read the range you need ", LargeFileLines, LargeFileBytes/1024) +
 		"with offset (first line, 1-based) and limit (number of lines). offset/limit always return exactly that range. " +
 		"Images are returned as attachments."
@@ -55,15 +55,15 @@ var (
 	ReadGuidelines = []string{
 		"Use read to examine files instead of cat or sed. For a large file, read the outline first, then the range you need.",
 	}
-	EditDescription = "Edit one existing text file with the line anchors printed by read (<line>#<hash>). Every op is checked against " +
-		"the file as it was read: if any anchor no longer matches its line, the whole call is rejected, nothing changes, " +
-		"and you must read again. Text is never searched for. Ops: replace (anchor, optional end for a range, lines), " +
+	EditDescription = "Edit one existing text file using its Version token and line anchors from read (<line>#<hash>). The whole-file version must still match before any operation is applied. " +
+		"If the version or any anchor is stale, the whole call is rejected and nothing changes. " +
+		"Read again; text is never searched for. Ops: replace (anchor, optional end for a range, lines), " +
 		"insert_before / insert_after (anchor, lines), delete (anchor, optional end). lines is an array with one string " +
 		"per line, without line breaks. All ops use the anchors of the original read; ops in one call must not overlap " +
 		"and must not insert at the same position. Create files with write."
 	EditSnippet    = "Edit a file with line anchors from read; stale or ambiguous anchors are rejected"
 	EditGuidelines = []string{
-		"Read the lines you want to change first, and copy anchors exactly as printed (for example 12#a3f9) when using edit.",
+		"Copy the Version token and full anchors from the same read or successful edit result; never guess them.",
 		"Put all changes to one file in a single edit call; every op refers to the original anchors, not to earlier ops.",
 	}
 )
@@ -85,7 +85,8 @@ func EditSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path": map[string]any{"type": "string", "description": "Path to the file to edit (relative or absolute)"},
+			"path":    map[string]any{"type": "string", "description": "Path to the file to edit (relative or absolute)"},
+			"version": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Version token from the same read as the anchors; required even if the selected lines are unchanged."},
 			"edits": map[string]any{
 				"type":        "array",
 				"description": "Anchored ops, all validated against the file as read.",
@@ -101,7 +102,7 @@ func EditSchema() map[string]any {
 				},
 			},
 		},
-		"required": []string{"path", "edits"},
+		"required": []string{"path", "version", "edits"},
 	}
 }
 
@@ -234,7 +235,7 @@ func largeFileResult(filePath string, file ParsedFile, size int) (Result, error)
 }
 
 // Read implements the read tool. Errors are returned to the model as tool errors.
-func Read(cwd string, params map[string]any) (Result, error) {
+func Read(cwd string, params map[string]any) (result Result, err error) {
 	path, _ := params["path"].(string)
 	if path == "" {
 		return Result{}, errors.New("path must be a non-empty string.")
@@ -268,6 +269,11 @@ func Read(cwd string, params map[string]any) (Result, error) {
 	if IsBinary(content) {
 		return readNonText(path, absolute, content, offset, limit)
 	}
+	defer func() {
+		if err == nil {
+			result = withVersion(result, content)
+		}
+	}()
 	file := ParseFile(string(content))
 	total := len(file.Lines)
 	if total == 0 {
@@ -379,7 +385,7 @@ func Edit(cwd string, params map[string]any) (Result, error) {
 	absolute := ResolveToolPath(path, cwd)
 	unlock := lockPath(absolute)
 	defer unlock()
-	result, err := editLocked(cwd, absolute, params["edits"], nil)
+	result, err := editLocked(cwd, absolute, params["version"], params["edits"], nil)
 	var rejected *EditError
 	if errors.As(err, &rejected) {
 		return Result{}, fmt.Errorf("edit rejected: %s", rejected.Message)
@@ -387,9 +393,12 @@ func Edit(cwd string, params map[string]any) (Result, error) {
 	return result, err
 }
 
-func editLocked(cwd, absolute string, edits any, beforeCommit func()) (Result, error) {
+func editLocked(cwd, absolute string, version, edits any, beforeCommit func()) (Result, error) {
 	snapshot, err := TakeSnapshot(absolute, cwd, MaxEditBytes)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := checkVersion(version, snapshot.Bytes); err != nil {
 		return Result{}, err
 	}
 	original := string(snapshot.Bytes)
@@ -399,20 +408,20 @@ func editLocked(cwd, absolute string, edits any, beforeCommit func()) (Result, e
 	}
 	updated := edited.File.Serialize()
 	if updated == original {
-		return Result{
+		return withVersion(Result{
 			Text:    fmt.Sprintf("No change: the edit produces identical content, %s was left untouched.", absolute),
 			Details: map[string]any{"changed": false},
-		}, nil
+		}, snapshot.Bytes), nil
 	}
 	if err := ReplaceAtomically(snapshot, updated, beforeCommit); err != nil {
 		return Result{}, err
 	}
 	regions := make([][2]int, len(edited.Regions))
 	copy(regions, edited.Regions)
-	return Result{
+	return withVersion(Result{
 		Text:    editSummary(absolute, len(edits.([]any)), edited.File, edited.Regions),
 		Details: map[string]any{"changed": true, "regions": regions},
-	}, nil
+	}, []byte(updated)), nil
 }
 
 func editSummary(absolute string, ops int, file ParsedFile, regions [][2]int) string {

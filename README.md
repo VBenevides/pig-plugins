@@ -333,7 +333,10 @@ Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate
 ## hashline-edit
 
 Replaces the built-in `read` and `edit` with anchored read (`<line>#<hash>|text`, four hex digits of SHA-1) and strict
-anchored edit. It does not match the upstream npm `pi-hashline-edit`
+anchored edit. Every editable read result also returns `Version: <token>`; pass that token as the required `version`
+parameter alongside `path` and `edits`. Edits reject any whole-file byte change since that read, including changes
+outside the selected lines. Successful edits return the new token for chaining. Older versionless edit calls are
+intentionally rejected; reread instead of guessing a token. It does not match the upstream npm `pi-hashline-edit`
 0.8.3, which uses a different anchor format (`LINE#HASH:` with two-character hashes) and extra ops. The outline for
 large source files uses the same regular expressions as the original; `internal/hashline/testdata/ts-golden.json` holds
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
