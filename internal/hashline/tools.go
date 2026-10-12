@@ -265,7 +265,7 @@ func Read(cwd string, params map[string]any) (result Result, err error) {
 	if stat.Size() > MaxEditBytes {
 		return Result{}, fmt.Errorf("%s is larger than %d bytes and cannot be anchored; inspect part of it with bash (head, tail, sed -n).", absolute, MaxEditBytes)
 	}
-	content, err := os.ReadFile(absolute)
+	content, err := readBoundedFile(absolute, MaxEditBytes)
 	if err != nil {
 		return Result{}, fmt.Errorf("read %s: %w", absolute, err)
 	}

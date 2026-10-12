@@ -151,7 +151,7 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	content, err := os.ReadFile(target)
+	content, err := readBoundedFile(target, maxBytes)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read %s: %w", target, err)
 	}
@@ -235,7 +235,7 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 	if !bytes.Equal(currentLabel, snapshot.securityLabel) {
 		return editErrorf("%s changed security label while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
-	current, err := os.ReadFile(snapshot.Target)
+	current, err := readBoundedFile(snapshot.Target, MaxEditBytes)
 	if err != nil {
 		return editErrorf("%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
 	}
