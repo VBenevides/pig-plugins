@@ -12,6 +12,12 @@ import (
 func Extension() *sdk.Extension {
 	e := sdk.New("hashline-edit")
 	engine := hashline.NewEngine()
+	for _, event := range []string{"session_start", "session_tree", "session_shutdown"} {
+		e.OnEvent(event, func(_ sdk.Context, _ map[string]any) (any, error) {
+			engine.Invalidate()
+			return nil, nil
+		})
+	}
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:             "read",
 		Label:            "read",

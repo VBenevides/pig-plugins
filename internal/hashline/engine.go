@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync/atomic"
 )
 
 const (
@@ -27,6 +28,8 @@ type Engine struct {
 	bytes              int
 	maxFiles, maxBytes int
 	scope              string
+	epoch              atomic.Uint64
+	generation         uint64
 }
 
 func NewEngine() *Engine { return newEngine(MaxSnapshotFiles, MaxSnapshotBytes) }
@@ -61,11 +64,13 @@ func (engine *Engine) enter(request Cancellation) (func(), error) {
 	if scoped, ok := request.(interface{ ReadScope() string }); ok {
 		scope = scoped.ReadScope()
 	}
-	if engine.scope != scope {
+	epoch := engine.epoch.Load()
+	if engine.scope != scope || engine.generation != epoch {
 		engine.reads = make(map[string]retainedRead)
 		engine.order = nil
 		engine.bytes = 0
 		engine.scope = scope
+		engine.generation = epoch
 	}
 	return func() { engine.ready <- struct{}{}; <-engine.slots }, nil
 }
@@ -134,6 +139,7 @@ func (engine *Engine) ReadContext(request Cancellation, cwd string, params map[s
 		return Result{}, err
 	}
 	defer release()
+	request = lifecycleCancellation{Cancellation: request, engine: engine, generation: engine.generation}
 	path, _ := params["path"].(string)
 	if path == "" {
 		return ReadContext(request, cwd, params)
@@ -160,6 +166,7 @@ func (engine *Engine) EditContext(request Cancellation, cwd string, params map[s
 		return Result{}, err
 	}
 	defer release()
+	request = lifecycleCancellation{Cancellation: request, engine: engine, generation: engine.generation}
 	path, _ := params["path"].(string)
 	target, err := canonicalMutationPath(ResolveToolPath(path, cwd))
 	if err != nil {
@@ -187,6 +194,7 @@ func (engine *Engine) WriteContext(request Cancellation, cwd string, params map[
 		return Result{}, err
 	}
 	defer release()
+	request = lifecycleCancellation{Cancellation: request, engine: engine, generation: engine.generation}
 	result, err := WriteContext(request, cwd, params)
 	var committed *CommittedError
 	if err == nil && result.Details["changed"] == true || errors.As(err, &committed) {

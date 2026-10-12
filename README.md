@@ -356,6 +356,10 @@ but not retained. Trusted internal callers can still use the stateless hashline 
 Retained authority is bound to the canonical file and host session ID. Identical content in an unread file or
 another session does not authorize editing. Switching sessions revokes previous authority, including when
 switching back; no source snapshots are persisted on disk.
+The extension also revokes authority on `session_start`, `session_tree`, and `session_shutdown`, including
+completed tree navigation within the same session. Revocation cancels active work at its next pre-commit
+checkpoint; publication already beyond the commit boundary is not rolled back. A reload or process restart
+constructs an empty Engine, so previous process reads cannot authorize edits.
 
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of
