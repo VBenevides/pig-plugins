@@ -91,6 +91,7 @@ type Snapshot struct {
 	Bytes  []byte
 	// Mode holds the permission, setuid, setgid and sticky bits.
 	Mode fs.FileMode
+	info fs.FileInfo // identity observed when the snapshot was taken
 }
 
 // TakeSnapshot opens the file for editing: refuses directories and special files, symlinks that leave cwd,
@@ -139,7 +140,7 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if IsBinary(content) {
 		return Snapshot{}, editErrorf("Refusing to edit %s: it is binary or not valid UTF-8.", absolute)
 	}
-	return Snapshot{Target: target, Bytes: content, Mode: stat.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)}, nil
+	return Snapshot{Target: target, Bytes: content, Mode: stat.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky), info: stat}, nil
 }
 
 // ReplaceAtomically replaces the file with content through a temporary file in the same directory and a rename.
@@ -180,6 +181,13 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 	}
 	if beforeCommit != nil {
 		beforeCommit()
+	}
+	currentInfo, err := os.Lstat(snapshot.Target)
+	if err != nil {
+		return editErrorf("%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
+	}
+	if snapshot.info == nil || !currentInfo.Mode().IsRegular() || !os.SameFile(snapshot.info, currentInfo) {
+		return editErrorf("%s changed file identity while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
 	current, err := os.ReadFile(snapshot.Target)
 	if err != nil {
