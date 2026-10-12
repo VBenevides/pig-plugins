@@ -360,6 +360,11 @@ Tool requests propagate cancellation to lock waits, bounded read/write chunks, p
 the final pre-commit check. Cancellation observed before the commit boundary removes temporary files and leaves the
 destination unchanged. An already-running filesystem syscall cannot be interrupted by these checkpoints; newly created
 empty parent directories may remain after a cancelled write.
+The commit boundary is the final cancellation checkpoint followed by rename (replacement) or exclusive link
+publication (creation). Cancellation racing after that checkpoint does not roll back publication: a successful
+publication returns the committed result and its version, even if the request is now cancelled. Publication
+failure is reported as a filesystem failure, not as a successful cancellation. This describes observable
+publication, not crash durability; parent-directory syncing is not currently guaranteed.
 Edits allow at most 256 operations and 100,000 replacement lines per request, with at most 16 MiB of replacement
 text. Final files must fit 100,000 lines and 16 MiB including BOM and line terminators. Oversized results are
 rejected before serialization or temporary-file creation. These limits are enforced by runtime validation.
