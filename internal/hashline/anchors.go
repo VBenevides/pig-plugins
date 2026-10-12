@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // EditError is a problem with the edit request or the file; the edit tool reports it as "edit rejected: ...".
@@ -175,6 +176,9 @@ func replacementLines(value any, label string) ([]string, error) {
 	for _, line := range lines {
 		if strings.ContainsAny(line, "\r\n") {
 			return nil, editErrorf(`%s: each "lines" entry is one line and must not contain a line break.`, label)
+		}
+		if !utf8.ValidString(line) || strings.IndexByte(line, 0) >= 0 {
+			return nil, editErrorf(`%s: each "lines" entry must be valid UTF-8 text without NUL bytes.`, label)
 		}
 	}
 	return lines, nil

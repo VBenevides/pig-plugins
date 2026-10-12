@@ -413,6 +413,9 @@ func editLocked(cwd, absolute string, version, edits any, beforeCommit func()) (
 		return Result{}, err
 	}
 	updated := edited.File.Serialize()
+	if IsBinary([]byte(updated)) {
+		return Result{}, editErrorf("The edit result is binary or not valid UTF-8; nothing was written.")
+	}
 	if updated == original {
 		return withVersion(Result{
 			Text:    fmt.Sprintf("No change: the edit produces identical content, %s was left untouched.", absolute),
