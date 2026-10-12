@@ -27,7 +27,7 @@ func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
 // Preliminary path stats are only a fast rejection: the descriptor is checked
 // again and actual bytes consumed are limited, including when a file grows.
 func readBoundedFile(path string, maxBytes int64) (content []byte, err error) {
-	file, err := os.Open(path)
+	file, err := os.OpenFile(path, os.O_RDONLY|nonBlockingReadFlag, 0)
 	if err != nil {
 		return nil, err
 	}
