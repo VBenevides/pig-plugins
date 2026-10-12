@@ -353,6 +353,11 @@ The extension retains at most 64 canonical files and 32 MiB of snapshot content 
 one current version per file. Reads refresh retention; oldest reads are evicted first. Eviction, a newer read
 version, or a successful mutation requires a fresh read before another edit. Oversized snapshots are displayed
 but not retained. Trusted internal callers can still use the stateless hashline functions directly.
+There is no time-based expiry: retention ends through bounded eviction, version replacement, changed mutation,
+or lifecycle revocation. Repeated reads of identical bytes merge displayed ranges; a new version discards
+previous coverage. No-op mutations and rejected requests do not revoke an otherwise valid read. A version
+digest in a saved transcript or successful-edit summary is not retained authority: explicitly reread the
+needed source range after expiry/mutation, even if its short anchors or content digest appear unchanged.
 Retained authority is bound to the canonical file and host session ID. Identical content in an unread file or
 another session does not authorize editing. Switching sessions revokes previous authority, including when
 switching back; no source snapshots are persisted on disk.
