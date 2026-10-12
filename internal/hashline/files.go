@@ -221,6 +221,20 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 	if snapshot.info == nil || !currentInfo.Mode().IsRegular() || !os.SameFile(snapshot.info, currentInfo) {
 		return editErrorf("%s changed file identity while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
+	links, err := linkCount(currentInfo)
+	if err != nil {
+		return fmt.Errorf("revalidate link count of %s: %w", snapshot.Target, err)
+	}
+	if links != 1 || currentInfo.Mode() != snapshot.info.Mode() || !sameOwnership(snapshot.info, currentInfo) {
+		return editErrorf("%s changed security-relevant metadata while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+	}
+	currentLabel, err := checkSupportedMetadata(snapshot.Target)
+	if err != nil {
+		return fmt.Errorf("revalidate metadata of %s: %w", snapshot.Target, err)
+	}
+	if !bytes.Equal(currentLabel, snapshot.securityLabel) {
+		return editErrorf("%s changed security label while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+	}
 	current, err := os.ReadFile(snapshot.Target)
 	if err != nil {
 		return editErrorf("%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
