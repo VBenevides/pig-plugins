@@ -18,7 +18,7 @@ func Extension() *sdk.Extension {
 		PromptSnippet:    hashline.ReadSnippet,
 		PromptGuidelines: hashline.ReadGuidelines,
 		Parameters:       hashline.ReadSchema(),
-		Execute:          run(hashline.Read),
+		Execute:          run(hashline.ReadContext),
 	})
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:             "edit",
@@ -27,18 +27,18 @@ func Extension() *sdk.Extension {
 		PromptSnippet:    hashline.EditSnippet,
 		PromptGuidelines: hashline.EditGuidelines,
 		Parameters:       hashline.EditSchema(),
-		Execute:          run(hashline.Edit),
+		Execute:          run(hashline.EditContext),
 	})
 	e.RegisterTool(sdk.ToolDefinition{
 		Name: "write", Label: "write", Description: hashline.WriteDescription,
-		Parameters: hashline.WriteSchema(), Execute: run(hashline.Write),
+		Parameters: hashline.WriteSchema(), Execute: run(hashline.WriteContext),
 	})
 	return e
 }
 
-func run(tool func(cwd string, params map[string]any) (hashline.Result, error)) sdk.ToolFunc {
+func run(tool func(request hashline.Cancellation, cwd string, params map[string]any) (hashline.Result, error)) sdk.ToolFunc {
 	return func(ctx sdk.Context, params map[string]any) (any, error) {
-		result, err := tool(ctx.Cwd(), params)
+		result, err := tool(ctx, ctx.Cwd(), params)
 		if err != nil {
 			return nil, err
 		}

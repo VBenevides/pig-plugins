@@ -2,6 +2,7 @@ package hashline
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -98,6 +99,13 @@ type Snapshot struct {
 // TakeSnapshot opens the file for editing: refuses directories and special files, symlinks that leave cwd,
 // files larger than maxBytes and binary content.
 func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
+	return TakeSnapshotContext(context.Background(), absolute, cwd, maxBytes)
+}
+
+func TakeSnapshotContext(request Cancellation, absolute, cwd string, maxBytes int64) (Snapshot, error) {
+	if err := request.Err(); err != nil {
+		return Snapshot{}, err
+	}
 	link, err := os.Lstat(absolute)
 	if err != nil {
 		return Snapshot{}, editErrorf("Cannot edit %s: %s. The file must exist.", absolute, errnoName(err))
@@ -151,12 +159,15 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	content, err := readBoundedFile(target, maxBytes)
+	content, err := readBoundedFileContext(request, target, maxBytes)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read %s: %w", target, err)
 	}
 	if IsBinary(content) {
 		return Snapshot{}, editErrorf("Refusing to edit %s: it is binary or not valid UTF-8.", absolute)
+	}
+	if err := request.Err(); err != nil {
+		return Snapshot{}, err
 	}
 	return Snapshot{Target: target, Bytes: content, Mode: stat.Mode().Perm(), info: stat, securityLabel: label}, nil
 }
@@ -166,6 +177,13 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 // edit is rejected. beforeCommit runs after the temporary file is complete (tests use it to race the edit); a
 // change made by another process between the final comparison and the rename cannot be detected.
 func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (err error) {
+	return ReplaceAtomicallyContext(context.Background(), snapshot, content, beforeCommit)
+}
+
+func ReplaceAtomicallyContext(request Cancellation, snapshot Snapshot, content string, beforeCommit func()) (err error) {
+	if err := request.Err(); err != nil {
+		return err
+	}
 	directory, base := filepath.Split(snapshot.Target)
 	temporary := filepath.Join(directory, fmt.Sprintf(".%s.pig-plugins-%d-%s.tmp", base, os.Getpid(), strconv.FormatInt(time.Now().UnixMilli(), 36)))
 	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, snapshot.Mode&fs.ModePerm)
@@ -175,7 +193,9 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 	committed := false
 	defer func() {
 		if file != nil {
-			_ = file.Close()
+			if closeErr := file.Close(); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("close temporary file for %s: %w", snapshot.Target, closeErr))
+			}
 		}
 		if !committed {
 			if removeErr := os.Remove(temporary); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
@@ -197,7 +217,7 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 	if !bytes.Equal(label, snapshot.securityLabel) {
 		return editErrorf("Refusing to replace %s: inherited security label does not match the original; nothing was written.", snapshot.Target)
 	}
-	if _, err := file.WriteString(content); err != nil {
+	if err := writePreparedText(request, file, content); err != nil {
 		return fmt.Errorf("write temporary file for %s: %w", snapshot.Target, err)
 	}
 	if err := file.Chmod(snapshot.Mode); err != nil {
@@ -213,6 +233,9 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 	}
 	if beforeCommit != nil {
 		beforeCommit()
+	}
+	if err := request.Err(); err != nil {
+		return err
 	}
 	currentInfo, err := os.Lstat(snapshot.Target)
 	if err != nil {
@@ -235,12 +258,18 @@ func ReplaceAtomically(snapshot Snapshot, content string, beforeCommit func()) (
 	if !bytes.Equal(currentLabel, snapshot.securityLabel) {
 		return editErrorf("%s changed security label while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
-	current, err := readBoundedFile(snapshot.Target, MaxEditBytes)
+	current, err := readBoundedFileContext(request, snapshot.Target, MaxEditBytes)
 	if err != nil {
+		if cancelled := request.Err(); cancelled != nil {
+			return fmt.Errorf("cancelled final read of %s: %w", snapshot.Target, errors.Join(err, cancelled))
+		}
 		return editErrorf("%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
 	}
 	if !bytes.Equal(current, snapshot.Bytes) {
 		return editErrorf("%s was modified by someone else while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+	}
+	if err := request.Err(); err != nil {
+		return err
 	}
 	if err := os.Rename(temporary, snapshot.Target); err != nil {
 		return fmt.Errorf("replace %s: %w", snapshot.Target, err)

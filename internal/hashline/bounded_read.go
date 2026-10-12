@@ -1,6 +1,7 @@
 package hashline
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,10 +12,14 @@ import (
 var errReadLimit = errors.New("read byte limit exceeded")
 
 func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
+	return readBoundedContext(context.Background(), reader, maxBytes)
+}
+
+func readBoundedContext(request Cancellation, reader io.Reader, maxBytes int64) ([]byte, error) {
 	if maxBytes < 0 || maxBytes == math.MaxInt64 {
 		return nil, fmt.Errorf("invalid read byte limit: %d", maxBytes)
 	}
-	content, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+	content, err := io.ReadAll(io.LimitReader(cancellationReader{request: request, reader: reader}, maxBytes+1))
 	if err != nil {
 		return nil, err
 	}
@@ -27,6 +32,13 @@ func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
 // Preliminary path stats are only a fast rejection: the descriptor is checked
 // again and actual bytes consumed are limited, including when a file grows.
 func readBoundedFile(path string, maxBytes int64) (content []byte, err error) {
+	return readBoundedFileContext(context.Background(), path, maxBytes)
+}
+
+func readBoundedFileContext(request Cancellation, path string, maxBytes int64) (content []byte, err error) {
+	if err := request.Err(); err != nil {
+		return nil, err
+	}
 	file, err := os.OpenFile(path, os.O_RDONLY|nonBlockingReadFlag, 0)
 	if err != nil {
 		return nil, err
@@ -46,5 +58,5 @@ func readBoundedFile(path string, maxBytes int64) (content []byte, err error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s is not a regular file", path)
 	}
-	return readBounded(file, maxBytes)
+	return readBoundedContext(request, file, maxBytes)
 }

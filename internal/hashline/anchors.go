@@ -18,6 +18,7 @@
 package hashline
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -73,10 +74,26 @@ func FormatLine(lineNumber int, text string) string {
 // ParseFile splits text into lines. The empty string has no lines, and a final terminator does not add an empty
 // line.
 func ParseFile(content string) ParsedFile {
+	file, err := ParseFileContext(context.Background(), content)
+	if err != nil {
+		panic(err) // Background parsing has no cancellation source.
+	}
+	return file
+}
+
+func ParseFileContext(request Cancellation, content string) (ParsedFile, error) {
+	if err := request.Err(); err != nil {
+		return ParsedFile{}, err
+	}
 	bom := strings.HasPrefix(content, byteOrderMark)
 	body := strings.TrimPrefix(content, byteOrderMark)
 	var lines []Line
 	for start := 0; start < len(body); {
+		if len(lines)%4096 == 0 {
+			if err := request.Err(); err != nil {
+				return ParsedFile{}, err
+			}
+		}
 		newline := strings.IndexByte(body[start:], '\n')
 		if newline < 0 {
 			lines = append(lines, Line{Text: body[start:]})
@@ -98,7 +115,10 @@ func ParseFile(content string) ParsedFile {
 			break
 		}
 	}
-	return ParsedFile{BOM: bom, Lines: lines, EOL: firstEOL}
+	if err := request.Err(); err != nil {
+		return ParsedFile{}, err
+	}
+	return ParsedFile{BOM: bom, Lines: lines, EOL: firstEOL}, nil
 }
 
 // Serialize is the inverse of ParseFile.
@@ -287,6 +307,13 @@ func resolveOp(file ParsedFile, raw any, index int) (resolved, error) {
 // ApplyEdits validates every op against file (the original snapshot) and returns the edited file. It returns an
 // *EditError and changes nothing on the first problem. ops is the decoded JSON array of ops.
 func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
+	return ApplyEditsContext(context.Background(), file, ops)
+}
+
+func ApplyEditsContext(request Cancellation, file ParsedFile, ops any) (EditResult, error) {
+	if err := request.Err(); err != nil {
+		return EditResult{}, err
+	}
 	list, ok := ops.([]any)
 	if !ok || len(list) == 0 {
 		return EditResult{}, editErrorf(`"edits" must be a non-empty array of ops.`)
@@ -300,6 +327,9 @@ func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
 	all := make([]resolved, len(list))
 	remainingLines, remainingBytes := MaxEditLines, MaxEditBytes
 	for index, raw := range list {
+		if err := request.Err(); err != nil {
+			return EditResult{}, err
+		}
 		item, err := resolveOp(file, raw, index)
 		if err != nil {
 			return EditResult{}, err
@@ -362,6 +392,11 @@ func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
 	var regions [][2]int
 	created := func(text string) Line { return Line{Text: text, EOL: file.EOL} }
 	for index := 0; index <= len(file.Lines); index++ {
+		if index%4096 == 0 {
+			if err := request.Err(); err != nil {
+				return EditResult{}, err
+			}
+		}
 		if len(output) > MaxEditLines {
 			return EditResult{}, editErrorf("Edit result exceeds %d lines; nothing was written.", MaxEditLines)
 		}
@@ -399,6 +434,9 @@ func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
 	}
 	result := ParsedFile{BOM: file.BOM, Lines: output, EOL: file.EOL}
 	if err := validateResultSize(result); err != nil {
+		return EditResult{}, err
+	}
+	if err := request.Err(); err != nil {
 		return EditResult{}, err
 	}
 	return EditResult{File: result, Regions: regions}, nil

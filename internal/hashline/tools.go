@@ -1,6 +1,7 @@
 package hashline
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -235,6 +236,18 @@ func largeFileResult(filePath string, file ParsedFile, size int) (Result, error)
 
 // Read implements the read tool. Errors are returned to the model as tool errors.
 func Read(cwd string, params map[string]any) (result Result, err error) {
+	return ReadContext(context.Background(), cwd, params)
+}
+
+func ReadContext(request Cancellation, cwd string, params map[string]any) (result Result, err error) {
+	if err := request.Err(); err != nil {
+		return Result{}, err
+	}
+	defer func() {
+		if cancelled := request.Err(); err == nil && cancelled != nil {
+			result, err = Result{}, cancelled
+		}
+	}()
 	path, _ := params["path"].(string)
 	if path == "" {
 		return Result{}, errors.New("path must be a non-empty string.")
@@ -264,19 +277,22 @@ func Read(cwd string, params map[string]any) (result Result, err error) {
 	if stat.Size() > MaxEditBytes {
 		return Result{}, fmt.Errorf("%s is larger than %d bytes and cannot be anchored; inspect part of it with bash (head, tail, sed -n).", absolute, MaxEditBytes)
 	}
-	content, err := readBoundedFile(absolute, MaxEditBytes)
+	content, err := readBoundedFileContext(request, absolute, MaxEditBytes)
 	if err != nil {
 		return Result{}, fmt.Errorf("read %s: %w", absolute, err)
 	}
 	if IsBinary(content) {
-		return readNonText(path, absolute, content, offset, limit)
+		return readNonText(request, path, absolute, content, offset, limit)
 	}
 	defer func() {
 		if err == nil {
 			result = withVersion(result, content)
 		}
 	}()
-	file := ParseFile(string(content))
+	file, err := ParseFileContext(request, string(content))
+	if err != nil {
+		return Result{}, err
+	}
 	total := len(file.Lines)
 	if total == 0 {
 		return Result{Text: "(empty file)", Details: map[string]any{"mode": "full", "totalLines": 0}}, nil
@@ -300,7 +316,7 @@ func Read(cwd string, params map[string]any) (result Result, err error) {
 
 // readNonText handles what anchors cannot address: images are attached, text in another encoding is shown
 // without anchors (and cannot be edited), NUL-containing content is refused.
-func readNonText(path, absolute string, content []byte, offset, limit int) (Result, error) {
+func readNonText(request Cancellation, path, absolute string, content []byte, offset, limit int) (Result, error) {
 	head := content[:min(len(content), 8192)]
 	if mime := ImageMIME(head); mime != "" {
 		if len(content) > MaxImageBytes {
@@ -316,7 +332,10 @@ func readNonText(path, absolute string, content []byte, offset, limit int) (Resu
 		return Result{}, fmt.Errorf("%s is a binary file; read does not print binary content.", path)
 	}
 	// Invalid UTF-8 without NUL bytes: show it as text with replacement characters, as Pi's own read does.
-	file := ParseFile(strings.ToValidUTF8(string(content), "\ufffd"))
+	file, err := ParseFileContext(request, strings.ToValidUTF8(string(content), "\ufffd"))
+	if err != nil {
+		return Result{}, err
+	}
 	lines := make([]string, len(file.Lines))
 	for i, line := range file.Lines {
 		lines[i] = line.Text
@@ -349,11 +368,22 @@ var editLocks = struct {
 }{held: map[string]*lockEntry{}}
 
 type lockEntry struct {
-	mu      sync.Mutex
+	ready   chan struct{}
 	holders int
 }
 
 func lockPath(path string) (unlock func()) {
+	unlock, err := lockPathContext(context.Background(), path)
+	if err != nil {
+		panic(err) // An uncancellable internal lock cannot otherwise fail.
+	}
+	return unlock
+}
+
+func lockPathContext(request Cancellation, path string) (func(), error) {
+	if err := request.Err(); err != nil {
+		return nil, err
+	}
 	key := path
 	if resolved, err := canonicalMutationPath(path); err == nil {
 		key = resolved
@@ -361,14 +391,13 @@ func lockPath(path string) (unlock func()) {
 	editLocks.Lock()
 	entry := editLocks.held[key]
 	if entry == nil {
-		entry = &lockEntry{}
+		entry = &lockEntry{ready: make(chan struct{}, 1)}
+		entry.ready <- struct{}{}
 		editLocks.held[key] = entry
 	}
 	entry.holders++
 	editLocks.Unlock()
-	entry.mu.Lock()
-	return func() {
-		entry.mu.Unlock()
+	dropRegistration := func() {
 		editLocks.Lock()
 		entry.holders--
 		if entry.holders == 0 {
@@ -376,10 +405,32 @@ func lockPath(path string) (unlock func()) {
 		}
 		editLocks.Unlock()
 	}
+	select {
+	case <-request.Done():
+		dropRegistration()
+		return nil, request.Err()
+	case <-entry.ready:
+	}
+	var once sync.Once
+	unlock := func() {
+		once.Do(func() {
+			entry.ready <- struct{}{}
+			dropRegistration()
+		})
+	}
+	if err := request.Err(); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
 }
 
 // Edit implements the edit tool. A problem with the request or the file is an error starting "edit rejected: ".
 func Edit(cwd string, params map[string]any) (Result, error) {
+	return EditContext(context.Background(), cwd, params)
+}
+
+func EditContext(request Cancellation, cwd string, params map[string]any) (Result, error) {
 	path, _ := params["path"].(string)
 	if path == "" {
 		return Result{}, errors.New("path must be a non-empty string.")
@@ -388,9 +439,12 @@ func Edit(cwd string, params map[string]any) (Result, error) {
 		return Result{}, fmt.Errorf("edit rejected: %w", err)
 	}
 	absolute := ResolveToolPath(path, cwd)
-	unlock := lockPath(absolute)
+	unlock, err := lockPathContext(request, absolute)
+	if err != nil {
+		return Result{}, fmt.Errorf("wait for edit lock %s: %w", absolute, err)
+	}
 	defer unlock()
-	result, err := editLocked(cwd, absolute, params["version"], params["edits"], nil)
+	result, err := editLockedContext(request, cwd, absolute, params["version"], params["edits"], nil)
 	var rejected *EditError
 	if errors.As(err, &rejected) {
 		return Result{}, fmt.Errorf("edit rejected: %s", rejected.Message)
@@ -399,7 +453,11 @@ func Edit(cwd string, params map[string]any) (Result, error) {
 }
 
 func editLocked(cwd, absolute string, version, edits any, beforeCommit func()) (Result, error) {
-	snapshot, err := TakeSnapshot(absolute, cwd, MaxEditBytes)
+	return editLockedContext(context.Background(), cwd, absolute, version, edits, beforeCommit)
+}
+
+func editLockedContext(request Cancellation, cwd, absolute string, version, edits any, beforeCommit func()) (Result, error) {
+	snapshot, err := TakeSnapshotContext(request, absolute, cwd, MaxEditBytes)
 	if err != nil {
 		return Result{}, err
 	}
@@ -407,13 +465,23 @@ func editLocked(cwd, absolute string, version, edits any, beforeCommit func()) (
 		return Result{}, err
 	}
 	original := string(snapshot.Bytes)
-	edited, err := ApplyEdits(ParseFile(original), edits)
+	parsed, err := ParseFileContext(request, original)
 	if err != nil {
+		return Result{}, err
+	}
+	edited, err := ApplyEditsContext(request, parsed, edits)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := request.Err(); err != nil {
 		return Result{}, err
 	}
 	updated := edited.File.Serialize()
 	if IsBinary([]byte(updated)) {
 		return Result{}, editErrorf("The edit result is binary or not valid UTF-8; nothing was written.")
+	}
+	if err := request.Err(); err != nil {
+		return Result{}, err
 	}
 	if updated == original {
 		return withVersion(Result{
@@ -421,7 +489,7 @@ func editLocked(cwd, absolute string, version, edits any, beforeCommit func()) (
 			Details: map[string]any{"changed": false},
 		}, snapshot.Bytes), nil
 	}
-	if err := ReplaceAtomically(snapshot, updated, beforeCommit); err != nil {
+	if err := ReplaceAtomicallyContext(request, snapshot, updated, beforeCommit); err != nil {
 		return Result{}, err
 	}
 	regions := make([][2]int, len(edited.Regions))

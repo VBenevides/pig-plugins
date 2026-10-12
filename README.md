@@ -356,6 +356,10 @@ Safe metadata inspection currently supports Linux only; other platforms reject m
 publishes new files privately (0600) without overwriting a concurrently created target, and preserves supported
 metadata on explicit replacements. Identical writes leave the inode and mtime unchanged. An explicit whole-file
 write intentionally supersedes earlier edits in queue order; it is not a merge or a stale-edit recovery mechanism.
+Tool requests propagate cancellation to lock waits, bounded read/write chunks, parsing, edit validation, and
+the final pre-commit check. Cancellation observed before the commit boundary removes temporary files and leaves the
+destination unchanged. An already-running filesystem syscall cannot be interrupted by these checkpoints; newly created
+empty parent directories may remain after a cancelled write.
 Edits allow at most 256 operations and 100,000 replacement lines per request, with at most 16 MiB of replacement
 text. Final files must fit 100,000 lines and 16 MiB including BOM and line terminators. Oversized results are
 rejected before serialization or temporary-file creation. These limits are enforced by runtime validation.

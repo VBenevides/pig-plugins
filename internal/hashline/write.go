@@ -1,9 +1,9 @@
 package hashline
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -48,11 +48,21 @@ func canonicalMutationPath(path string) (string, error) {
 // target. Callers must mutate the supplied target, not re-resolve an alias.
 // This does not coordinate shell commands or unrelated processes.
 func WithMutationLock(path string, mutate func(target string) error) error {
+	return WithMutationLockContext(context.Background(), path, mutate)
+}
+
+func WithMutationLockContext(request Cancellation, path string, mutate func(target string) error) error {
+	if err := request.Err(); err != nil {
+		return err
+	}
 	target, err := canonicalMutationPath(path)
 	if err != nil {
 		return fmt.Errorf("resolve mutation target %s: %w", path, err)
 	}
-	unlock := lockPath(target)
+	unlock, err := lockPathContext(request, target)
+	if err != nil {
+		return fmt.Errorf("wait for mutation lock %s: %w", target, err)
+	}
 	defer unlock()
 	return mutate(target)
 }
@@ -71,6 +81,13 @@ func WriteSchema() map[string]any {
 const WriteDescription = "Write a UTF-8 text file using path and content. Creates parent directories and creates or explicitly replaces the file. Shares hashline edit's mutation coordinator and filesystem safety policy. New files are private (0600). Never use write to bypass a rejected edit; reread instead."
 
 func Write(cwd string, params map[string]any) (Result, error) {
+	return WriteContext(context.Background(), cwd, params)
+}
+
+func WriteContext(request Cancellation, cwd string, params map[string]any) (Result, error) {
+	if err := request.Err(); err != nil {
+		return Result{}, err
+	}
 	path, _ := params["path"].(string)
 	if path == "" {
 		return Result{}, errors.New("path must be a non-empty string.")
@@ -88,7 +105,11 @@ func Write(cwd string, params map[string]any) (Result, error) {
 	if IsBinary([]byte(content)) {
 		return Result{}, editErrorf("Write content must be UTF-8 text without binary content or NUL bytes.")
 	}
-	if err := validateResultSize(ParseFile(content)); err != nil {
+	parsed, err := ParseFileContext(request, content)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := validateResultSize(parsed); err != nil {
 		return Result{}, err
 	}
 	absolute, err := filepath.Abs(ResolveToolPath(path, cwd))
@@ -96,7 +117,7 @@ func Write(cwd string, params map[string]any) (Result, error) {
 		return Result{}, err
 	}
 	var result Result
-	err = WithMutationLock(absolute, func(target string) error {
+	err = WithMutationLockContext(request, absolute, func(target string) error {
 		root, err := filepath.Abs(cwd)
 		if err != nil {
 			return err
@@ -115,18 +136,18 @@ func Write(cwd string, params map[string]any) (Result, error) {
 		}
 		changed := true
 		if _, err := os.Lstat(target); err == nil {
-			snapshot, err := TakeSnapshot(target, root, MaxEditBytes)
+			snapshot, err := TakeSnapshotContext(request, target, root, MaxEditBytes)
 			if err != nil {
 				return err
 			}
 			changed = string(snapshot.Bytes) != content
 			if changed {
-				if err := ReplaceAtomically(snapshot, content, nil); err != nil {
+				if err := ReplaceAtomicallyContext(request, snapshot, content, nil); err != nil {
 					return err
 				}
 			}
 		} else if errors.Is(err, fs.ErrNotExist) {
-			if err := createTextFile(target, content); err != nil {
+			if err := createTextFileContext(request, target, content); err != nil {
 				return err
 			}
 		} else {
@@ -134,6 +155,9 @@ func Write(cwd string, params map[string]any) (Result, error) {
 		}
 		message := fmt.Sprintf("Wrote %d bytes to %s.", len(content), absolute)
 		if !changed {
+			if err := request.Err(); err != nil {
+				return err
+			}
 			message = fmt.Sprintf("No change: %s already has the requested content.", absolute)
 		}
 		result = withVersion(Result{
@@ -151,9 +175,19 @@ func Write(cwd string, params map[string]any) (Result, error) {
 // A hard-link publication creates the destination only if absent. Rename would
 // overwrite a file created by an external writer after our initial inspection.
 func createTextFile(target, content string) (err error) {
+	return createTextFileContext(context.Background(), target, content)
+}
+
+func createTextFileContext(request Cancellation, target, content string) (err error) {
+	if err := request.Err(); err != nil {
+		return err
+	}
 	directory := filepath.Dir(target)
 	if err := os.MkdirAll(directory, 0755); err != nil {
 		return fmt.Errorf("create parent directory for %s: %w", target, err)
+	}
+	if err := request.Err(); err != nil {
+		return err
 	}
 	file, err := os.CreateTemp(directory, ".pig-plugins-write-*.tmp")
 	if err != nil {
@@ -178,12 +212,8 @@ func createTextFile(target, content string) (err error) {
 	if _, err := checkSupportedMetadata(temporary); err != nil {
 		return err
 	}
-	count, err := file.WriteString(content)
-	if err != nil {
+	if err := writePreparedText(request, file, content); err != nil {
 		return fmt.Errorf("write preparation file for %s: %w", target, err)
-	}
-	if count != len(content) {
-		return fmt.Errorf("write preparation file for %s: %w", target, io.ErrShortWrite)
 	}
 	if err := file.Sync(); err != nil {
 		return fmt.Errorf("sync new file %s: %w", target, err)
@@ -192,6 +222,9 @@ func createTextFile(target, content string) (err error) {
 	file = nil
 	if err := closing.Close(); err != nil {
 		return fmt.Errorf("close new file %s: %w", target, err)
+	}
+	if err := request.Err(); err != nil {
+		return err
 	}
 	if err := os.Link(temporary, target); err != nil {
 		return fmt.Errorf("publish new file %s without overwriting another writer: %w", target, err)
