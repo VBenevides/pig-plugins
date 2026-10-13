@@ -148,3 +148,34 @@ func TestSettingsFileFollowsTheAgentDirectory(t *testing.T) {
 		t.Errorf("got %s", got)
 	}
 }
+
+// A fresh install must start with the guard on, interactive approval, and LANCET off; explicit saved choices win.
+func TestDefaultsAreOnInteractiveLancetOff(t *testing.T) {
+	want := Settings{Mode: Interactive}
+	for name, text := range map[string]*string{"missing file": nil, "empty object": ptr(`{}`), "unrelated keys only": ptr(`{"other":1}`)} {
+		file := settingsPath(t)
+		if text != nil {
+			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte(*text), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := LoadSettings(file); got != want {
+			t.Errorf("%s: %+v, want %+v", name, got, want)
+		}
+	}
+	explicit := settingsPath(t)
+	if err := os.MkdirAll(filepath.Dir(explicit), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(explicit, []byte(`{"enabled":false,"mode":"auto","lancet":{"enabled":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadSettings(explicit); got != (Settings{Mode: Strict, Lancet: true, Disabled: true}) {
+		t.Errorf("explicit settings were not preserved: %+v", got)
+	}
+}
+
+func ptr(s string) *string { return &s }
