@@ -91,6 +91,7 @@ type Snapshot struct {
 	// Mode holds ordinary permission bits; privileged modes are rejected.
 	Mode          fs.FileMode
 	info          fs.FileInfo // identity observed when the snapshot was taken
+	parentInfo    fs.FileInfo // directory identity observed during snapshot
 	securityLabel []byte      // exact inherited label; never printed
 }
 
@@ -100,7 +101,7 @@ func TakeSnapshot(absolute, cwd string, maxBytes int64) (Snapshot, error) {
 	return TakeSnapshotContext(context.Background(), absolute, cwd, maxBytes)
 }
 
-func TakeSnapshotContext(request Cancellation, absolute, cwd string, maxBytes int64) (Snapshot, error) {
+func TakeSnapshotContext(request Cancellation, absolute, cwd string, maxBytes int64) (snapshot Snapshot, err error) {
 	if err := request.Err(); err != nil {
 		return Snapshot{}, err
 	}
@@ -127,7 +128,13 @@ func TakeSnapshotContext(request Cancellation, absolute, cwd string, maxBytes in
 	if target != absolute && outside {
 		return Snapshot{}, editErrorf("Refusing to edit %s: its path traverses a symlink to %s, outside the working directory %s.", absolute, target, root)
 	}
-	stat, err := os.Stat(target)
+	pinned, err := pinDirectory(filepath.Dir(target))
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("pin snapshot parent for %s: %w", target, err)
+	}
+	defer pinned.close(&err, target, nil)
+	physicalTarget := pinned.child(target)
+	stat, err := os.Lstat(physicalTarget)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("stat %s: %w", target, err)
 	}
@@ -153,11 +160,11 @@ func TakeSnapshotContext(request Cancellation, absolute, cwd string, maxBytes in
 	if stat.Size() > maxBytes {
 		return Snapshot{}, editErrorf("%s is larger than %d bytes.", absolute, maxBytes)
 	}
-	label, err := checkSupportedMetadata(target)
+	label, err := checkSupportedMetadata(physicalTarget)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	content, err := readBoundedFileContext(request, target, maxBytes)
+	content, err := readBoundedMutationFile(request, physicalTarget, maxBytes)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("read %s: %w", target, err)
 	}
@@ -167,7 +174,10 @@ func TakeSnapshotContext(request Cancellation, absolute, cwd string, maxBytes in
 	if err := request.Err(); err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Target: target, Bytes: content, Mode: stat.Mode().Perm(), info: stat, securityLabel: label}, nil
+	if err := pinned.validate(); err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{Target: target, Bytes: content, Mode: stat.Mode().Perm(), info: stat, parentInfo: pinned.info, securityLabel: label}, nil
 }
 
 // ReplaceAtomically replaces the file with content through a temporary file in the same directory and a rename.
@@ -187,12 +197,21 @@ func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content 
 		return err
 	}
 	directory := filepath.Dir(snapshot.Target)
-	file, err := os.CreateTemp(directory, ".pig-plugins-edit-*.tmp")
+	pinned, err := pinDirectory(directory)
+	if err != nil {
+		return fmt.Errorf("pin mutation parent for %s: %w", snapshot.Target, err)
+	}
+	committed := false
+	defer pinned.close(&err, snapshot.Target, &committed)
+	if snapshot.parentInfo == nil || !os.SameFile(snapshot.parentInfo, pinned.info) {
+		return categorizedEditError(CategoryConcurrent, "Mutation directory for %s changed since snapshot; nothing was written.", snapshot.Target)
+	}
+	physicalTarget := pinned.child(snapshot.Target)
+	file, err := os.CreateTemp(pinned.physical, ".pig-plugins-edit-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temporary file for %s: %w", snapshot.Target, err)
 	}
 	temporary := file.Name()
-	committed := false
 	defer func() {
 		if file != nil {
 			if closeErr := file.Close(); closeErr != nil {
@@ -228,7 +247,10 @@ func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content 
 	if err := request.Err(); err != nil {
 		return err
 	}
-	currentInfo, err := os.Lstat(snapshot.Target)
+	if err := pinned.validate(); err != nil {
+		return err
+	}
+	currentInfo, err := os.Lstat(physicalTarget)
 	if err != nil {
 		return categorizedEditError(CategoryConcurrent, "%s changed while it was being edited (%s); nothing was written.", snapshot.Target, errnoName(err))
 	}
@@ -242,14 +264,14 @@ func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content 
 	if links != 1 || currentInfo.Mode() != snapshot.info.Mode() || !sameOwnership(snapshot.info, currentInfo) {
 		return categorizedEditError(CategoryConcurrent, "%s changed security-relevant metadata while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
-	currentLabel, err := checkSupportedMetadata(snapshot.Target)
+	currentLabel, err := checkSupportedMetadata(physicalTarget)
 	if err != nil {
 		return fmt.Errorf("revalidate metadata of %s: %w", snapshot.Target, err)
 	}
 	if !bytes.Equal(currentLabel, snapshot.securityLabel) {
 		return categorizedEditError(CategoryConcurrent, "%s changed security label while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
 	}
-	current, err := readBoundedFileContext(request, snapshot.Target, MaxEditBytes)
+	current, err := readBoundedMutationFile(request, physicalTarget, MaxEditBytes)
 	if err != nil {
 		if cancelled := request.Err(); cancelled != nil {
 			return fmt.Errorf("cancelled final read of %s: %w", snapshot.Target, errors.Join(err, cancelled))
@@ -278,7 +300,10 @@ func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content 
 	if err := request.Err(); err != nil {
 		return err
 	}
-	if err := os.Rename(temporary, snapshot.Target); err != nil {
+	if err := pinned.validate(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, physicalTarget); err != nil {
 		return fmt.Errorf("replace %s: %w", snapshot.Target, err)
 	}
 	committed = true

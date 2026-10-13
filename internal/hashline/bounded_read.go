@@ -36,10 +36,18 @@ func readBoundedFile(path string, maxBytes int64) (content []byte, err error) {
 }
 
 func readBoundedFileContext(request Cancellation, path string, maxBytes int64) (content []byte, err error) {
+	return readBoundedFileWithFlags(request, path, maxBytes, nonBlockingReadFlag)
+}
+
+func readBoundedMutationFile(request Cancellation, path string, maxBytes int64) ([]byte, error) {
+	return readBoundedFileWithFlags(request, path, maxBytes, nonBlockingReadFlag|nonFollowingReadFlag)
+}
+
+func readBoundedFileWithFlags(request Cancellation, path string, maxBytes int64, flags int) (content []byte, err error) {
 	if err := request.Err(); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_RDONLY|nonBlockingReadFlag, 0)
+	file, err := os.OpenFile(path, os.O_RDONLY|flags, 0)
 	if err != nil {
 		return nil, err
 	}

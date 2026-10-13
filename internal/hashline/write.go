@@ -197,12 +197,17 @@ func createTextFileWithSync(request Cancellation, target, content string, syncPa
 	if err := request.Err(); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(directory, ".pig-plugins-write-*.tmp")
+	pinned, err := pinDirectory(directory)
+	if err != nil {
+		return fmt.Errorf("pin parent directory for %s: %w", target, err)
+	}
+	published := false
+	defer pinned.close(&err, target, &published)
+	file, err := os.CreateTemp(pinned.physical, ".pig-plugins-write-*.tmp")
 	if err != nil {
 		return fmt.Errorf("prepare new file %s: %w", target, err)
 	}
 	temporary := file.Name()
-	published := false
 	cleaned := false
 	defer func() {
 		if file != nil {
@@ -237,7 +242,10 @@ func createTextFileWithSync(request Cancellation, target, content string, syncPa
 	if err := request.Err(); err != nil {
 		return err
 	}
-	if err := os.Link(temporary, target); err != nil {
+	if err := pinned.validate(); err != nil {
+		return err
+	}
+	if err := os.Link(temporary, pinned.child(target)); err != nil {
 		return fmt.Errorf("publish new file %s without overwriting another writer: %w", target, err)
 	}
 	published = true
