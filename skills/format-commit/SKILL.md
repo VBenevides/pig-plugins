@@ -8,7 +8,7 @@ description: "Format implementation and TODO evidence commit messages with the p
 Use this format:
 
 ```text
-type(system): short imperative phrase
+type(scope): short imperative phrase
 
 - change 1: description 1 - reason 1
 - change 2: description 2 - reason 2
@@ -16,10 +16,35 @@ type(system): short imperative phrase
 ```
 
 Select an applicable type: `feat`, `fix`, `docs`, `refactor`, `test`, `build`,
-`ci`, `perf`, or `chore`. Replace `system` with the affected project component.
+`ci`, `perf`, or `chore`. Replace `scope` with the affected project component.
 Use a short imperative subject.
 
 If implementation or test details help, add a blank line and short bullets.
+
+## Breaking changes
+
+Follow Conventional Commits 1.0.0: https://www.conventionalcommits.org/en/v1.0.0/
+
+For every breaking change, use an uppercase `BREAKING CHANGE:` footer as the
+final footer, at the end of the commit message. Separate the footer section from
+the body with a blank line. Put any other footers before this footer. Describe
+the incompatibility and the required migration. Omit this footer for non-breaking
+changes; any commit type can introduce a breaking change.
+
+```text
+feat(api): require explicit request versions
+
+- request validation: require a version field - prevent ambiguous requests
+- tests: cover missing versions - verify rejection behavior
+
+BREAKING CHANGE: Requests without a version field are rejected. Add a version field to every request.
+```
+
+The optional `!` marker cannot go at the end of the message. Conventional
+Commits requires it immediately before the subject's colon:
+`type(scope)!: short imperative phrase`. Prefer the final `BREAKING CHANGE:`
+footer instead of `!` for this project's fixed-position convention. If `!` is
+also used, keep the final footer to explain the incompatibility and migration.
 
 ## Commit message transport
 
@@ -28,7 +53,7 @@ use `git commit -F -` with a quoted heredoc:
 
 ```sh
 git commit -F - <<'EOF'
-type(system): short imperative phrase
+type(scope): short imperative phrase
 
 - change 1: description 1 - reason 1
 - change 2: description 2 - reason 2
