@@ -172,6 +172,7 @@ Input decoding is bounded to 32 MiB and 24 million pixels.
 Numbering resumes from user and tool-result messages on the current session branch.
 Prepared attachments persist atomically under `<agent-dir>/image-view/blobs/`, keyed by SHA-256.
 Display links resolve to local blobs; internal blob links are stripped from model-facing text.
+The blob directory is bounded. At session start and after each stored image, blobs not used for 48 hours are deleted, then the least recently used ones until the directory is at most 256 MiB. A blob counts as used when it is stored again or when a message that links it is rendered (refreshed at most once an hour). Only files named like a stored blob, and unpublished temporary files older than an hour, are removed; links, subdirectories and other files are left alone. A file that cannot be removed is logged, reported once per process, and retried at the next cleanup. An older session that links a deleted blob loses that preview image; the conversation text is unaffected. The limits are constants (`internal/imageview/prune.go`), not settings.
 Existing native `read` and `edit` tools remain active.
 
 The native UI keeps PiG's editor and clipboard handling. In the patched bundle, pasted image
@@ -704,7 +705,7 @@ and a `rows a-b of n` line shows the position. The window is 70% of the terminal
 read from the controlling terminal; where it cannot be read the window is 12 rows. `/todos` requires TUI mode; the tool works in RPC/print mode.
 
 The extension adds task-management guidance once per effective system prompt.
-Usage examples also live in [`prompts/agent/SYSTEM.md`](prompts/agent/SYSTEM.md).
+The todo policy is stated once, in this guidance: use `todo` only for substantial multi-step work. `SYSTEM.md` no longer repeats it.
 It does not read or write a workspace TODO.md. Markdown conversion helpers are internal library
 functions, not disk import/export commands. Ask mode continues to permit session task notes.
 
