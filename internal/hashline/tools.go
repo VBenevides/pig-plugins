@@ -61,7 +61,7 @@ var (
 		"Read again; text is never searched for. Ops: replace (anchor, optional end for a range, lines), " +
 		"insert_before / insert_after (anchor, lines), delete (anchor, optional end). lines is an array with one string " +
 		"per line, without line breaks. Do not paste display anchors into lines unless they are intended literal source; lines are never silently stripped or normalized. All ops use the anchors of the original read; ops in one call must not overlap " +
-		"and must not insert at the same position. After a successful mutation, read again before editing further. Create files with write."
+		"and must not insert at the same position. After a successful mutation, read again before editing further. Create files with write; an empty existing file has no anchors, so fill it with write (explicit replacement keeps its permissions)."
 	EditSnippet    = "Edit a file with line anchors from read; stale or ambiguous anchors are rejected"
 	EditGuidelines = []string{
 		"Copy the Version token and full anchors from the same current read; never guess them. Reread after mutation or expired authority.",
