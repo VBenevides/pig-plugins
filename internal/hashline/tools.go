@@ -61,7 +61,7 @@ var (
 		"If the version or any anchor is stale, the whole call is rejected and nothing changes. " +
 		"Read again; text is never searched for. Ops: replace (anchor, optional end for a range, lines), " +
 		"insert_before / insert_after (anchor, lines), delete (anchor, optional end). lines is an array with one string " +
-		"per line, without line breaks. All ops use the anchors of the original read; ops in one call must not overlap " +
+		"per line, without line breaks. Do not paste display anchors into lines unless they are intended literal source; lines are never silently stripped or normalized. All ops use the anchors of the original read; ops in one call must not overlap " +
 		"and must not insert at the same position. After a successful mutation, read again before editing further. Create files with write."
 	EditSnippet    = "Edit a file with line anchors from read; stale or ambiguous anchors are rejected"
 	EditGuidelines = []string{
