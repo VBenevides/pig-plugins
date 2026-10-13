@@ -445,7 +445,7 @@ Redirects, substitutions, executable hooks, wrappers, and mixed read/write comma
 `rg` with `RIPGREP_CONFIG_PATH` set also retains scoring because its config can supply executable hooks.
 Hard-block rules still take precedence.
 
-The confirmation shows `Affected items:` with one `- type: name - effect` entry per known target. Simple commands
+The confirmation shows the `Command:` first, then the `Risk Description:`, then `Affected items:` with one `- type: name - effect` entry per known target, so a long analysis scrolls below the command. Long dialogs scroll with the page keys when the host carries patches 0006-0008 (`patches/pig`); a stock host shows them unscrolled. Simple commands
 name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
 Implicit targets, shell expressions, compound commands and unsupported options show an unknown scope instead of
 guessing. For an unknown-scope confirmation, the current session model receives only the command and working
