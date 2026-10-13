@@ -133,21 +133,22 @@ func positiveInteger(params map[string]any, name string) (int, error) {
 	if !present {
 		return 0, nil
 	}
-	var number float64
 	switch typed := value.(type) {
-	case float64:
-		number = typed
 	case int:
-		number = float64(typed)
+		if typed >= 1 {
+			return typed, nil
+		}
 	case int64:
-		number = float64(typed)
-	default:
-		return 0, fmt.Errorf("%s must be an integer >= 1, got %s.", name, jsonValue(value))
+		if typed >= 1 && typed <= int64(math.MaxInt) {
+			return int(typed), nil
+		}
+	case float64:
+		// JSON numbers must be exact safe integers and fit the native signed int.
+		if typed >= 1 && typed <= (1<<53)-1 && typed < math.Ldexp(1, strconv.IntSize-1) && typed == math.Trunc(typed) {
+			return int(typed), nil
+		}
 	}
-	if number != math.Trunc(number) || math.IsInf(number, 0) || number < 1 {
-		return 0, fmt.Errorf("%s must be an integer >= 1, got %s.", name, jsonValue(value))
-	}
-	return int(min(number, 1<<40)), nil
+	return 0, fmt.Errorf("%s must be an integer >= 1, got %s.", name, jsonValue(value))
 }
 
 func kilobytes(bytes int) string {
@@ -317,7 +318,7 @@ func ReadContext(request Cancellation, cwd string, params map[string]any) (resul
 	}
 	to := total
 	if limit > 0 {
-		to = min(total, from+limit-1)
+		to = from + min(limit, total-from+1) - 1
 	}
 	return rangeResult(file, from, to, MaxRangeLines, MaxRangeBytes, "range"), nil
 }
@@ -354,9 +355,9 @@ func readNonText(request Cancellation, path, absolute string, content []byte, of
 	}
 	to := len(lines)
 	if limit > 0 {
-		to = min(len(lines), from+limit-1)
+		to = from + min(limit, len(lines)-from+1) - 1
 	}
-	to = min(to, from+MaxRangeLines-1)
+	to = from + min(to-from+1, MaxRangeLines) - 1
 	text := strings.Join(lines[from-1:to], "\n")
 	for len(text) > MaxRangeBytes {
 		to--

@@ -157,7 +157,7 @@ func parseAnchor(value any, label string) (parsedAnchor, error) {
 		return parsedAnchor{}, editErrorf(`%s: "%s" is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`, label, text)
 	}
 	line, err := strconv.ParseUint(match[1], 10, 64)
-	if err != nil || line > maxSafeInteger || line < 1 {
+	if err != nil || line > maxSafeInteger || line > uint64(^uint(0)>>1) || line < 1 {
 		return parsedAnchor{}, editErrorf(`%s: line number in "%s" must be >= 1.`, label, text)
 	}
 	return parsedAnchor{line: int(line), hash: match[2]}, nil
