@@ -222,17 +222,6 @@ func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content 
 	if err := writePreparedText(request, file, content); err != nil {
 		return fmt.Errorf("write temporary file for %s: %w", snapshot.Target, err)
 	}
-	if err := file.Chmod(snapshot.Mode); err != nil {
-		return fmt.Errorf("set mode of temporary file for %s: %w", snapshot.Target, err)
-	}
-	if err := file.Sync(); err != nil {
-		return fmt.Errorf("sync temporary file for %s: %w", snapshot.Target, err)
-	}
-	closing := file
-	file = nil
-	if err := closing.Close(); err != nil {
-		return fmt.Errorf("close temporary file for %s: %w", snapshot.Target, err)
-	}
 	if beforeCommit != nil {
 		beforeCommit()
 	}
@@ -269,6 +258,22 @@ func replaceAtomicallyWithSync(request Cancellation, snapshot Snapshot, content 
 	}
 	if !bytes.Equal(current, snapshot.Bytes) {
 		return categorizedEditError(CategoryConcurrent, "%s was modified by someone else while the edit was prepared; nothing was written. Read it again.", snapshot.Target)
+	}
+	if err := request.Err(); err != nil {
+		return err
+	}
+	// Keep preparation private until validation is complete; final permissions
+	// are restored only in the last publication preparation stage.
+	if err := file.Chmod(snapshot.Mode); err != nil {
+		return fmt.Errorf("set mode of temporary file for %s: %w", snapshot.Target, err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync temporary file for %s: %w", snapshot.Target, err)
+	}
+	closing := file
+	file = nil
+	if err := closing.Close(); err != nil {
+		return fmt.Errorf("close temporary file for %s: %w", snapshot.Target, err)
 	}
 	if err := request.Err(); err != nil {
 		return err
