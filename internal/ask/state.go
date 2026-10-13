@@ -120,7 +120,7 @@ func (s *State) Handle(data string) (*Result, error) {
 		return nil, nil
 	}
 	if s.collapsed {
-		if key == "escape" {
+		if key == "escape" || key == "q" {
 			return s.result(true), nil
 		}
 		return nil, nil
@@ -164,6 +164,10 @@ func (s *State) Handle(data string) (*Result, error) {
 		}
 		editor.Handle(data)
 		return nil, nil
+	}
+	// Outside the text editors above, where q is a letter, q cancels like Escape.
+	if key == "q" {
+		return s.result(true), nil
 	}
 	if s.tabs() > 1 && (key == "tab" || key == "shift+tab" || key == "left" || key == "right") {
 		direction := 1

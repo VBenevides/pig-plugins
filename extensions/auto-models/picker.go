@@ -87,9 +87,9 @@ func (p *picker) Render(width int) []string {
 	if len(p.matches) > 12 {
 		lines = append(lines, p.theme.Fg("dim", fmt.Sprintf("%d/%d", p.index+1, len(p.matches))))
 	}
-	help := "↑↓ select • enter confirm • esc cancel"
+	help := "↑↓ select • enter confirm • esc/q cancel"
 	if p.swappable {
-		help = "↑↓ select • r swap • enter confirm • esc cancel"
+		help = "↑↓ select • r swap • enter confirm • esc/q cancel"
 	}
 	if p.searchable {
 		help = "↑↓ select • type to search • enter confirm • esc cancel"
@@ -113,6 +113,10 @@ func (p *picker) HandleInput(data string) (sdk.RemoteComponentResult, error) {
 	defer p.mu.Unlock()
 	if tui.Released(data) {
 		return sdk.RemoteComponentResult{}, nil
+	}
+	// Without a search box q is not text, so it cancels like Escape.
+	if !p.searchable && tui.Key(data) == "q" {
+		return sdk.RemoteComponentResult{Done: true}, nil
 	}
 	if p.swappable && tui.Key(data) == "r" {
 		return sdk.RemoteComponentResult{Done: true, Value: swapValue}, nil

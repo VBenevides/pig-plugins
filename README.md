@@ -699,7 +699,9 @@ tasks are completed or abandoned. A widget failure warns without undoing an alre
 Cards show Roman-numbered phases and themed status markers; collapsed cards summarize untouched
 phases, while expanded cards show every phase. Terminal controls are removed, and cards are capped
 at 1,024 wrapped lines. `/todos` opens the full read-only phased viewer with a done count;
-Escape or Ctrl+C closes it. `/todos` requires TUI mode; the tool works in RPC/print mode.
+Escape, `q` or Ctrl+C closes it. A list taller than the window scrolls with Up/Down (or `k`/`j`), PgUp/PgDn, Home and End,
+and a `rows a-b of n` line shows the position. The window is 70% of the terminal height minus four fixed rows (at least 3),
+read from the controlling terminal; where it cannot be read the window is 12 rows. `/todos` requires TUI mode; the tool works in RPC/print mode.
 
 The extension adds task-management guidance once per effective system prompt.
 Usage examples also live in [`prompts/agent/SYSTEM.md`](prompts/agent/SYSTEM.md).
@@ -744,6 +746,11 @@ The extension checks when an agent run has settled, and starts the same compacti
 - Like a manual `/compact`, the host rejects a prompt typed while that compacting runs ("Cannot submit a prompt while compaction is in progress"); send it again afterwards.
 - A failed compacting is reported and not retried at the same context size.
 - The reserve is read from the project `.pig/settings.json` whether or not the project is trusted, which only moves the cap.
+
+## Closing menus
+
+Every menu this repository draws closes with both `Esc` and `q`: the `/todos` viewer, the auto-models dashboard and pickers, and the `ask_user_question` questionnaire (also `Ctrl+C`). Where `q` is a letter it stays a letter: the auto-models pickers that have a search box, the questionnaire's typed-answer row, and its note editor. There `Esc` is the only key, and the hint line names `q` only where it works.
+Dialogs the host itself draws (select and confirm prompts such as the Smart Approve question or the `/pi-curator` and footer settings) close with the host's `tui.select.cancel` keys, `Esc` and `Ctrl+C` by default. A repository extension cannot add `q` to them. You can add it yourself in `keybindings.json` with `"tui.select.cancel": ["escape", "ctrl+c", "q"]`, but that key also applies to host lists with a search box, such as the model selector, where `q` would then cancel instead of typing. This repository does not change your keybindings.
 
 ## ask-mode
 
