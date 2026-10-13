@@ -213,13 +213,14 @@ type Values struct {
 	sources  [3]string
 }
 
-// Effective returns the values with saved settings applied over the environment over the defaults. When the
+// Effective returns the values with saved settings applied over the environment over the defaults. Curator is off
+// until the user runs /pi-curator on. When the
 // settings file is damaged it returns the environment values together with the error: a damaged file is reported,
 // never trusted, and never stops the session.
 func (c Config) Effective() (Values, error) {
 	saved, err := LoadSettings(c.File())
 	var out Values
-	out.Enabled = true
+	out.Enabled = false
 	if saved.Enabled != nil {
 		out.Enabled = *saved.Enabled
 	}

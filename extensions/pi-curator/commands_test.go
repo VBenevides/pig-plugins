@@ -25,7 +25,7 @@ func TestCommandsPersistAndSavedSettingsWin(t *testing.T) {
 	home := repoHome(t)
 	seed(t, home)
 	file := filepath.Join(home.AgentDir(), "pi-curator.json")
-	writeFile(t, file, `{"unrelated":{"n":9007199254740993}}`)
+	writeFile(t, file, `{"enabled":true,"unrelated":{"n":9007199254740993}}`)
 	mock := pigtest.NewMockLLM()
 	defer mock.Close()
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env(nil), Prompts: []string{"/pi-curator prefetch 700", "/pi-curator startup off", "/pi-curator engine fts", "/pi-curator status", "/pi-curator prefetch 7"}})
@@ -91,7 +91,7 @@ func TestOffOnImmediatelyControlsRecallToolsAndCapture(t *testing.T) {
 	home := repoHome(t)
 	seed(t, home)
 	file := filepath.Join(home.AgentDir(), "pi-curator.json")
-	writeFile(t, file, `{"prefetchBudget":512,"startupDecisions":2,"searchEngine":"legacy"}`)
+	writeFile(t, file, `{"enabled":true,"prefetchBudget":512,"startupDecisions":2,"searchEngine":"legacy"}`)
 	mock := pigtest.NewMockLLM(
 		pigtest.Calls(pigtest.Call("memory_search", map[string]any{"query": "atomic writes"})),
 		pigtest.Calls(pigtest.Call("memory_read", map[string]any{"ids": []string{"decision"}})),
@@ -188,5 +188,27 @@ func TestOnRestoresCaptureAfterExplicitConsent(t *testing.T) {
 		Prompts: []string{"/pi-curator on", "accepted-on-prompt"}, Confirm: func(map[string]any) bool { return true }})
 	if len(result.Asked) != 1 || !strings.Contains(journal(home), "accepted-on-answer") || !strings.Contains(journal(home), "accepted-on-prompt") {
 		t.Fatal(result.Asked, journal(home), result.Stderr)
+	}
+}
+
+func TestFreshInstallIsOffUntilTheUserTurnsItOn(t *testing.T) {
+	home := repoHome(t)
+	if err := os.Remove(filepath.Join(home.AgentDir(), "pi-curator.json")); err != nil {
+		t.Fatal(err)
+	}
+	mock := pigtest.NewMockLLM(pigtest.Text("fresh-default-answer"))
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env(nil),
+		Prompts: []string{"fresh-default-prompt"}, Confirm: func(map[string]any) bool { return true }})
+	if len(result.Asked) != 0 {
+		t.Fatal("a fresh install asked for curator consent", result.Asked, result.Stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home.Work, ".curator")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a fresh install created curator memory", err)
+	}
+	for _, name := range pigtest.ToolNames(mock) {
+		if strings.HasPrefix(name, "memory_") {
+			t.Fatal("a fresh install exposed memory tools", name)
+		}
 	}
 }

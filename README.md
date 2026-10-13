@@ -509,8 +509,9 @@ The integration defaults are prefetch 512, startup 2, and engine legacy.
 Set `PI_CURATOR_PREFETCH_BUDGET=0` to disable task prefetch.
 Set `PI_CURATOR_STARTUP_DECISIONS=0` to disable startup history as well.
 `PI_CURATOR_SEARCH_ENGINE` selects the tool engine. `PI_CURATOR_PREFETCH_ENGINE` separately selects the prefetch engine.
+The extension is off by default: with no saved setting it captures nothing, recalls nothing, asks for no consent, and exposes no memory tools. An explicit saved `enabled` value always wins.
 `/pi-curator off` persists `enabled=false`. It stops capture, recall, consent prompts, and the memory tools at once, and survives restart.
-`/pi-curator on` re-enables the extension. It does not grant consent.
+`/pi-curator on` enables the extension and persists `enabled=true`. It does not grant consent.
 Startup history and task recall share one budget, which includes the envelope. Startup history takes at most half when a task search runs. The "combined history exceeds prefetch budget" warning no longer occurs for normal budgets.
 `prefetch off` disables task recall only. Startup history stays bounded at 512.
 History enters an ordinary hidden message, never the system prompt.
