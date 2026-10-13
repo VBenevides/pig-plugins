@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
+	"time"
 )
 
 const (
@@ -30,6 +31,7 @@ type Engine struct {
 	scope              string
 	epoch              atomic.Uint64
 	generation         uint64
+	metrics            engineMetrics
 }
 
 func NewEngine() *Engine { return newEngine(MaxSnapshotFiles, MaxSnapshotBytes) }
@@ -41,6 +43,7 @@ func newEngine(files, bytes int) *Engine {
 }
 
 func (engine *Engine) enter(request Cancellation) (func(), error) {
+	defer engine.observeAdmission(time.Now())
 	if err := request.Err(); err != nil {
 		return nil, err
 	}
@@ -133,7 +136,8 @@ func (engine *Engine) retain(path string, result Result) {
 	engine.bytes += cost
 }
 
-func (engine *Engine) ReadContext(request Cancellation, cwd string, params map[string]any) (Result, error) {
+func (engine *Engine) ReadContext(request Cancellation, cwd string, params map[string]any) (result Result, err error) {
+	defer func() { engine.observe(result, err) }()
 	release, err := engine.enter(request)
 	if err != nil {
 		return Result{}, err
@@ -153,14 +157,15 @@ func (engine *Engine) ReadContext(request Cancellation, cwd string, params map[s
 		return Result{}, err
 	}
 	defer unlock()
-	result, err := ReadContext(request, cwd, params)
+	result, err = ReadContext(request, cwd, params)
 	if err == nil {
 		engine.retain(target, result)
 	}
 	return result, err
 }
 
-func (engine *Engine) EditContext(request Cancellation, cwd string, params map[string]any) (Result, error) {
+func (engine *Engine) EditContext(request Cancellation, cwd string, params map[string]any) (result Result, err error) {
+	defer func() { engine.observe(result, err) }()
 	release, err := engine.enter(request)
 	if err != nil {
 		return Result{}, err
@@ -180,7 +185,7 @@ func (engine *Engine) EditContext(request Cancellation, cwd string, params map[s
 	if err := requireDisplayedEdits(request, read, params["edits"]); err != nil {
 		return Result{}, fmt.Errorf("edit rejected: %w", err)
 	}
-	result, err := EditContext(request, cwd, params)
+	result, err = EditContext(request, cwd, params)
 	var committed *CommittedError
 	if err == nil && result.Details["changed"] == true || errors.As(err, &committed) {
 		engine.forget(target)
@@ -188,14 +193,15 @@ func (engine *Engine) EditContext(request Cancellation, cwd string, params map[s
 	return result, err
 }
 
-func (engine *Engine) WriteContext(request Cancellation, cwd string, params map[string]any) (Result, error) {
+func (engine *Engine) WriteContext(request Cancellation, cwd string, params map[string]any) (result Result, err error) {
+	defer func() { engine.observe(result, err) }()
 	release, err := engine.enter(request)
 	if err != nil {
 		return Result{}, err
 	}
 	defer release()
 	request = lifecycleCancellation{Cancellation: request, engine: engine, generation: engine.generation}
-	result, err := WriteContext(request, cwd, params)
+	result, err = WriteContext(request, cwd, params)
 	var committed *CommittedError
 	if err == nil && result.Details["changed"] == true || errors.As(err, &committed) {
 		path, _ := params["path"].(string)
