@@ -152,9 +152,12 @@ func parseAnchor(value any, label string) (parsedAnchor, error) {
 	if !ok {
 		return parsedAnchor{}, editErrorf(`%s: anchor must be a string like "12#a3f9".`, label)
 	}
+	if len(text) > 64 {
+		return parsedAnchor{}, editErrorf("%s: anchor exceeds 64 bytes.", label)
+	}
 	match := anchorPattern.FindStringSubmatch(jsTrim(text))
 	if match == nil {
-		return parsedAnchor{}, editErrorf(`%s: "%s" is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`, label, text)
+		return parsedAnchor{}, editErrorf(`%s: anchor is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`, label)
 	}
 	line, err := strconv.ParseUint(match[1], 10, 64)
 	if err != nil || line > maxSafeInteger || line > uint64(^uint(0)>>1) || line < 1 {

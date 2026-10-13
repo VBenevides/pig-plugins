@@ -197,6 +197,13 @@ func TestEditAgainstTypeScript(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, err := Edit(dir, map[string]any{"path": c.File, "version": ContentVersion([]byte(c.Content)), "edits": c.Edits})
+			// Intentional safety divergence: malformed input must not be echoed.
+			// Keep fixtures unchanged and require the exact new sanitized diagnostic.
+			switch c.Name {
+			case "hash only", "line only", "hash with leading hash", "non hex hash", "uppercase hash":
+				message := `edit rejected: edits[0].anchor: anchor is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`
+				c.Outcome.Error = &message
+			}
 			compareOutcome(t, versionedOutcome(c.Outcome, c.After), got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
 			after, readErr := os.ReadFile(path)
 			if readErr != nil {

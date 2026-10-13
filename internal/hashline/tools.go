@@ -3,7 +3,6 @@ package hashline
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -112,7 +111,7 @@ func EditSchema() map[string]any {
 	}
 }
 
-// jsonValue renders a value like JSON.stringify, for error messages.
+// jsonValue preserves numeric diagnostic compatibility without reflecting payloads.
 func jsonValue(value any) string {
 	if number, ok := value.(float64); ok {
 		if math.IsNaN(number) || math.IsInf(number, 0) {
@@ -120,11 +119,20 @@ func jsonValue(value any) string {
 		}
 		return strconv.FormatFloat(number, 'f', -1, 64)
 	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%v", value)
+	switch typed := value.(type) {
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case nil:
+		return "null"
+	case bool:
+		return strconv.FormatBool(typed)
+	case string:
+		return "<string>"
+	default:
+		return "<unsupported value>"
 	}
-	return string(data)
 }
 
 // positiveInteger reads an optional integer >= 1 parameter; 0 means absent.
