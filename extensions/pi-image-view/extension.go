@@ -3,12 +3,15 @@ package imageviewext
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/agentdir"
@@ -20,6 +23,29 @@ const Name = "pi-image-view"
 func blobRoot() string {
 	return filepath.Join(agentdir.Dir(os.Getenv), "image-view", "blobs")
 }
+
+var cleanupWarned atomic.Bool
+
+// maintainBlobs keeps the stored previews bounded (two days without use, 256 MiB). A failure never stops the
+// caller; it is logged every time and shown to the user once per process.
+func maintainBlobs(ctx sdk.Context) {
+	result, err := images.Prune(blobRoot(), time.Now(), images.MaxBlobAge, images.MaxBlobBytes)
+	if err == nil {
+		return
+	}
+	log.Printf("pi-image-view: cleaning old image previews (%d expired, %d over the cap removed): %v", result.Expired, result.OverCap, err)
+	if cleanupWarned.CompareAndSwap(false, true) {
+		ctx.Notify("pi-image-view: could not clean some old image previews; they stay on disk and cleanup is retried later", "warn")
+	}
+}
+
+// touchBlob marks a preview as used, so one that is still being looked at does not expire.
+func touchBlob(name string) {
+	if err := images.Touch(blobRoot(), name, time.Now()); err != nil {
+		log.Printf("pi-image-view: %v", err)
+	}
+}
+
 func blocks(value any) []map[string]any {
 	var items []map[string]any
 	switch typed := value.(type) {
@@ -129,6 +155,7 @@ func Extension() *sdk.Extension {
 	}
 	restore := func(ctx sdk.Context, event map[string]any) (any, error) {
 		polling.stop()
+		maintainBlobs(ctx)
 		if _, err := restoreState(ctx, event); err != nil {
 			return nil, err
 		}
@@ -216,6 +243,7 @@ func Extension() *sdk.Extension {
 			if ref == nil {
 				return link
 			}
+			touchBlob(ref[1])
 			target := (&url.URL{Scheme: "file", Path: filepath.Join(blobRoot(), ref[1])}).String()
 			return "[[Image #" + match[1] + "]](" + target + ")"
 		})
@@ -245,6 +273,10 @@ func Extension() *sdk.Extension {
 			if err != nil {
 				return err
 			}
+			if stored := images.Reference.FindStringSubmatch(ref); stored != nil {
+				touchBlob(stored[1]) // An already stored identical image is in use again.
+			}
+			maintainBlobs(ctx)
 			trackedMarker := label != ""
 			if label == "" {
 				label = marker(text)
