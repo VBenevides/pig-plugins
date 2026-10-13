@@ -104,7 +104,8 @@ func TestBashDecisionTable(t *testing.T) {
 func TestConfirmationDialogText(t *testing.T) {
 	d := &dialog{answer: true}
 	check(newGate(Interactive, false, nil), d, "bash", bash("git push --force origin dev"), true)
-	want := "Dangerous command: git force / mirror push\nRisk Description:\n- git force / mirror push: Overwrites the remote history. Other people's commits can be lost.\n\nAffected items:\n- branch: dev (remote: origin) - push changes (overwrite remote history)\n\nCommand:\ngit push --force origin dev\n\nAllow this command to run?"
+	// The command is shown before the risk and the possible effects.
+	want := "Dangerous command: git force / mirror push\nCommand:\ngit push --force origin dev\n\nRisk Description:\n- git force / mirror push: Overwrites the remote history. Other people's commits can be lost.\n\nAffected items:\n- branch: dev (remote: origin) - push changes (overwrite remote history)\n\nAllow this command to run?"
 	if len(d.asked) != 1 || d.asked[0] != want {
 		t.Errorf("dialog = %q, want %q", d.asked, want)
 	}
@@ -315,5 +316,24 @@ func TestRealTargetFollowsDanglingLinkLoopsSafely(t *testing.T) {
 	}
 	if got := RealTarget(a); got != "" {
 		t.Errorf("RealTarget of a link loop = %q, want empty (and no hang)", got)
+	}
+}
+
+// A long command or analysis scrolls, so what the user must see first has to come first: the command, then the
+// risk, then the possible effects. This holds for the select dialog (title and body in one text) as well.
+func TestDialogShowsCommandBeforeRiskAndEffects(t *testing.T) {
+	d := &dialog{answer: true}
+	command := "rm -rf build output.txt " + strings.Repeat("x", 600)
+	check(newGate(Interactive, false, nil), d, "bash", bash(command), true)
+	if len(d.asked) != 1 {
+		t.Fatalf("asked %d times: %q", len(d.asked), d.asked)
+	}
+	text := d.asked[0]
+	commandAt, riskAt, effectsAt := strings.Index(text, "Command:\n"+command), strings.Index(text, "Risk Description:"), strings.Index(text, "Affected items:")
+	if commandAt < 0 || riskAt < 0 || effectsAt < 0 || !(commandAt < riskAt && riskAt < effectsAt) {
+		t.Fatalf("order must be command, risk, effects (got %d, %d, %d):\n%s", commandAt, riskAt, effectsAt, text)
+	}
+	if !strings.HasSuffix(text, "Allow this command to run?") {
+		t.Fatalf("the question stays last: %q", text[len(text)-60:])
 	}
 }
