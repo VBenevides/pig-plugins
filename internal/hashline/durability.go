@@ -18,6 +18,9 @@ func (err *CommittedError) Error() string {
 }
 func (err *CommittedError) Unwrap() error { return err.Err }
 
+// directorySyncer is replaced only by tests that inject post-publication failures.
+var directorySyncer = syncDirectory
+
 func syncDirectory(path string) (err error) {
 	directory, err := os.Open(path)
 	if err != nil {

@@ -183,7 +183,7 @@ func createTextFile(target, content string) (err error) {
 }
 
 func createTextFileContext(request Cancellation, target, content string) (err error) {
-	return createTextFileWithSync(request, target, content, syncDirectory)
+	return createTextFileWithSync(request, target, content, directorySyncer)
 }
 
 func createTextFileWithSync(request Cancellation, target, content string, syncParent func(string) error) (err error) {
