@@ -481,7 +481,7 @@ func editLockedContext(request Cancellation, cwd, absolute string, version, edit
 		return Result{}, err
 	}
 	if err := checkVersion(version, snapshot.Bytes); err != nil {
-		return Result{}, err
+		return Result{}, staleRejectionContext(request, snapshot.Bytes, edits, err)
 	}
 	original := string(snapshot.Bytes)
 	parsed, err := ParseFileContext(request, original)
