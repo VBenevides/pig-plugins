@@ -731,6 +731,19 @@ Turning discovery off does not unload previously discovered tools or disable MCP
 servers, and tools remain reachable through `codemode` if it is active.
 Discovery searches registered session tools; it does not scan directories or install tools.
 
+## compact-settings
+
+`/compact-settings limit relative <0-100|off>` and `/compact-settings limit absolute <tokens|off>` set when PiG compacts automatically. `/compact-settings` (or `limit status`) shows the saved values and the effective limit; `limit off` clears both. The built-in `/compact` is unchanged.
+A relative limit is a percentage of the model's context window (`50`, `62.5`, `50%`; above 0, at most 100). An absolute limit is a token count: `200000`, or `200k`, `1M`, `1.5M` (`k` = 1,000, `m` = 1,000,000, any case). A decimal needs a suffix and must give a whole number of tokens. Zero, negatives, separators, spaces and other suffixes are rejected and change nothing.
+The effective limit is `min(relative, absolute, window - reserveTokens)`, where `reserveTokens` is PiG's `compaction.reserveTokens` (default 16384, read from the global and the project `settings.json`). PiG's own threshold therefore always remains the upper bound, and with nothing set behavior is unchanged. A value at or above that cap is saved but reported as clamped, so a later switch to a larger-window model can use it. With an unknown window, or a window not above the reserve, PiG's own behavior applies.
+Settings are per user, in `<agent dir>/compact-settings.json` (mode 0600). A damaged file is reported and ignored; PiG's own threshold keeps working.
+The extension checks when an agent run has settled, and starts the same compacting that `/compact` uses, so the native and any custom summary share one trigger. Limits:
+
+- PiG's own check after each model reply cannot be changed from an extension, so inside one long run the context can pass a limit until the run ends.
+- Like a manual `/compact`, the host rejects a prompt typed while that compacting runs ("Cannot submit a prompt while compaction is in progress"); send it again afterwards.
+- A failed compacting is reported and not retried at the same context size.
+- The reserve is read from the project `.pig/settings.json` whether or not the project is trusted, which only moves the cap.
+
 ## ask-mode
 
 `/mode` toggles between ACT and read-only ASK; `/mode ask`, `/mode act`, and `/mode status` set or show the mode. `/ask` is no longer registered.

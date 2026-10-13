@@ -35,6 +35,8 @@ extensions:
     origins: [local:./extensions/cursor-login]
   - name: ask-mode
     origins: [local:./extensions/ask-mode]
+  - name: compact-settings
+    origins: [local:./extensions/compact-settings]
   - name: user-resources
     origins: [local:./extensions/user-resources]
 discovery:
