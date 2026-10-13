@@ -1,4 +1,6 @@
 {
   "app.suspend": [],
-  "tui.editor.undo": ["ctrl+z"]
+  "tui.editor.undo": ["ctrl+z"],
+  "tui.editor.selectAll": ["ctrl+a"],
+  "tui.editor.cursorLineStart": ["home"]
 }
