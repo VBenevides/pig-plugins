@@ -3,7 +3,7 @@
 // from Go. The TypeScript source is NOT part of this repository; pass its directory explicitly:
 //   HASHLINE_TS_SOURCE=/path/to/harness-hashline node scripts/hashline-golden/generate.mjs
 // Run from the repository root. See scripts/hashline-golden/README.md.
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -15,6 +15,39 @@ if (!process.env.HASHLINE_TS_SOURCE) {
 }
 const SOURCE = resolve(process.env.HASHLINE_TS_SOURCE);
 const OUT = join(process.cwd(), "internal/hashline/testdata/ts-golden.json");
+
+// Digest of every source file (relative path + bytes, sorted) excluding node_modules and .git.
+function treeDigest(root) {
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      const full = join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) files.push(full);
+    }
+  };
+  walk(root);
+  const hash = createHash("sha256");
+  for (const file of files.map((f) => f.slice(root.length + 1)).sort()) {
+    hash.update(file + "\0").update(readFileSync(join(root, file))).update("\0");
+  }
+  return hash.digest("hex");
+}
+const digest = treeDigest(SOURCE);
+if (process.argv.includes("--print-digest")) {
+  console.log(digest);
+  process.exit(0);
+}
+const provenance = JSON.parse(readFileSync(join(import.meta.dirname, "PROVENANCE.json"), "utf8"));
+if (!provenance.sourceTreeSha256) {
+  console.error("PROVENANCE.json has no pinned sourceTreeSha256; recover the original source, run with --print-digest, and pin it before regenerating.");
+  process.exit(3);
+}
+if (provenance.sourceTreeSha256 !== digest) {
+  console.error(`source digest ${digest} does not match pinned ${provenance.sourceTreeSha256}; refusing to regenerate.`);
+  process.exit(4);
+}
 
 const work = realpathSync(mkdtempSync(join(tmpdir(), "hashline-golden-")));
 const pkg = join(work, "pkg");

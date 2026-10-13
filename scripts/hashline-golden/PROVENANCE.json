@@ -1,0 +1,5 @@
+{
+  "sourceTreeSha256": null,
+  "status": "unpinned",
+  "note": "The original TypeScript harness-hashline source used to create internal/hashline/testdata/ts-golden.json is not available, so its version and tree digest could not be recorded. Recover it, run generate.mjs with --print-digest, and set sourceTreeSha256. Until then regeneration is refused."
+}
