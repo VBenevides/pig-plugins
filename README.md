@@ -374,6 +374,14 @@ Path permission policy preserves explicit outside-working-directory access: abso
 relative `../` paths are not confined to cwd. Separately, mutations reject paths whose symlink resolution
 escapes the real working directory; internal aliases are permitted. This is a filesystem-integrity policy,
 not permission to bypass host guard approval or protected-path rules, and hashline is not a sandbox.
+
+Filesystem safety limits: mutations pin the parent directory with a no-follow descriptor (Linux, via verified
+procfs paths) and revalidate identity, link count, mode, owner and supported metadata before an atomic rename;
+other platforms fail closed. Ancestors can still be swapped before the parent is pinned, and the final
+compare-to-rename step cannot exclude writers outside this process (shell commands, other programs). Coordination
+covers only cooperating in-process callers. Metadata preservation was verified on Linux only (ACLs and unsupported
+extended attributes are rejected), the directory sync is path-based, and no crash or power-loss testing was done.
+Hashline is an integrity aid, not a sandbox or an access-control boundary.
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of
 `hashline.WithMutationLock` share a canonical-target in-process coordinator, including directory aliases and
