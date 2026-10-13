@@ -370,6 +370,10 @@ obtain current version-bound anchors and displayed-content authority. Search sni
 A future anchored-search feature would need the same bounded output, session binding, freshness, and complete
 source-coverage rules; it is not required for the current read/edit workflow.
 
+Path permission policy preserves explicit outside-working-directory access: absolute paths and ordinary
+relative `../` paths are not confined to cwd. Separately, mutations reject paths whose symlink resolution
+escapes the real working directory; internal aliases are permitted. This is a filesystem-integrity policy,
+not permission to bypass host guard approval or protected-path rules, and hashline is not a sandbox.
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
 text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of
 `hashline.WithMutationLock` share a canonical-target in-process coordinator, including directory aliases and
