@@ -1,0 +1,39 @@
+diff --git a/tui/extension_selector.go b/tui/extension_selector.go
+index 58f4f15..9dfcd90 100644
+--- a/tui/extension_selector.go
++++ b/tui/extension_selector.go
+@@ -204,7 +204,7 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 		if e.SelectedValue() != "" {
+ 			e.done = true
+ 		}
+-	case kb.Matches(data, KBSelectCancel):
++	case kb.Matches(data, KBSelectCancel) || data == "q": // No filter input here, so q is not text (pig additive).
+ 		e.done = true
+ 		e.cancel = true
+ 	}
+diff --git a/tui/extension_selector_test.go b/tui/extension_selector_test.go
+index c928fda..bcb2c24 100644
+--- a/tui/extension_selector_test.go
++++ b/tui/extension_selector_test.go
+@@ -72,6 +72,21 @@ func TestExtensionSelectorHandleInput_CancelStillWins(t *testing.T) {
+ 	}
+ }
+ 
++// q cancels like Escape: this selector has no filter input, so q is never text (pig additive).
++func TestExtensionSelectorQCancelsLikeEscape(t *testing.T) {
++	sel := NewExtensionSelector("Pick one", []string{"a", "b"})
++	sel.HandleInput("q")
++	if !sel.Done() || !sel.Cancelled() {
++		t.Fatal("q must cancel the selector")
++	}
++	other := NewExtensionSelector("Pick one", []string{"a", "b"})
++	other.HandleInput("j")
++	other.HandleInput("\r")
++	if !other.Done() || other.Cancelled() || other.SelectedValue() != "b" {
++		t.Fatal("navigation and confirmation must be unchanged")
++	}
++}
++
+ // Upstream extension-selector.ts and extension-editor.ts render an optional
+ // description between the title and the body, after a blank spacer, wrapped
+ // with one cell of padding.
