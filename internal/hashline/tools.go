@@ -366,12 +366,26 @@ func readNonText(request Cancellation, path, absolute string, content []byte, of
 		to = from + min(limit, len(lines)-from+1) - 1
 	}
 	to = from + min(to-from+1, MaxRangeLines) - 1
-	text := strings.Join(lines[from-1:to], "\n")
-	for len(text) > MaxRangeBytes {
+	shownLines := make([]string, 0, to-from+1)
+	shortened := false
+	for _, line := range lines[from-1 : to] {
+		if length := utf16Length(line); length > MaxLineChars {
+			line = fmt.Sprintf("%s …[line truncated, %d more chars]", firstUTF16(line, MaxLineChars), length-MaxLineChars)
+			shortened = true
+		}
+		shownLines = append(shownLines, line)
+	}
+	text := strings.Join(shownLines, "\n")
+	// A single shortened line always fits, so every response makes progress.
+	for len(text) > MaxRangeBytes && to > from {
 		to--
-		text = strings.Join(lines[from-1:to], "\n")
+		shownLines = shownLines[:to-from+1]
+		text = strings.Join(shownLines, "\n")
 	}
 	notice := "\n[This file is not valid UTF-8; bytes that do not decode are shown as U+FFFD. Lines carry no anchors, and edit refuses the file.]"
+	if shortened {
+		notice += "\n[Some lines were shortened for display.]"
+	}
 	if to < len(lines) {
 		notice += fmt.Sprintf("\n[Showing lines %d-%d of %d. Continue with offset=%d.]", from, to, len(lines), to+1)
 	}
