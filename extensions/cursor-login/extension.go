@@ -67,7 +67,7 @@ type tokenResponse struct {
 func Extension() *sdk.Extension {
 	c := defaultClient()
 	e := sdk.New(Name)
-	e.RegisterProvider(Provider, sdk.ProviderConfig{
+	config := sdk.ProviderConfig{
 		"baseUrl": c.apiBaseURL,
 		"oauth": &sdk.OAuthProvider{
 			Name:           "Cursor",
@@ -80,7 +80,13 @@ func Extension() *sdk.Extension {
 			},
 			GetAPIKey: func(creds sdk.OAuthCredentials) string { return creds.Access },
 		},
-	})
+	}
+	if err := betaConfig(config); err != nil {
+		e.OnSessionStart(func(_ sdk.Context, _ map[string]any) (any, error) {
+			return nil, err
+		})
+	}
+	e.RegisterProvider(Provider, config)
 	return e
 }
 

@@ -782,8 +782,10 @@ Failures are reported. See `extensions/repo-excludes/README.md`.
 
 Adds `cursor` to `/login`. It uses Cursor's browser PKCE flow (`cursor.com/loginDeepControl`, then polling
 `api2.cursor.sh/auth/poll`) and refreshes through a `refresh_token` grant at `api2.cursor.sh/oauth/token`. These endpoints are undocumented
-and may change. The extension only stores the OAuth credential; it registers no Cursor models, so Cursor
-model requests are not yet supported.
+and may change. By default this is login-only. An opt-in **beta version of Cursor** adds manually configured,
+text-only models through the official Cursor CLI; see [Cursor beta setup and limitations](docs/cursor-beta.md).
+The beta requires `--no-tools --thinking off`, buffers output, and has no live account verification. It is not
+a standalone Cursor model API or a production-ready coding-agent integration.
 
 ## user-resources
 
