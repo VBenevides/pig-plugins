@@ -22,7 +22,25 @@ func settingsConfig(dir string) Config {
 func TestEnabledDefaultsAndValidation(t *testing.T) {
 	config := settingsConfig(t.TempDir())
 	values, err := config.Effective()
-	if err != nil || !values.Enabled || values.Startup != "2" || values.Prefetch != "512" {
+	if err != nil || values.Enabled || values.Startup != "2" || values.Prefetch != "512" {
+		t.Fatal("curator must be off by default", values, err)
+	}
+	if err := os.WriteFile(config.File(), []byte(`{"enabled":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if values, err = config.Effective(); err != nil || !values.Enabled {
+		t.Fatal("an explicit enabled=true must be honored", values, err)
+	}
+	if err := os.WriteFile(config.File(), []byte(`{"enabled":false}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if values, err = config.Effective(); err != nil || values.Enabled {
+		t.Fatal("an explicit enabled=false must be honored", values, err)
+	}
+	if err := os.Remove(config.File()); err != nil {
+		t.Fatal(err)
+	}
+	if values, err = config.Effective(); err != nil || values.Startup != "2" {
 		t.Fatal(values, err)
 	}
 	for _, text := range []string{`{"enabled":"false"}`, `{"enabled":0}`, `{"enabled":null}`} {

@@ -189,8 +189,12 @@ printf '%s' '{"results":[{"id":"before-off","outcome":"durable"}]}'
 		if result, err := current.onBeforeAgentStart(sdk.Context{}, map[string]any{"prompt": "durable writes"}); result != nil || err != nil {
 			t.Fatal(result, err)
 		}
-		current.onMessageEnd(sdk.Context{}, map[string]any{"message": "private after off"})
-		current.onAgentEnd(sdk.Context{}, nil)
+		if result, err := current.onMessageEnd(sdk.Context{}, map[string]any{"message": "private after off"}); result != nil || err != nil {
+			t.Fatal(result, err)
+		}
+		if result, err := current.onAgentEnd(sdk.Context{}, nil); result != nil || err != nil {
+			t.Fatal(result, err)
+		}
 		for _, build := range []buildFunc{curator.BuildSearch, curator.BuildRead} {
 			if result, err := current.tool(build)(sdk.Context{}, nil); result != nil || err == nil || !strings.Contains(err.Error(), "disabled") {
 				t.Fatal(result, err)
@@ -224,7 +228,9 @@ func TestOffCancelsInflightWorkerBeforeDrainingAcceptedEvents(t *testing.T) {
 	x.sessions["s"] = state
 	go func() {
 		defer close(state.done)
-		capture.Flush(bg)
+		if err := capture.Flush(bg); err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("flush inflight capture: %v", err)
+		}
 	}()
 	<-started
 	if err := x.switchEnabled(sdk.Context{}, false); err != nil {

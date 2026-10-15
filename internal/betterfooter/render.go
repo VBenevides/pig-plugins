@@ -24,9 +24,11 @@ type RenderState struct {
 	ContextTokens                       *int
 	ContextPercent                      float64
 	ContextWindow                       int
-	Speed                               float64
-	Estimated                           bool
-	Statuses                            map[string]string
+	// CompactLimit is the effective user compact limit in tokens, shown in parentheses after the window. 0 hides it.
+	CompactLimit int
+	Speed        float64
+	Estimated    bool
+	Statuses     map[string]string
 }
 
 // Theme supplies the active host palette without coupling the renderer to the SDK.
@@ -249,6 +251,9 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 	capacity := "?"
 	if s.ContextWindow > 0 {
 		capacity = FormatTokens(s.ContextWindow)
+	}
+	if s.CompactLimit > 0 {
+		capacity += " (" + FormatTokens(s.CompactLimit) + ")"
 	}
 	color := "muted"
 	if s.ContextPercent > 90 {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -189,9 +190,9 @@ func fileMatches(file string, want Artifact) bool {
 	if err != nil {
 		return false
 	}
-	defer handle.Close()
 	hash := sha256.New()
 	n, err := io.Copy(hash, handle)
+	err = errors.Join(err, handle.Close())
 	return err == nil && n == want.Bytes && hex.EncodeToString(hash.Sum(nil)) == want.SHA256
 }
 
@@ -313,7 +314,9 @@ func swapInstall(target string, build func(staging, out string) error) error {
 	out := filepath.Join(staging, "out")
 	retired := ""
 	fail := func(err error) error {
-		os.RemoveAll(staging)
+		if removeErr := os.RemoveAll(staging); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove staging directory %s: %w", staging, removeErr))
+		}
 		if retired != "" {
 			if _, statErr := os.Lstat(target); errors.Is(statErr, os.ErrNotExist) {
 				if restoreErr := os.Rename(retired, target); restoreErr != nil {
@@ -337,15 +340,19 @@ func swapInstall(target string, build func(staging, out string) error) error {
 		return fail(fmt.Errorf("install %s: %w", target, err))
 	}
 	// The new files are live; leftover cleanup is best effort and cannot fail the install.
-	os.RemoveAll(staging)
-	if retired != "" {
-		os.RemoveAll(retired)
+	for _, directory := range []string{staging, retired} {
+		if directory == "" {
+			continue
+		}
+		if err := os.RemoveAll(directory); err != nil {
+			slog.Warn("remove completed LANCET install staging", "directory", directory, "error", err)
+		}
 	}
 	return nil
 }
 
 // download fetches url into dest (created exclusively, mode 0600) and checks the exact size and SHA-256.
-func download(ctx context.Context, client *http.Client, url string, size int64, sum, dest string) error {
+func download(ctx context.Context, client *http.Client, url string, size int64, sum, dest string) (err error) {
 	if !strings.HasPrefix(url, "https://") {
 		return fmt.Errorf("refusing to download %s over a connection that is not HTTPS", url)
 	}
@@ -372,7 +379,7 @@ func download(ctx context.Context, client *http.Client, url string, size int64, 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
@@ -392,9 +399,7 @@ func download(ctx context.Context, client *http.Client, url string, size int64, 
 	if copyErr == nil {
 		copyErr = handle.Sync()
 	}
-	if closeErr := handle.Close(); copyErr == nil {
-		copyErr = closeErr
-	}
+	copyErr = errors.Join(copyErr, handle.Close())
 	switch {
 	case copyErr != nil:
 		return copyErr
@@ -407,12 +412,12 @@ func download(ctx context.Context, client *http.Client, url string, size int64, 
 }
 
 // unpackModel extracts exactly the pinned model files from the archive into a new directory out.
-func unpackModel(archive, out string, pins *ModelPins) error {
+func unpackModel(archive, out string, pins *ModelPins) (err error) {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
 		return fmt.Errorf("open the model archive: %w", err)
 	}
-	defer reader.Close()
+	defer func() { err = errors.Join(err, reader.Close()) }()
 	entries := make(map[string]*zip.File, len(pins.Files))
 	for _, entry := range reader.File {
 		name, ok := strings.CutPrefix(entry.Name, pins.Prefix)
@@ -443,7 +448,7 @@ func unpackModel(archive, out string, pins *ModelPins) error {
 			return fmt.Errorf("read %s from the model archive: %w", name, err)
 		}
 		err = writeVerified(filepath.Join(out, name), src, want, name+" in the model archive")
-		src.Close()
+		err = errors.Join(err, src.Close())
 		if err != nil {
 			return err
 		}
@@ -452,17 +457,17 @@ func unpackModel(archive, out string, pins *ModelPins) error {
 }
 
 // unpackRuntime extracts the one pinned library from the tar.gz archive into a new directory out.
-func unpackRuntime(archive, out string, pins RuntimePins) error {
+func unpackRuntime(archive, out string, pins RuntimePins) (err error) {
 	handle, err := os.Open(archive)
 	if err != nil {
 		return err
 	}
-	defer handle.Close()
+	defer func() { err = errors.Join(err, handle.Close()) }()
 	gz, err := gzip.NewReader(handle)
 	if err != nil {
 		return fmt.Errorf("open the ONNX Runtime archive: %w", err)
 	}
-	defer gz.Close()
+	defer func() { err = errors.Join(err, gz.Close()) }()
 	tr := tar.NewReader(gz)
 	for {
 		header, err := tr.Next()
@@ -493,11 +498,11 @@ func writeVerified(dest string, src io.Reader, want Artifact, what string) (err 
 		return err
 	}
 	defer func() {
-		if closeErr := file.Close(); err == nil {
-			err = closeErr
-		}
+		err = errors.Join(err, file.Close())
 		if err != nil {
-			os.Remove(dest)
+			if removeErr := os.Remove(dest); removeErr != nil && !os.IsNotExist(removeErr) {
+				err = errors.Join(err, fmt.Errorf("remove failed verified file %s: %w", dest, removeErr))
+			}
 		}
 	}()
 	hash := sha256.New()

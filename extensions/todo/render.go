@@ -6,6 +6,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	tasks "github.com/VBenevides/pig-plugins/internal/todo"
 	"github.com/VBenevides/pig-plugins/internal/tui"
+	"math"
 	"strings"
 )
 
@@ -149,9 +150,10 @@ func phaseLines(phases []tasks.Phase, completed []tasks.Completion, expanded boo
 		add(title, "accent", true, false)
 		for _, task := range p.Tasks {
 			color := ""
-			if task.Status == "in_progress" {
+			switch task.Status {
+			case "in_progress":
 				color = "accent"
-			} else if task.Status == "completed" || task.Status == "abandoned" {
+			case "completed", "abandoned":
 				color = "dim"
 			}
 			add("  "+tasks.Marker(task.Status)+" "+tasks.SanitizeText(task.Content), color, task.Status == "in_progress", task.Status == "completed")
@@ -203,17 +205,61 @@ func resultLines(result sdk.ToolRenderResult, options sdk.ToolRenderResultOption
 	return lines, nil
 }
 
+// defaultViewerRows is the number of list rows shown at once when the terminal height is unknown.
+const defaultViewerRows = 12
+
+// viewer shows the task list in a window of rows that scrolls, so a list longer than the terminal stays reachable.
 type viewer struct {
 	phases []tasks.Phase
 	theme  sdk.UITheme
+
+	// rows overrides the window height (tests). Zero derives it from the terminal.
+	rows int
+	// terminalRows reads the terminal height; nil uses the controlling terminal.
+	terminalRows func() int
+
+	offset   int // First visible list row; Render clamps it.
+	lastRows int // Window height of the last render, the page size for PgUp/PgDn.
+}
+
+// windowRows is the list height: 70% of the terminal minus the four fixed rows, never below 3.
+func (v *viewer) windowRows() int {
+	if v.rows > 0 {
+		return v.rows
+	}
+	read := v.terminalRows
+	if read == nil {
+		read = tui.TerminalRows
+	}
+	if height := read(); height > 0 {
+		return max(3, height*7/10-4)
+	}
+	return defaultViewerRows
 }
 
 func (v *viewer) HandleInput(data string) (sdk.RemoteComponentResult, error) {
 	if tui.Released(data) {
 		return sdk.RemoteComponentResult{}, nil
 	}
-	key := tui.Key(data)
-	return sdk.RemoteComponentResult{Done: key == "escape" || key == "ctrl+c"}, nil
+	page := max(1, v.lastRows)
+	switch tui.Key(data) {
+	case "escape", "q", "ctrl+c":
+		return sdk.RemoteComponentResult{Done: true}, nil
+	case "up", "k":
+		v.offset--
+	case "down", "j":
+		v.offset++
+	case "pageup":
+		v.offset -= page
+	case "pagedown":
+		v.offset += page
+	case "home":
+		v.offset = 0
+	case "end":
+		v.offset = math.MaxInt32 // Render clamps to the last page.
+	}
+	v.offset = max(0, v.offset)
+	return sdk.RemoteComponentResult{}, nil
 }
 func (v *viewer) Render(width int) []string {
 	width = max(1, width)
@@ -228,11 +274,24 @@ func (v *viewer) Render(width int) []string {
 		}
 	}
 	lines = append(lines, tui.Fit(fmt.Sprintf("%d/%d done", closed, total), width))
-	lines = append(lines, phaseLines(v.phases, nil, true, tasks.Operation{Op: "view"}, v.theme, width)...)
+	body := phaseLines(v.phases, nil, true, tasks.Operation{Op: "view"}, v.theme, width)
 	if total == 0 {
-		lines = append(lines, tui.Fit("Todo list is empty.", width))
+		body = append(body, tui.Fit("Todo list is empty.", width))
 	}
-	return append(lines, "", tui.Fit("Press Escape to close", width))
+	rows := v.windowRows()
+	v.lastRows = rows
+	hint := "Esc or q close"
+	if len(body) > rows {
+		v.offset = max(0, min(v.offset, len(body)-rows))
+		end := v.offset + rows
+		lines = append(lines, body[v.offset:end]...)
+		lines = append(lines, tui.Fit(fmt.Sprintf("rows %d-%d of %d", v.offset+1, end, len(body)), width))
+		hint = "Up/Down PgUp/PgDn Home/End scroll - Esc or q close"
+	} else {
+		v.offset = 0
+		lines = append(lines, body...)
+	}
+	return append(lines, "", tui.Fit(hint, width))
 }
 
 func syncWidget(ctx sdk.Context, phases []tasks.Phase) error {

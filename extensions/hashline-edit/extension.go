@@ -1,5 +1,5 @@
-// Package hashlineedit is the PiG extension "hashline-edit": it replaces the built-in read and edit tools with
-// anchored read and strict anchored edit. The behavior lives in internal/hashline.
+// Package hashlineedit replaces the built-in read, edit, and write tools.
+// Anchored edits and explicit writes share internal/hashline's mutation coordinator.
 package hashlineedit
 
 import (
@@ -8,9 +8,16 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/hashline"
 )
 
-// Extension registers read and edit. Registering a built-in tool name replaces the built-in.
+// Extension replaces the built-in read, edit, and write tool registrations.
 func Extension() *sdk.Extension {
 	e := sdk.New("hashline-edit")
+	engine := hashline.NewEngine()
+	for _, event := range []string{"session_start", "session_tree", "session_shutdown"} {
+		e.OnEvent(event, func(_ sdk.Context, _ map[string]any) (any, error) {
+			engine.Invalidate()
+			return nil, nil
+		})
+	}
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:             "read",
 		Label:            "read",
@@ -18,7 +25,7 @@ func Extension() *sdk.Extension {
 		PromptSnippet:    hashline.ReadSnippet,
 		PromptGuidelines: hashline.ReadGuidelines,
 		Parameters:       hashline.ReadSchema(),
-		Execute:          run(hashline.Read),
+		Execute:          run(engine.ReadContext),
 	})
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:             "edit",
@@ -27,14 +34,22 @@ func Extension() *sdk.Extension {
 		PromptSnippet:    hashline.EditSnippet,
 		PromptGuidelines: hashline.EditGuidelines,
 		Parameters:       hashline.EditSchema(),
-		Execute:          run(hashline.Edit),
+		Execute:          run(engine.EditContext),
+	})
+	e.RegisterTool(sdk.ToolDefinition{
+		Name: "write", Label: "write", Description: hashline.WriteDescription,
+		Parameters: hashline.WriteSchema(), Execute: run(engine.WriteContext),
 	})
 	return e
 }
 
-func run(tool func(cwd string, params map[string]any) (hashline.Result, error)) sdk.ToolFunc {
+func run(tool func(request hashline.Cancellation, cwd string, params map[string]any) (hashline.Result, error)) sdk.ToolFunc {
 	return func(ctx sdk.Context, params map[string]any) (any, error) {
-		result, err := tool(ctx.Cwd(), params)
+		session, err := ctx.GetSessionID()
+		if err != nil {
+			return nil, err
+		}
+		result, err := tool(hashline.WithScope(ctx, session), ctx.Cwd(), params)
 		if err != nil {
 			return nil, err
 		}

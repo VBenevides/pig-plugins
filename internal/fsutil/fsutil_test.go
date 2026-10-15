@@ -43,7 +43,10 @@ func TestWriteFileAtomicKeepsOldContentWhenTargetIsADirectory(t *testing.T) {
 	if err := WriteFileAtomic(target, []byte("x"), 0o600); err == nil {
 		t.Fatal("expected an error when the target is a directory")
 	}
-	entries, _ := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(entries) != 1 {
 		t.Fatalf("temporary file leaked after failure: %v", entries)
 	}
@@ -74,5 +77,38 @@ func TestReadJSONFileDistinguishesMissingFromInvalid(t *testing.T) {
 	found, err = ReadJSONFile(good, &v)
 	if !found || err != nil || v.A != 7 {
 		t.Fatalf("good file: found=%v err=%v v=%+v", found, err, v)
+	}
+}
+
+func TestCleanupFailedWriteIsIdempotent(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "temporary-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupFailedWrite(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupFailedWrite(file); err != nil {
+		t.Fatalf("repeated cleanup: %v", err)
+	}
+}
+
+func TestCleanupFailedWriteReportsRemovalFailure(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "temporary-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanupFailedWrite(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(file.Name(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(file.Name(), "child"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = cleanupFailedWrite(file)
+	if err == nil || !strings.Contains(err.Error(), file.Name()) {
+		t.Fatalf("missing contextual removal error: %v", err)
 	}
 }

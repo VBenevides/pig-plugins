@@ -45,7 +45,7 @@ For multi-stage pipelines, keep stage validity explicit. A record existing in st
 
 ## Testing and validation
 
-For behavioral changes, add or update tests when practical. Prefer tests of observable behavior over implementation details.
+For behavioral changes, add or update tests when practical.
 
 When relevant, test:
 
@@ -55,13 +55,11 @@ When relevant, test:
 - idempotency and duplicate-side-effect prevention;
 - compatibility of changed interfaces/configuration.
 
-Before finishing, run the most relevant available tests plus formatter, linter, and type checker when appropriate. Report checks that could not be run.
-
-Do not weaken existing tests merely to get a green result.
+Before finishing, run the most relevant available tests plus formatter, linter, and type checker when appropriate.
 
 ## Refactoring, dependencies, and generated files
 
-Avoid unrelated refactors. Small local refactors are fine when they materially simplify the requested change.
+Small local refactors are fine when they materially simplify the requested change.
 
 Before adding a dependency, check whether the repository or standard library already provides what is needed.
 

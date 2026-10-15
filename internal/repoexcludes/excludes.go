@@ -35,14 +35,14 @@ func Ensure(cwd string) (changed bool, err error) {
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
 	if filepath.Clean(exclude) != filepath.Join(filepath.Clean(common), "info", "exclude") {
-		return false, fmt.Errorf("Git exclude path is outside the common info directory: %s", exclude)
+		return false, fmt.Errorf("git exclude path is outside the common info directory: %s", exclude)
 	}
 	if err := root.Mkdir("info", 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
 		return false, fmt.Errorf("create Git info directory: %w", err)
 	}
 	before, err := root.Lstat("info")
 	if err != nil || !before.IsDir() {
-		return false, fmt.Errorf("Git info must be a directory, not a symbolic link: %w", errors.Join(err, fs.ErrInvalid))
+		return false, fmt.Errorf("git info must be a directory, not a symbolic link: %w", errors.Join(err, fs.ErrInvalid))
 	}
 	info, err := root.OpenRoot("info")
 	if err != nil {
@@ -56,7 +56,7 @@ func Ensure(cwd string) (changed bool, err error) {
 	defer func() { err = errors.Join(err, dir.Close()) }()
 	after, err := dir.Stat()
 	if err != nil || !os.SameFile(before, after) {
-		return false, fmt.Errorf("Git info directory changed: %w", errors.Join(err, fs.ErrInvalid))
+		return false, fmt.Errorf("git info directory changed: %w", errors.Join(err, fs.ErrInvalid))
 	}
 	return appendLocked(ctx, info, dir)
 }
@@ -79,7 +79,7 @@ func resolve(ctx context.Context, cwd string) (string, string, error) {
 	}
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	if len(lines) != 2 || lines[0] == "" || lines[1] == "" {
-		return "", "", errors.New("Git returned invalid directory paths")
+		return "", "", errors.New("git returned invalid directory paths")
 	}
 	for i := range lines {
 		if !filepath.IsAbs(lines[i]) {
@@ -98,7 +98,7 @@ type limitedBuffer struct{ bytes.Buffer }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if b.Len()+len(p) > 64<<10 {
-		return 0, errors.New("Git output exceeds 64 KiB")
+		return 0, errors.New("git output exceeds 64 KiB")
 	}
 	return b.Buffer.Write(p)
 }
@@ -106,9 +106,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 // The exclusive lock file remains in place until rename commits the complete file.
 // This uses Git's own lock-file protocol, rather than locking the replaced inode.
 func appendLocked(ctx context.Context, root *os.Root, dir *os.File) (changed bool, err error) {
+	const lockName = "exclude.lock"
 	var lock *os.File
 	for {
-		lock, err = root.OpenFile("exclude.lock", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		lock, err = root.OpenFile(lockName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			break
 		}
@@ -127,7 +128,7 @@ func appendLocked(ctx context.Context, root *os.Root, dir *os.File) (changed boo
 			err = errors.Join(err, lock.Close())
 		}
 		if !committed {
-			err = errors.Join(err, root.Remove("exclude.lock"))
+			err = errors.Join(err, root.Remove(lockName))
 		}
 	}()
 	data, mode, original, err := readExclude(root)
@@ -139,7 +140,7 @@ func appendLocked(ctx context.Context, root *os.Root, dir *os.File) (changed boo
 		return false, nil
 	}
 	if len(updated) > maxExcludeBytes {
-		return false, errors.New("Git exclude file would exceed 1 MiB")
+		return false, errors.New("git exclude file would exceed 1 MiB")
 	}
 	if _, err := lock.Write(updated); err != nil {
 		return false, fmt.Errorf("write Git exclude lock: %w", err)
@@ -157,12 +158,12 @@ func appendLocked(ctx context.Context, root *os.Root, dir *os.File) (changed boo
 	current, statErr := root.Lstat("exclude")
 	if original == nil {
 		if !errors.Is(statErr, fs.ErrNotExist) {
-			return false, errors.New("Git exclude file appeared during update")
+			return false, errors.New("git exclude file appeared during update")
 		}
 	} else if statErr != nil || !current.Mode().IsRegular() || !os.SameFile(original, current) {
-		return false, fmt.Errorf("Git exclude file changed during update: %w", errors.Join(statErr, fs.ErrInvalid))
+		return false, fmt.Errorf("git exclude file changed during update: %w", errors.Join(statErr, fs.ErrInvalid))
 	}
-	if err := root.Rename("exclude.lock", "exclude"); err != nil {
+	if err := root.Rename(lockName, "exclude"); err != nil {
 		return false, fmt.Errorf("replace Git exclude file: %w", err)
 	}
 	committed = true
@@ -181,7 +182,7 @@ func readExclude(root *os.Root) (data []byte, mode fs.FileMode, original fs.File
 		return nil, 0, nil, fmt.Errorf("inspect Git exclude file: %w", err)
 	}
 	if !original.Mode().IsRegular() || original.Size() > maxExcludeBytes {
-		return nil, 0, nil, errors.New("Git exclude file must be a regular file of at most 1 MiB")
+		return nil, 0, nil, errors.New("git exclude file must be a regular file of at most 1 MiB")
 	}
 	file, err := openExclude(root)
 	if err != nil {
@@ -190,14 +191,14 @@ func readExclude(root *os.Root) (data []byte, mode fs.FileMode, original fs.File
 	defer func() { err = errors.Join(err, file.Close()) }()
 	opened, err := file.Stat()
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(original, opened) {
-		return nil, 0, nil, fmt.Errorf("Git exclude file changed before read: %w", errors.Join(err, fs.ErrInvalid))
+		return nil, 0, nil, fmt.Errorf("git exclude file changed before read: %w", errors.Join(err, fs.ErrInvalid))
 	}
 	data, err = io.ReadAll(io.LimitReader(file, maxExcludeBytes+1))
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("read Git exclude file: %w", err)
 	}
 	if len(data) > maxExcludeBytes {
-		return nil, 0, nil, errors.New("Git exclude file exceeds 1 MiB")
+		return nil, 0, nil, errors.New("git exclude file exceeds 1 MiB")
 	}
 	return data, original.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky), original, nil
 }

@@ -172,6 +172,7 @@ Input decoding is bounded to 32 MiB and 24 million pixels.
 Numbering resumes from user and tool-result messages on the current session branch.
 Prepared attachments persist atomically under `<agent-dir>/image-view/blobs/`, keyed by SHA-256.
 Display links resolve to local blobs; internal blob links are stripped from model-facing text.
+The blob directory is bounded. At session start and after each stored image, blobs not used for 48 hours are deleted, then the least recently used ones until the directory is at most 256 MiB. A blob counts as used when it is stored again or when a message that links it is rendered (refreshed at most once an hour). Only files named like a stored blob, and unpublished temporary files older than an hour, are removed; links, subdirectories and other files are left alone. A file that cannot be removed is logged, reported once per process, and retried at the next cleanup. An older session that links a deleted blob loses that preview image; the conversation text is unaffected. The limits are constants (`internal/imageview/prune.go`), not settings.
 Existing native `read` and `edit` tools remain active.
 
 The native UI keeps PiG's editor and clipboard handling. In the patched bundle, pasted image
@@ -281,7 +282,8 @@ Tests that start `pig` skip when it is not on `PATH`.
 
 Copies (no symlinks) the tracked repository, including every extension and `prompts/`, to `~/.pig/pig-plugins`.
 Copies `prompts/agent/SYSTEM.md`, `prompts/agent/APPEND_SYSTEM.md` and `prompts/agent/AGENTS.md` into `~/.pig/agent/`; an existing different file is first saved as `<file>.pig-plugins-backup-<timestamp>`.
-Copies `config/agent/keybindings.json` to `~/.pig/agent/keybindings.json` only when that file is absent (it maps `ctrl+z` to undo and frees it from suspend); an existing file is never overwritten, and the installer prints a notice when it differs. PiG has no redo action, so `ctrl+r` still renames sessions.
+Copies `config/agent/keybindings.json` to `~/.pig/agent/keybindings.json` only when that file is absent (it maps `ctrl+z` to undo and frees it from suspend, and binds `ctrl+a` to select all in the prompt editor with `home` left as line start); an existing file is never overwritten, and the installer prints a notice when it differs. PiG has no redo action, so `ctrl+r` still renames sessions.
+Select all comes from `patches/pig/0021-editor-select-all.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
 Builds the fused executable at `~/.pig/bin/pig-plugins-native`, installs the launcher at `~/.pig/bin/pig-plugins`, and symlinks the launcher as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
@@ -332,14 +334,87 @@ Do not enable a Go port together with its TypeScript twin: PiG rejects duplicate
 
 ## hashline-edit
 
-Replaces the built-in `read` and `edit` with anchored read (`<line>#<hash>|text`, four hex digits of SHA-1) and strict
-anchored edit. It does not match the upstream npm `pi-hashline-edit`
+Replaces the built-in `read`, `edit`, and `write` with anchored read (`<line>#<hash>|text`, four hex digits of SHA-1),
+strict anchored edit, and coordinated UTF-8 text writes. Every editable read result returns `Version: <token>`;
+pass that token as the required `version`
+parameter alongside `path` and `edits`. Edits reject any whole-file byte change since that read, including changes
+outside the selected lines. Successful edits return the new token for chaining. Older versionless edit calls are
+intentionally rejected; reread instead of guessing a token. It does not match the upstream npm `pi-hashline-edit`
 0.8.3, which uses a different anchor format (`LINE#HASH:` with two-character hashes) and extra ops. The outline for
 large source files uses the same regular expressions as the original; `internal/hashline/testdata/ts-golden.json` holds
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
+Anchored read details include `fullyDisplayedRanges`: inclusive source-line ranges whose complete text was
+shown. Outlines and empty files have empty coverage; shortened lines and omitted tails are excluded. This
+coverage authorizes replacement/deletion only when every affected line was fully displayed at the retained
+version. Multiple range reads of the same version accumulate coverage; outlines alone authorize no destruction.
+Insertion relative to a valid anchor does not destroy source text and does not require full-line coverage.
+Lines longer than 2,000 UTF-16 units cannot be replaced or deleted through truncated read previews, even
+after repeated reads. Inspect their complete content through another suitable tool; deliberate whole-file
+replacement remains available through explicit write. No hidden-content override is inferred from anchors.
+The extension retains at most 64 canonical files and 32 MiB of snapshot content plus coverage metadata, with
+one current version per file. Reads refresh retention; oldest reads are evicted first. Eviction, a newer read
+version, or a successful mutation requires a fresh read before another edit. Oversized snapshots are displayed
+but not retained. Trusted internal callers can still use the stateless hashline functions directly.
+There is no time-based expiry: retention ends through bounded eviction, version replacement, changed mutation,
+or lifecycle revocation. Repeated reads of identical bytes merge displayed ranges; a new version discards
+previous coverage. No-op mutations and rejected requests do not revoke an otherwise valid read. A version
+digest in a saved transcript or successful-edit summary is not retained authority: explicitly reread the
+needed source range after expiry/mutation, even if its short anchors or content digest appear unchanged.
+Retained authority is bound to the canonical file and host session ID. Identical content in an unread file or
+another session does not authorize editing. Switching sessions revokes previous authority, including when
+switching back; no source snapshots are persisted on disk.
+The extension also revokes authority on `session_start`, `session_tree`, and `session_shutdown`, including
+completed tree navigation within the same session. Revocation cancels active work at its next pre-commit
+checkpoint; publication already beyond the commit boundary is not rolled back. A reload or process restart
+constructs an empty Engine, so previous process reads cannot authorize edits.
+There is no separate anchored-search tool: use search to locate candidate ranges, then read those ranges to
+obtain current version-bound anchors and displayed-content authority. Search snippets do not authorize edits.
+A future anchored-search feature would need the same bounded output, session binding, freshness, and complete
+source-coverage rules; it is not required for the current read/edit workflow.
+
+Path permission policy preserves explicit outside-working-directory access: absolute paths and ordinary
+relative `../` paths are not confined to cwd. Separately, mutations reject paths whose symlink resolution
+escapes the real working directory; internal aliases are permitted. This is a filesystem-integrity policy,
+not permission to bypass host guard approval or protected-path rules, and hashline is not a sandbox.
+
+Filesystem safety limits: mutations pin the parent directory with a no-follow descriptor (Linux, via verified
+procfs paths) and revalidate identity, link count, mode, owner and supported metadata before an atomic rename;
+other platforms fail closed. Ancestors can still be swapped before the parent is pinned, and the final
+compare-to-rename step cannot exclude writers outside this process (shell commands, other programs). Coordination
+covers only cooperating in-process callers. Metadata preservation was verified on Linux only (ACLs and unsupported
+extended attributes are rejected), the directory sync is path-based, and no crash or power-loss testing was done.
+Hashline is an integrity aid, not a sandbox or an access-control boundary.
 Differences: the SDK has no handle on the replaced stock read, so images (attached unresized, up to 5 MiB), non-UTF-8
-text, directories and missing files are handled by `internal/hashline` itself; edits of one file are serialised by an
-in-process lock instead of Pi's file mutation queue.
+text, directories and missing files are handled by `internal/hashline` itself. `edit`, `write`, and callers of
+`hashline.WithMutationLock` share a canonical-target in-process coordinator, including directory aliases and
+not-yet-created files. This does not coordinate shell commands or unrelated processes, and the final external
+compare-to-rename race remains possible. Hashline mutations reject hard-linked targets rather than silently
+breaking the link relationship during atomic replacement. Read-only and privileged-bit targets are rejected.
+Linux edits preserve ordinary executable permissions and require the replacement's owner/group to match the
+original. Targets with ACLs or unsupported extended attributes are rejected rather than silently losing metadata.
+An inherited SELinux label is accepted only when the replacement's label exactly matches the original; label
+values are not copied or printed.
+Safe metadata inspection currently supports Linux only; other platforms reject mutations. Reads remain available.
+`write` retains the `path`/`content` interface and the host's guard hooks. It creates missing parent directories,
+publishes new files privately (0600) without overwriting a concurrently created target, and preserves supported
+metadata on explicit replacements. Identical writes leave the inode and mtime unchanged. An explicit whole-file
+write intentionally supersedes earlier edits in queue order; it is not a merge or a stale-edit recovery mechanism.
+Tool requests propagate cancellation to lock waits, bounded read/write chunks, parsing, edit validation, and
+the final pre-commit check. Cancellation observed before the commit boundary removes temporary files and leaves the
+destination unchanged. An already-running filesystem syscall cannot be interrupted by these checkpoints; newly created
+empty parent directories may remain after a cancelled write.
+The commit boundary is the final cancellation checkpoint followed by rename (replacement) or exclusive link
+publication (creation). Cancellation racing after that checkpoint does not roll back publication: a successful
+publication finishes required durability work despite cancellation, then returns the committed result and version.
+Publication failure is reported as a filesystem failure, not as a successful cancellation. Changed files are
+synced before publication; their containing directory is synced after publication and preparation cleanup.
+Post-publication sync failures return a `CommittedError` preserving the cause and warning that the content
+was committed but durability is uncertain. Reread before retrying. This guarantee depends on the filesystem
+honoring sync; it does not guarantee durability of newly created ancestor directories or protect against
+storage hardware failure. Identical writes and no-op edits do not publish or sync a new file.
+Edits allow at most 256 operations and 100,000 replacement lines per request, with at most 16 MiB of replacement
+text. Final files must fit 100,000 lines and 16 MiB including BOM and line terminators. Oversized results are
+rejected before serialization or temporary-file creation. These limits are enforced by runtime validation.
 
 ## LANCET model runtime
 
@@ -372,7 +447,7 @@ Redirects, substitutions, executable hooks, wrappers, and mixed read/write comma
 `rg` with `RIPGREP_CONFIG_PATH` set also retains scoring because its config can supply executable hooks.
 Hard-block rules still take precedence.
 
-The confirmation shows `Affected items:` with one `- type: name - effect` entry per known target. Simple commands
+The confirmation shows the `Command:` first, then the `Risk Description:`, then `Affected items:` with one `- type: name - effect` entry per known target, so a long analysis scrolls below the command. Long dialogs scroll with the page keys when the host carries patches 0006-0008 (`patches/pig`); a stock host shows them unscrolled. Simple commands
 name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
 Implicit targets, shell expressions, compound commands and unsupported options show an unknown scope instead of
 guessing. For an unknown-scope confirmation, the current session model receives only the command and working
@@ -436,8 +511,9 @@ The integration defaults are prefetch 512, startup 2, and engine legacy.
 Set `PI_CURATOR_PREFETCH_BUDGET=0` to disable task prefetch.
 Set `PI_CURATOR_STARTUP_DECISIONS=0` to disable startup history as well.
 `PI_CURATOR_SEARCH_ENGINE` selects the tool engine. `PI_CURATOR_PREFETCH_ENGINE` separately selects the prefetch engine.
+The extension is off by default: with no saved setting it captures nothing, recalls nothing, asks for no consent, and exposes no memory tools. An explicit saved `enabled` value always wins.
 `/pi-curator off` persists `enabled=false`. It stops capture, recall, consent prompts, and the memory tools at once, and survives restart.
-`/pi-curator on` re-enables the extension. It does not grant consent.
+`/pi-curator on` enables the extension and persists `enabled=true`. It does not grant consent.
 Startup history and task recall share one budget, which includes the envelope. Startup history takes at most half when a task search runs. The "combined history exceeds prefetch budget" warning no longer occurs for normal budgets.
 `prefetch off` disables task recall only. Startup history stays bounded at 512.
 History enters an ordinary hidden message, never the system prompt.
@@ -625,10 +701,12 @@ tasks are completed or abandoned. A widget failure warns without undoing an alre
 Cards show Roman-numbered phases and themed status markers; collapsed cards summarize untouched
 phases, while expanded cards show every phase. Terminal controls are removed, and cards are capped
 at 1,024 wrapped lines. `/todos` opens the full read-only phased viewer with a done count;
-Escape or Ctrl+C closes it. `/todos` requires TUI mode; the tool works in RPC/print mode.
+Escape, `q` or Ctrl+C closes it. A list taller than the window scrolls with Up/Down (or `k`/`j`), PgUp/PgDn, Home and End,
+and a `rows a-b of n` line shows the position. The window is 70% of the terminal height minus four fixed rows (at least 3),
+read from the controlling terminal; where it cannot be read the window is 12 rows. `/todos` requires TUI mode; the tool works in RPC/print mode.
 
 The extension adds task-management guidance once per effective system prompt.
-Usage examples also live in [`prompts/agent/SYSTEM.md`](prompts/agent/SYSTEM.md).
+The todo policy is stated once, in this guidance: use `todo` only for substantial multi-step work. `SYSTEM.md` no longer repeats it.
 It does not read or write a workspace TODO.md. Markdown conversion helpers are internal library
 functions, not disk import/export commands. Ask mode continues to permit session task notes.
 
@@ -656,6 +734,25 @@ New sessions and `/reload` enable it again. Other active tools are preserved.
 Turning discovery off does not unload previously discovered tools or disable MCP
 servers, and tools remain reachable through `codemode` if it is active.
 Discovery searches registered session tools; it does not scan directories or install tools.
+
+## compact-settings
+
+`/compact-settings limit relative <0-100|off>` and `/compact-settings limit absolute <tokens|off>` set when PiG compacts automatically. `/compact-settings` (or `limit status`) shows the saved values and the effective limit; `limit off` clears both. The built-in `/compact` is unchanged.
+A relative limit is a percentage of the model's context window (`50`, `62.5`, `50%`; above 0, at most 100). An absolute limit is a token count: `200000`, or `200k`, `1M`, `1.5M` (`k` = 1,000, `m` = 1,000,000, any case). A decimal needs a suffix and must give a whole number of tokens. Zero, negatives, separators, spaces and other suffixes are rejected and change nothing.
+The effective limit is `min(relative, absolute, window - reserveTokens)`, where `reserveTokens` is PiG's `compaction.reserveTokens` (default 16384, read from the global and the project `settings.json`). PiG's own threshold therefore always remains the upper bound, and with nothing set behavior is unchanged. A value at or above that cap is saved but reported as clamped, so a later switch to a larger-window model can use it. With an unknown window, or a window not above the reserve, PiG's own behavior applies.
+Settings are per user, in `<agent dir>/compact-settings.json` (mode 0600). A damaged file is reported and ignored; PiG's own threshold keeps working.
+`better-footer` shows a user-set effective limit in parentheses after the context window, for example `84k/1.0M (250k)`. It is hidden when nothing is set, when a value is clamped to PiG's own cap, or when the window is unknown. The footer rereads the settings about once a second, so a change appears within that time.
+The extension checks when an agent run has settled, and starts the same compacting that `/compact` uses, so the native and any custom summary share one trigger. Limits:
+
+- PiG's own check after each model reply cannot be changed from an extension, so inside one long run the context can pass a limit until the run ends.
+- Like a manual `/compact`, the host rejects a prompt typed while that compacting runs ("Cannot submit a prompt while compaction is in progress"); send it again afterwards.
+- A failed compacting is reported and not retried at the same context size.
+- The reserve is read from the project `.pig/settings.json` whether or not the project is trusted, which only moves the cap.
+
+## Closing menus
+
+Every menu this repository draws closes with both `Esc` and `q`: the `/todos` viewer, the auto-models dashboard and pickers, and the `ask_user_question` questionnaire (also `Ctrl+C`). Where `q` is a letter it stays a letter: the auto-models pickers that have a search box, the questionnaire's typed-answer row, and its note editor. There `Esc` is the only key, and the hint line names `q` only where it works.
+Select and confirm dialogs the host draws (the Smart Approve question, the `/pi-curator` and footer settings) close with `q` as well as `Esc` and `Ctrl+C` when the host is built with `patches/pig/0020-selector-q-cancel.patch`, which `scripts/dev_build.sh` applies. Those dialogs have no text input, so `q` is never a typed letter there. The hint line is unchanged, because a host test pins the upstream wording. Host lists that do have a search box, such as the model selector, keep `Esc` only. A stock host without the patch closes these dialogs with `Esc` and `Ctrl+C`. This repository does not change your keybindings.
 
 ## ask-mode
 
@@ -685,8 +782,10 @@ Failures are reported. See `extensions/repo-excludes/README.md`.
 
 Adds `cursor` to `/login`. It uses Cursor's browser PKCE flow (`cursor.com/loginDeepControl`, then polling
 `api2.cursor.sh/auth/poll`) and refreshes through a `refresh_token` grant at `api2.cursor.sh/oauth/token`. These endpoints are undocumented
-and may change. The extension only stores the OAuth credential; it registers no Cursor models, so Cursor
-model requests are not yet supported.
+and may change. By default this is login-only. An opt-in **beta version of Cursor** adds manually configured,
+text-only models through the official Cursor CLI; see [Cursor beta setup and limitations](docs/cursor-beta.md).
+The beta requires `--no-tools --thinking off`, buffers output, and has no live account verification. It is not
+a standalone Cursor model API or a production-ready coding-agent integration.
 
 ## user-resources
 

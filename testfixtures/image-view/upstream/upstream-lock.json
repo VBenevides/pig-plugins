@@ -17,7 +17,22 @@
     "src/extension-runtime.ts": [
       "Number and thumbnail native read image results without registering a tool",
       "Number RPC image attachments that have no clipboard path",
-      "Restore numbering from user and toolResult session messages"
+      "Restore numbering from user and toolResult session messages",
+      "Use explicit host event and widget types and combine adjacent content inserts"
+    ],
+    "*.ts": ["Normalize vendored TypeScript formatting with Prettier"],
+    "index.ts": ["Retain host interface types instead of untyped assertions"],
+    "src/gallery-presenter.ts": [
+      "Type the host theme and use a constant timer binding"
+    ],
+    "src/image-gallery.ts": [
+      "Express Kitty protocol delimiters with an explicit ESC constant"
+    ],
+    "src/marker-spans.test.ts": [
+      "Add Unicode, marker boundary and atomic segmentation regression tests"
+    ],
+    "package-lock.json": [
+      "Lock fixture dependencies for repeatable dependency auditing"
     ]
   }
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -153,14 +154,26 @@ func (h *Home) RunRPC(t testing.TB, mock *MockLLM, opts RPCOptions) RPCResult {
 	}
 
 	for _, prompt := range opts.Prompts {
-		send(map[string]any{"type": "prompt", "message": prompt})
-		until("the prompt "+fmt.Sprintf("%q", prompt)+" finished", func(event map[string]any) bool {
-			if event["type"] == "agent_settled" {
-				return true
+		// The host rejects a prompt submitted while a compact is running (as it does for a user). A real client
+		// retries, so the harness does too, until the session timeout.
+		for rejected := true; rejected; {
+			rejected = false
+			send(map[string]any{"type": "prompt", "message": prompt})
+			until("the prompt "+fmt.Sprintf("%q", prompt)+" finished", func(event map[string]any) bool {
+				if event["type"] == "agent_settled" {
+					return true
+				}
+				if message, _ := event["error"].(string); event["type"] == "response" && event["command"] == "prompt" && strings.Contains(message, "compaction is in progress") {
+					rejected = true
+					return true
+				}
+				data, _ := event["data"].(map[string]any)
+				return event["type"] == "response" && event["command"] == "prompt" && data["disposition"] == "handled"
+			})
+			if rejected {
+				time.Sleep(200 * time.Millisecond)
 			}
-			data, _ := event["data"].(map[string]any)
-			return event["type"] == "response" && event["command"] == "prompt" && data["disposition"] == "handled"
-		})
+		}
 	}
 	// A state round trip guarantees that every earlier event has arrived.
 	send(map[string]any{"type": "get_state"})

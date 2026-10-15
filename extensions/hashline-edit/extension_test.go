@@ -30,7 +30,8 @@ func TestReadAndEditReplaceTheBuiltIns(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home.Work, "dot.png"), png, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	replaceBeta := map[string]any{"path": "notes.txt", "edits": []any{
+	version := hashline.ContentVersion([]byte("alpha\nbeta\ngamma\n"))
+	replaceBeta := map[string]any{"path": "notes.txt", "version": version, "edits": []any{
 		map[string]any{"op": "replace", "anchor": anchor(2, "beta"), "lines": []any{"BETA"}}}}
 	mock := pigtest.NewMockLLM(
 		pigtest.Calls(pigtest.Call("read", map[string]any{"path": "notes.txt"})),
@@ -54,14 +55,14 @@ func TestReadAndEditReplaceTheBuiltIns(t *testing.T) {
 		t.Fatalf("got %d tool results: %q", len(results), results)
 	}
 	wantRead := strings.Join([]string{
-		anchor(1, "alpha") + "|alpha", anchor(2, "beta") + "|beta", anchor(3, "gamma") + "|gamma"}, "\n")
+		anchor(1, "alpha") + "|alpha", anchor(2, "beta") + "|beta", anchor(3, "gamma") + "|gamma"}, "\n") + "\nVersion: " + version
 	if results[0] != wantRead {
 		t.Errorf("read result\nwant: %q\n got: %q", wantRead, results[0])
 	}
 	if !strings.HasPrefix(results[1], "Applied 1 edit(s) to "+notes) || !strings.Contains(results[1], anchor(2, "BETA")+"|BETA") {
 		t.Errorf("edit result: %q", results[1])
 	}
-	if !strings.Contains(results[2], "edit rejected") || !strings.Contains(results[2], "stale anchor") {
+	if !strings.Contains(results[2], "edit rejected") || !strings.Contains(results[2], "stale version") {
 		t.Errorf("stale edit result: %q", results[2])
 	}
 	if !strings.Contains(results[3], "Read image file [image/png]") {

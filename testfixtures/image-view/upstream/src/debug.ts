@@ -10,12 +10,12 @@
 const DEBUG_ENABLED = Boolean(process.env.PI_IMAGE_VIEW_DEBUG);
 
 export function debugLog(message: string, error?: unknown): void {
-	if (!DEBUG_ENABLED) return;
+  if (!DEBUG_ENABLED) return;
 
-	const prefix = "[pi-image-view]";
-	if (error) {
-		console.error(prefix, message, error);
-	} else {
-		console.error(prefix, message);
-	}
+  const prefix = "[pi-image-view]";
+  if (error) {
+    console.error(prefix, message, error);
+  } else {
+    console.error(prefix, message);
+  }
 }

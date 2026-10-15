@@ -61,7 +61,9 @@ func TestCaptureIndependentOutcomes(t *testing.T) {
 		}
 	}, nil), CaptureOptions{MaxAttempts: 5})
 	c.Enqueue([]EventIn{ev("a"), ev("bad"), ev("slow"), ev("b")})
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if got := c.Stats(); got.Durable != 2 || got.Rejected != 1 || got.Queued != 1 {
 		t.Fatal(got)
 	}
@@ -80,7 +82,9 @@ func TestCaptureMemoryInspectionRejectionIsNotAProblem(t *testing.T) {
 		return out, nil
 	}, CaptureOptions{BatchSize: 1, OnProblem: func(m string) { problems = append(problems, m) }})
 	c.Enqueue([]EventIn{ev("inspect"), ev("bad")})
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if got := c.Stats(); got.Rejected != 2 || got.Queued != 0 {
 		t.Fatal(got)
 	}
@@ -101,16 +105,22 @@ func TestCaptureRetriesBecomeGapsAndRecover(t *testing.T) {
 		return ack(ctx, r)
 	}, CaptureOptions{MaxAttempts: 2})
 	c.Enqueue([]EventIn{ev("a")})
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if calls != 1 || c.Stats().Queued != 1 {
 		t.Fatal(calls, c.Stats())
 	}
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(c.PendingGaps(), []Gap{{SessionID: "s", EventID: "a"}}) {
 		t.Fatal(c.PendingGaps())
 	}
 	up = true
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if c.Stats().Gaps != 0 {
 		t.Fatal(c.Stats())
 	}
@@ -139,11 +149,15 @@ func TestCaptureMismatchedResponseDoesNotAcknowledge(t *testing.T) {
 		return IngestResponse{Results: []ItemResult{{ID: "wrong", Outcome: OutcomeDurable}}}, nil
 	}, CaptureOptions{MaxAttempts: 2})
 	c.Enqueue([]EventIn{ev("a")})
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if got := c.Stats(); got.Durable != 0 || got.Queued != 1 {
 		t.Fatal(got)
 	}
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if got := c.Stats(); got.Durable != 0 || got.Gaps != 1 {
 		t.Fatal(got)
 	}

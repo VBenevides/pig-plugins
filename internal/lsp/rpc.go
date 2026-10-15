@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,8 +51,9 @@ func (r *RPC) Close(err error) {
 		r.failure = err
 		close(r.done)
 		r.mu.Unlock()
-		r.reader.Close()
-		r.writer.Close()
+		if closeErr := errors.Join(r.reader.Close(), r.writer.Close()); closeErr != nil {
+			slog.Warn("close LSP transport", "error", closeErr)
+		}
 	})
 }
 func (r *RPC) Alive() bool {

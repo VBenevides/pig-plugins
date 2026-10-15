@@ -17,6 +17,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/agentdir"
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
 	bf "github.com/VBenevides/pig-plugins/internal/betterfooter"
+	"github.com/VBenevides/pig-plugins/internal/compactlimit"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/notice"
 )
@@ -63,6 +64,7 @@ type extension struct {
 	stop                   context.CancelFunc
 	done                   chan struct{}
 	origin                 time.Time
+	compactLimit           compactlimit.Footer
 }
 
 // Extension is the fused native factory. CLI arguments belong to PiG only in fused builds.
@@ -72,6 +74,7 @@ func Extension() *sdk.Extension {
 	home, _ := os.UserHomeDir()
 	life, stop := context.WithCancel(context.Background())
 	x := &extension{store: &sharedQuota, fused: fused, settingsPath: bf.SettingsPath(os.Getenv), wake: make(chan struct{}, 1), draw: make(chan struct{}, 1), drawDone: make(chan struct{}), life: life, stop: stop, done: make(chan struct{}), origin: time.Now()}
+	x.compactLimit = compactlimit.Footer{Getenv: os.Getenv, TTL: time.Second}
 	if fused {
 		x.args = append([]string(nil), os.Args[1:]...)
 	}
@@ -323,6 +326,7 @@ func (x *extension) render(ctx sdk.Context) func(int) []string {
 		state := x.state
 		x.mu.Unlock()
 		state.Statuses = footerstatus.Snapshot()
+		state.CompactLimit = x.compactLimit.Limit(state.ContextWindow, ctx.Cwd())
 		theme := ctx.UITheme()
 		return bf.RenderFooter(state, width, bf.Theme{Fg: theme.Fg, Name: theme.Name, Appearance: string(theme.Appearance()), ColorFGBG: os.Getenv("COLORFGBG")}, time.Now())
 	}

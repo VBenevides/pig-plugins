@@ -16,7 +16,7 @@ func toolSnapshot(name string, payload any) map[string]any {
 }
 
 func TestLegacyLocalFixturesMigrate(t *testing.T) {
-	// Keep the captured pi-todo fixtures as migration evidence, not an old API test.
+	// Keep the captured legacy task fixtures as migration evidence, not an old API test.
 	data, err := os.ReadFile("../../testfixtures/todo.json")
 	if err != nil {
 		t.Fatal(err)

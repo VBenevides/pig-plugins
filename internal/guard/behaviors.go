@@ -21,59 +21,80 @@ type Analysis struct {
 	DeleteTargets []string
 }
 
+const (
+	behaviorRecursiveDelete = "recursive-force-delete"
+	behaviorDeleteRoot      = "delete-root"
+	behaviorDeleteSystem    = "delete-sys-dir"
+	behaviorForkBomb        = "fork-bomb"
+	behaviorRemoteExecution = "remote-fetch-exec"
+	behaviorSensitiveWrite  = "write-sensitive-file"
+	behaviorDeviceWrite     = "write-block-device"
+	behaviorShutdown        = "shutdown-reboot"
+	behaviorDiskFormat      = "disk-format"
+	behaviorForceKill       = "force-kill"
+	behaviorGlobalUninstall = "pkg-global-uninstall"
+	behaviorForcePush       = "git-force-push"
+	behaviorHardReset       = "git-hard-reset"
+	behaviorClean           = "git-clean"
+	behaviorBranchDelete    = "git-branch-delete"
+	behaviorWorktreeRemove  = "git-worktree-remove"
+	behaviorProtectedPush   = "git-force-push-protected"
+	behaviorDeleteHome      = "delete-home"
+)
+
 var behaviorLabels = map[string]string{
-	"recursive-force-delete":   "Recursive force delete (rm -rf)",
-	"delete-root":              "Delete root path /",
-	"delete-sys-dir":           "Delete system directory",
-	"fork-bomb":                "Fork bomb",
-	"remote-fetch-exec":        "Remote fetch-and-execute (curl|sh)",
-	"write-sensitive-file":     "Write to system-sensitive file",
-	"write-block-device":       "Write to raw block device",
-	"chmod-sys-dir":            "Change system directory permissions",
-	"shutdown-reboot":          "Shutdown / reboot",
-	"disk-format":              "Disk format / raw write",
-	"mount-block-device":       "Mount / unmount block device",
-	"force-kill":               "Force kill process (SIGKILL)",
-	"pkg-global-uninstall":     "Global package uninstall",
-	"git-force-push":           "git force / mirror push",
-	"git-push-delete":          "git push --delete (remote ref)",
-	"git-push-colon-ref":       "git push :ref (delete remote branch)",
-	"git-hard-reset":           "git reset --hard (discard changes)",
-	"git-clean":                "git clean -f (delete untracked)",
-	"git-branch-delete":        "git branch -D (force delete)",
-	"git-tag-delete":           "git tag -d (delete tag)",
-	"git-stash-clear":          "git stash clear",
-	"git-stash-drop":           "git stash drop",
-	"git-reflog-expire":        "git reflog expire",
-	"git-gc-prune":             "git gc --prune (purge objects)",
-	"git-filter-branch":        "git filter-branch (rewrite history)",
-	"git-filter-repo":          "git filter-repo (rewrite history)",
-	"git-commit-amend":         "git commit --amend",
-	"git-rebase":               "git rebase (rewrite history)",
-	"git-remote-rm":            "git remote rm",
-	"git-submodule-deinit":     "git submodule deinit",
-	"git-worktree-remove":      "git worktree remove",
-	"git-update-ref-delete":    "git update-ref -d (delete ref)",
-	"git-checkout-discard":     "git checkout -- . (discard all)",
-	"git-restore-discard":      "git restore . (discard worktree)",
-	"git-config-global":        "git config --global",
-	"git-notes-remove":         "git notes remove",
-	"sudo":                     "sudo command",
-	"docker-destroy":           "docker rm/rmi/volume/network rm",
-	"kubectl-delete":           "kubectl delete",
-	"mv-sys-dir":               "Move system directory",
-	"cp-root":                  "Recursive copy to root",
-	"git-force-push-protected": "git force push to protected branch",
-	"delete-home":              "Delete home directory (~)",
+	behaviorRecursiveDelete: "Recursive force delete (rm -rf)",
+	behaviorDeleteRoot:      "Delete root path /",
+	behaviorDeleteSystem:    "Delete system directory",
+	behaviorForkBomb:        "Fork bomb",
+	behaviorRemoteExecution: "Remote fetch-and-execute (curl|sh)",
+	behaviorSensitiveWrite:  "Write to system-sensitive file",
+	behaviorDeviceWrite:     "Write to raw block device",
+	"chmod-sys-dir":         "Change system directory permissions",
+	behaviorShutdown:        "Shutdown / reboot",
+	behaviorDiskFormat:      "Disk format / raw write",
+	"mount-block-device":    "Mount / unmount block device",
+	behaviorForceKill:       "Force kill process (SIGKILL)",
+	behaviorGlobalUninstall: "Global package uninstall",
+	behaviorForcePush:       "git force / mirror push",
+	"git-push-delete":       "git push --delete (remote ref)",
+	"git-push-colon-ref":    "git push :ref (delete remote branch)",
+	behaviorHardReset:       "git reset --hard (discard changes)",
+	behaviorClean:           "git clean -f (delete untracked)",
+	behaviorBranchDelete:    "git branch -D (force delete)",
+	"git-tag-delete":        "git tag -d (delete tag)",
+	"git-stash-clear":       "git stash clear",
+	"git-stash-drop":        "git stash drop",
+	"git-reflog-expire":     "git reflog expire",
+	"git-gc-prune":          "git gc --prune (purge objects)",
+	"git-filter-branch":     "git filter-branch (rewrite history)",
+	"git-filter-repo":       "git filter-repo (rewrite history)",
+	"git-commit-amend":      "git commit --amend",
+	"git-rebase":            "git rebase (rewrite history)",
+	"git-remote-rm":         "git remote rm",
+	"git-submodule-deinit":  "git submodule deinit",
+	behaviorWorktreeRemove:  "git worktree remove",
+	"git-update-ref-delete": "git update-ref -d (delete ref)",
+	"git-checkout-discard":  "git checkout -- . (discard all)",
+	"git-restore-discard":   "git restore . (discard worktree)",
+	"git-config-global":     "git config --global",
+	"git-notes-remove":      "git notes remove",
+	"sudo":                  "sudo command",
+	"docker-destroy":        "docker rm/rmi/volume/network rm",
+	"kubectl-delete":        "kubectl delete",
+	"mv-sys-dir":            "Move system directory",
+	"cp-root":               "Recursive copy to root",
+	behaviorProtectedPush:   "git force push to protected branch",
+	behaviorDeleteHome:      "Delete home directory (~)",
 }
 
 var hardBlockBehaviors = map[string]bool{
-	"delete-root": true, "delete-home": true, "delete-sys-dir": true, "fork-bomb": true,
-	"remote-fetch-exec": true, "write-sensitive-file": true, "write-block-device": true,
-	"disk-format": true, "shutdown-reboot": true,
+	behaviorDeleteRoot: true, behaviorDeleteHome: true, behaviorDeleteSystem: true, behaviorForkBomb: true,
+	behaviorRemoteExecution: true, behaviorSensitiveWrite: true, behaviorDeviceWrite: true,
+	behaviorDiskFormat: true, behaviorShutdown: true,
 }
 
-var denyTierBehaviors = map[string]bool{"git-force-push-protected": true}
+var denyTierBehaviors = map[string]bool{behaviorProtectedPush: true}
 
 type dangerRule struct {
 	pattern  *regexp2.Regexp
@@ -91,33 +112,33 @@ var dangerRules = func() []dangerRule {
 		ignoreCase bool
 	}
 	sources := []source{
-		{`(?:^|[\s;&|])rm\s+(?:-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+`, "recursive-force-delete", true},
-		{`\brm\s+--recursive(?:\s+--force|\s*$)`, "recursive-force-delete", true},
-		{`\brm\s+--force(?:\s+--recursive|\s*$)`, "recursive-force-delete", true},
-		{`\brmdir\s+(?:-[a-zA-Z]*p[a-zA-Z]*)?\s*\/`, "recursive-force-delete", false},
-		{`\brm\b.*\s\/(?:\s|$)`, "delete-root", false},
-		{`:\(\)\s*\{\s*:\|:\s*&\s*\}\s*;:`, "fork-bomb", false},
-		{`\b(?:fork|bomb)\b.*\&\s*\|.*\&`, "fork-bomb", false},
-		{`\b(?:curl|wget|fetch)\b.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|python|python3|perl|ruby|node)\b`, "remote-fetch-exec", false},
-		{`\b(?:curl|wget)\b.*(?:\|\s*sh|\|\s*bash)`, "remote-fetch-exec", false},
-		{`(?:>|>>)\s*\/(?:etc\/(?:passwd|shadow|sudoers|hosts)|proc|sys|dev\/` + blockDevice + `)`, "write-sensitive-file", false},
-		{`(?:>|>>)\s*\/dev\/` + blockDevice, "write-block-device", false},
+		{`(?:^|[\s;&|])rm\s+(?:-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+`, behaviorRecursiveDelete, true},
+		{`\brm\s+--recursive(?:\s+--force|\s*$)`, behaviorRecursiveDelete, true},
+		{`\brm\s+--force(?:\s+--recursive|\s*$)`, behaviorRecursiveDelete, true},
+		{`\brmdir\s+(?:-[a-zA-Z]*p[a-zA-Z]*)?\s*\/`, behaviorRecursiveDelete, false},
+		{`\brm\b.*\s\/(?:\s|$)`, behaviorDeleteRoot, false},
+		{`:\(\)\s*\{\s*:\|:\s*&\s*\}\s*;:`, behaviorForkBomb, false},
+		{`\b(?:fork|bomb)\b.*\&\s*\|.*\&`, behaviorForkBomb, false},
+		{`\b(?:curl|wget|fetch)\b.*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|fish|python|python3|perl|ruby|node)\b`, behaviorRemoteExecution, false},
+		{`\b(?:curl|wget)\b.*(?:\|\s*sh|\|\s*bash)`, behaviorRemoteExecution, false},
+		{`(?:>|>>)\s*\/(?:etc\/(?:passwd|shadow|sudoers|hosts)|proc|sys|dev\/` + blockDevice + `)`, behaviorSensitiveWrite, false},
+		{`(?:>|>>)\s*\/dev\/` + blockDevice, behaviorDeviceWrite, false},
 		{`\b(?:chmod|chown|chgrp)\b.*\s\/(?:etc|usr|var|bin|sbin|boot)\b`, "chmod-sys-dir", false},
-		{`\b(?:shutdown|poweroff|halt|reboot|init\s+0|init\s+6)\b`, "shutdown-reboot", false},
-		{`\bsudo\s+(?:shutdown|poweroff|halt|reboot|init)\b`, "shutdown-reboot", false},
-		{`\b(?:mkfs|dd)\b.*(?:of=)?\/dev\/` + blockDevice, "disk-format", false},
+		{`\b(?:shutdown|poweroff|halt|reboot|init\s+0|init\s+6)\b`, behaviorShutdown, false},
+		{`\bsudo\s+(?:shutdown|poweroff|halt|reboot|init)\b`, behaviorShutdown, false},
+		{`\b(?:mkfs|dd)\b.*(?:of=)?\/dev\/` + blockDevice, behaviorDiskFormat, false},
 		{`\b(?:mount|umount)\b.*\s\/dev\/(?:sd|nvme|disk)`, "mount-block-device", false},
-		{`\b(?:pkill|killall)\s+(?:-[a-zA-Z]*9|-\d+)\s+`, "force-kill", false},
-		{`\bkill\s+-9\b`, "force-kill", false},
-		{`\b(?:npm|pnpm|yarn)\s+(?:uninstall|remove|rm)\s+(?:-[a-zA-Z]*g[a-zA-Z]*)\b`, "pkg-global-uninstall", false},
-		{`\bpip3?\s+uninstall\b`, "pkg-global-uninstall", false},
-		{`\bgit\s+push\b.*(?:\s-f\b|--force(?:-with-lease)?\b|--mirror\b)`, "git-force-push", false},
+		{`\b(?:pkill|killall)\s+(?:-[a-zA-Z]*9|-\d+)\s+`, behaviorForceKill, false},
+		{`\bkill\s+-9\b`, behaviorForceKill, false},
+		{`\b(?:npm|pnpm|yarn)\s+(?:uninstall|remove|rm)\s+(?:-[a-zA-Z]*g[a-zA-Z]*)\b`, behaviorGlobalUninstall, false},
+		{`\bpip3?\s+uninstall\b`, behaviorGlobalUninstall, false},
+		{`\bgit\s+push\b.*(?:\s-f\b|--force(?:-with-lease)?\b|--mirror\b)`, behaviorForcePush, false},
 		{`\bgit\s+push\b.*--delete\b`, "git-push-delete", false},
 		{`\bgit\s+push\s+\S+\s+:[^\s]`, "git-push-colon-ref", false},
-		{`\bgit\s+reset\b.*--hard\b`, "git-hard-reset", false},
-		{`\bgit\s+reset\s+-[a-zA-Z]*H`, "git-hard-reset", false},
-		{`\bgit\s+clean\s+-[a-zA-Z]*f`, "git-clean", false},
-		{`\bgit\s+branch\s+-[a-zA-Z]*D\b`, "git-branch-delete", false},
+		{`\bgit\s+reset\b.*--hard\b`, behaviorHardReset, false},
+		{`\bgit\s+reset\s+-[a-zA-Z]*H`, behaviorHardReset, false},
+		{`\bgit\s+clean\s+-[a-zA-Z]*f`, behaviorClean, false},
+		{`\bgit\s+branch\s+-[a-zA-Z]*D\b`, behaviorBranchDelete, false},
 		{`\bgit\s+tag\s+(?:-d\b|--delete\b)`, "git-tag-delete", false},
 		{`\bgit\s+stash\s+clear\b`, "git-stash-clear", false},
 		{`\bgit\s+stash\s+drop\b`, "git-stash-drop", false},
@@ -129,7 +150,7 @@ var dangerRules = func() []dangerRule {
 		{`\bgit\s+rebase\b(?!\s+--(?:abort|continue|skip)\b)`, "git-rebase", false},
 		{`\bgit\s+remote\s+(?:rm|remove)\b`, "git-remote-rm", false},
 		{`\bgit\s+submodule\s+deinit\b`, "git-submodule-deinit", false},
-		{`\bgit\s+worktree\s+remove\b`, "git-worktree-remove", false},
+		{`\bgit\s+worktree\s+remove\b`, behaviorWorktreeRemove, false},
 		{`\bgit\s+update-ref\b.*(?:-d\b|--delete\b)`, "git-update-ref-delete", false},
 		{`\bgit\s+(?:checkout|restore)\s+--\s*\.`, "git-checkout-discard", false},
 		{`\bgit\s+restore\s+(?:\.|--worktree\b)`, "git-restore-discard", false},
@@ -140,8 +161,8 @@ var dangerRules = func() []dangerRule {
 		{`\bkubectl\s+delete\b`, "kubectl-delete", false},
 		{`\bmv\b.*\s\/(?:usr|etc|var|bin)\b`, "mv-sys-dir", false},
 		{`\bcp\s+-r\b.*\s\/\s*$`, "cp-root", false},
-		{`(?:^|[\s;&|])rm\s+(?:-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+(?:~|\$HOME)(?=$|[\s;&|])`, "delete-home", true},
-		{`\brm\s+-rf\s+\/Users\/[^\s/;|&]+`, "delete-home", true},
+		{`(?:^|[\s;&|])rm\s+(?:-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+(?:~|\$HOME)(?=$|[\s;&|])`, behaviorDeleteHome, true},
+		{`\brm\s+-rf\s+\/Users\/[^\s/;|&]+`, behaviorDeleteHome, true},
 	}
 	rules := make([]dangerRule, len(sources))
 	for i, s := range sources {
@@ -333,31 +354,31 @@ func analyzeGit(args []string) []string {
 		if !isForcePush(rest) {
 			return nil
 		}
-		ids := []string{"git-force-push"}
+		ids := []string{behaviorForcePush}
 		for _, branch := range pushTargetBranches(rest) {
 			if protectedPushBranches[branch] {
-				ids = append(ids, "git-force-push-protected")
+				ids = append(ids, behaviorProtectedPush)
 				break
 			}
 		}
 		return ids
 	case "branch":
 		if isBranchDelete(rest) {
-			return []string{"git-branch-delete"}
+			return []string{behaviorBranchDelete}
 		}
 	case "worktree":
 		if len(rest) > 0 && (rest[0] == "remove" || rest[0] == "rm") {
-			return []string{"git-worktree-remove"}
+			return []string{behaviorWorktreeRemove}
 		}
 	case "reset":
 		for _, arg := range rest {
 			if arg == "--hard" {
-				return []string{"git-hard-reset"}
+				return []string{behaviorHardReset}
 			}
 		}
 	case "clean":
 		if isGitCleanDestructive(rest) {
-			return []string{"git-clean"}
+			return []string{behaviorClean}
 		}
 	}
 	return nil
@@ -561,11 +582,11 @@ func Analyze(command string) (Analysis, error) {
 		}
 		switch kind {
 		case "root":
-			add("delete-root")
+			add(behaviorDeleteRoot)
 		case "home":
-			add("delete-home")
+			add(behaviorDeleteHome)
 		case "system":
-			add("delete-sys-dir")
+			add(behaviorDeleteSystem)
 		}
 	}
 	for _, rule := range dangerRules {

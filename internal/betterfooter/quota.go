@@ -125,19 +125,21 @@ func QuotaKey(api, provider, baseURL string, usingOAuth func() bool) string {
 	return provider
 }
 
+const nativeQuotaSeparator = "\x00oauth:"
+
 // NativeQuotaKey isolates a native credential from both other logins and CLI sources.
 // The opaque local ID is never displayed or persisted by the footer.
-func NativeQuotaKey(base, id string) string { return base + "\x00oauth:" + id }
+func NativeQuotaKey(base, id string) string { return base + nativeQuotaSeparator + id }
 
 // QuotaSource identifies the provider-specific parser/source of an account key.
 func QuotaSource(key string) string {
-	base, _, _ := strings.Cut(key, "\x00oauth:")
+	base, _, _ := strings.Cut(key, nativeQuotaSeparator)
 	return base
 }
 
 // NativeQuotaAccount returns the opaque native selector, not a provider account ID.
 func NativeQuotaAccount(key string) (string, bool) {
-	_, id, native := strings.Cut(key, "\x00oauth:")
+	_, id, native := strings.Cut(key, nativeQuotaSeparator)
 	return id, native
 }
 

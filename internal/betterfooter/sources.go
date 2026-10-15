@@ -247,12 +247,16 @@ var errNotRegularFile = errors.New("not a regular file")
 
 // readCapped reads only regular files, with a descriptor check before any read.
 // The platform opener must not block on special files substituted during open.
-func readCapped(path string) ([]byte, error) {
+func readCapped(path string) (data []byte, err error) {
 	file, err := openRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close %s: %w", filepath.Base(path), closeErr))
+		}
+	}()
 	info, err := file.Stat()
 	if err != nil {
 		return nil, err
@@ -260,7 +264,7 @@ func readCapped(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, &os.PathError{Op: "read", Path: path, Err: errNotRegularFile}
 	}
-	data, err := io.ReadAll(io.LimitReader(file, MaxResponseBytes+1))
+	data, err = io.ReadAll(io.LimitReader(file, MaxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", filepath.Base(path), err)
 	}

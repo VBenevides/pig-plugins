@@ -10,17 +10,17 @@ export const DETAIL_MAX_BYTES = 4.5 * 1024 * 1024;
 type ResizedImage = { data: string; mimeType: string };
 
 export interface PreviewResizeDeps {
-	/** Resize raw image bytes within the given bounds (pi's WASM resizer). */
-	resizeImage: (
-		bytes: Uint8Array,
-		mimeType: string,
-		options: { maxWidth: number; maxHeight: number; maxBytes: number },
-	) => Promise<ResizedImage | null>;
-	/** Re-encode an image as PNG (kitty's f=100 transmission requires PNG). */
-	convertToPng: (
-		data: string,
-		mimeType: string,
-	) => Promise<ResizedImage | null>;
+  /** Resize raw image bytes within the given bounds (pi's WASM resizer). */
+  resizeImage: (
+    bytes: Uint8Array,
+    mimeType: string,
+    options: { maxWidth: number; maxHeight: number; maxBytes: number },
+  ) => Promise<ResizedImage | null>;
+  /** Re-encode an image as PNG (kitty's f=100 transmission requires PNG). */
+  convertToPng: (
+    data: string,
+    mimeType: string,
+  ) => Promise<ResizedImage | null>;
 }
 
 /**
@@ -29,40 +29,44 @@ export interface PreviewResizeDeps {
  * a non-PNG payload would render as a blank block.
  */
 export async function resizeForPreview(
-	image: ImageContent,
-	deps: PreviewResizeDeps,
+  image: ImageContent,
+  deps: PreviewResizeDeps,
 ): Promise<ImageContent> {
-	try {
-		const bytes = Buffer.from(image.data, "base64");
-		const resized = await deps.resizeImage(bytes, image.mimeType, {
-			maxWidth: PREVIEW_MAX_DIMENSION,
-			maxHeight: PREVIEW_MAX_DIMENSION,
-			maxBytes: PREVIEW_MAX_BYTES,
-		});
-		const small = resized ?? { data: image.data, mimeType: image.mimeType };
-		const png = await deps.convertToPng(small.data, small.mimeType);
-		const final = png ?? small;
-		return { type: "image", data: final.data, mimeType: final.mimeType };
-	} catch {
-		return image;
-	}
+  try {
+    const bytes = Buffer.from(image.data, "base64");
+    const resized = await deps.resizeImage(bytes, image.mimeType, {
+      maxWidth: PREVIEW_MAX_DIMENSION,
+      maxHeight: PREVIEW_MAX_DIMENSION,
+      maxBytes: PREVIEW_MAX_BYTES,
+    });
+    const small = resized ?? { data: image.data, mimeType: image.mimeType };
+    const png = await deps.convertToPng(small.data, small.mimeType);
+    const final = png ?? small;
+    return { type: "image", data: final.data, mimeType: final.mimeType };
+  } catch {
+    return image;
+  }
 }
 
 /** Build a higher-detail model payload for the next explicitly armed submission. */
 export async function resizeForDetail(
-	image: ImageContent,
-	deps: Pick<PreviewResizeDeps, "resizeImage">,
+  image: ImageContent,
+  deps: Pick<PreviewResizeDeps, "resizeImage">,
 ): Promise<ImageContent> {
-	try {
-		const resized = await deps.resizeImage(Buffer.from(image.data, "base64"), image.mimeType, {
-			maxWidth: DETAIL_MAX_DIMENSION,
-			maxHeight: DETAIL_MAX_DIMENSION,
-			maxBytes: DETAIL_MAX_BYTES,
-		});
-		return resized
-			? { type: "image", data: resized.data, mimeType: resized.mimeType }
-			: image;
-	} catch {
-		return image;
-	}
+  try {
+    const resized = await deps.resizeImage(
+      Buffer.from(image.data, "base64"),
+      image.mimeType,
+      {
+        maxWidth: DETAIL_MAX_DIMENSION,
+        maxHeight: DETAIL_MAX_DIMENSION,
+        maxBytes: DETAIL_MAX_BYTES,
+      },
+    );
+    return resized
+      ? { type: "image", data: resized.data, mimeType: resized.mimeType }
+      : image;
+  } catch {
+    return image;
+  }
 }

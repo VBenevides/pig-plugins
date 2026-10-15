@@ -19,10 +19,19 @@ const (
 
 var errRedirect = errors.New("redirect refused")
 
+// responseCloseError retains the transport cause without exposing its sensitive text.
+type responseCloseError struct {
+	source string
+	cause  error
+}
+
+func (err *responseCloseError) Error() string { return err.source + ": response close failed" }
+func (err *responseCloseError) Unwrap() error { return err.cause }
+
 // httpGet performs one bounded GET. Redirects are never followed (the request carries credentials), the body is
 // capped at 1 MiB, and errors name the source and the HTTP status only: they never carry the URL, a header, a
 // token or a response body.
-func httpGet(ctx context.Context, client *http.Client, source, url string, headers map[string]string) ([]byte, error) {
+func httpGet(ctx context.Context, client *http.Client, source, url string, headers map[string]string) (body []byte, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%s: %w", source, err)
 	}
@@ -57,7 +66,11 @@ func httpGet(ctx context.Context, client *http.Client, source, url string, heade
 		}
 		return nil, fmt.Errorf("%s: HTTP request failed", source)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			err = errors.Join(err, &responseCloseError{source: source, cause: closeErr})
+		}
+	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("%s: HTTP %d", source, response.StatusCode)
 	}

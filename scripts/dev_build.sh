@@ -77,6 +77,16 @@ tar -C "$source" --exclude='./.git' --exclude='./.agent-work' \
 tar -C "$stage/source" -xf "$stage/source.tar"
 rm -f "$stage/source.tar"
 chmod -R u+w "$stage/source"
+# Go extension factories resolve to this repository's module root. Keep local
+# workspaces, scratch environments, and tool caches out of its build-lock walk.
+mkdir "$stage/plugins"
+tar -C "$root" --exclude='./.git' --exclude='./.agent-work' \
+    --exclude='./build' --exclude='./node_modules' --exclude='./.ouro' \
+    --exclude='./.ruff_cache' --exclude='__pycache__' \
+    --exclude='./go.work' --exclude='./go.work.sum' \
+    -cf "$stage/plugins.tar" .
+tar -C "$stage/plugins" -xf "$stage/plugins.tar"
+rm -f "$stage/plugins.tar"
 echo "dev_build: [3/6] applying native host patches" >&2
 # The native account extension requires the pinned host and SDK patches.
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0001-native-oauth-accounts-host.patch" >&2
@@ -93,6 +103,9 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0017-input-draft-commands-and-skill-previews.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0018-collapse-live-skill-messages.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0019-startup-distribution-versions.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0020-selector-q-cancel.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0021-editor-select-all.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0023-extension-oauth-login-menu.patch" >&2
 echo "dev_build: [4/6] preparing patched SDK" >&2
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
 sdk_ref="$sdk_module@v$compatible_version"
@@ -104,10 +117,11 @@ chmod -R u+w "$stage/sdk"
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0002-native-oauth-accounts-sdk.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0011-conditional-draft-editor-sdk.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0013-native-image-preview-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0022-ordered-compact-sdk.patch" >&2
 (
     cd "$stage/source"
     rm -f go.work go.work.sum
-    GOWORK=off go work init . "$root"
+    GOWORK=off go work init . "$stage/plugins"
     GOWORK="$stage/source/go.work" go work edit -replace "github.com/MichaelKinsy/PiG/extensions/sdk=$stage/sdk"
     # Planning runs in the builder process, not the target source tree.
     # Use the patched host for both planning and the bundled executable.
@@ -119,7 +133,7 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/001
 # only after verification; a failed rebuild leaves the previous binary usable.
 artifact_dir=$(mktemp -d "$(dirname -- "$out")/.pig-dev-build.XXXXXX")
 echo "dev_build: [6/6] building fused executable" >&2
-PIG_SOURCE_ROOT="$stage/source" "$stage/pig-builder" piglet build "$root/piglet.yaml" --format binary --out "$artifact_dir/pig-plugins" >&2
+PIG_SOURCE_ROOT="$stage/source" "$stage/pig-builder" piglet build "$stage/plugins/piglet.yaml" --format binary --out "$artifact_dir/pig-plugins" >&2
 if [ ! -x "$artifact_dir/pig-plugins" ]; then
     echo "dev_build: builder did not produce an executable" >&2
     exit 1

@@ -9,7 +9,7 @@ import (
 func (s *State) Render(width int) []string {
 	width = max(1, width)
 	if s.collapsed {
-		return []string{tui.Fit("Questions collapsed — "+s.CollapseKey+" to expand; Esc cancels", width)}
+		return []string{tui.Fit("Questions collapsed — "+s.CollapseKey+" to expand; Esc or q cancels", width)}
 	}
 	inner := max(1, width-4)
 	var lines []string
@@ -47,7 +47,11 @@ func (s *State) Render(width int) []string {
 	} else if note := s.notes[s.tab]; note != "" {
 		lines = append(lines, tui.Wrap("Note: "+note, inner, 2)...)
 	}
-	lines = append(lines, "", "Up/Down select; Enter confirm; n notes; Esc cancel")
+	cancel := "Esc/q cancel"
+	if s.input() {
+		cancel = "Esc cancel" // On the typed-answer row q is a letter.
+	}
+	lines = append(lines, "", "Up/Down select; Enter confirm; n notes; "+cancel)
 	if s.tabs() > 1 {
 		lines = append(lines, "Tab/Shift+Tab switch questions and Submit")
 	}

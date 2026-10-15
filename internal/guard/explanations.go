@@ -10,14 +10,14 @@ import (
 // lancetReviewNote explains a LANCET Review verdict. A verdict without the model's uncertainty band came from a
 // refusal before scoring, so its reason is shown as given.
 func lancetReviewNote(verdict lancet.Result) string {
-	score := ScoreText(verdict.Score)
+	prefix := "LANCET review (score " + ScoreText(verdict.Score)
 	switch verdict.Reason {
 	case "uncertainty-band":
-		return "LANCET review (score " + score + "): the local model could not tell whether this command is safe or risky. Check it before you allow it."
+		return prefix + "): the local model could not tell whether this command is safe or risky. Check it before you allow it."
 	case "":
-		return "LANCET review (score " + score + "): the local model asks you to check this command."
+		return prefix + "): the local model asks you to check this command."
 	}
-	return "LANCET review (score " + score + "): the local model did not score this command (" + verdict.Reason + "). Check it before you allow it."
+	return prefix + "): the local model did not score this command (" + verdict.Reason + "). Check it before you allow it."
 }
 
 // behaviorExplanations say, in one sentence each, what can go wrong when a behavior runs. They are shown in the

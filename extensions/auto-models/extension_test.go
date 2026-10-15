@@ -137,3 +137,32 @@ func TestRPCUsageUnsupportedOpenAITokenDoesNotClaimQuotaAvailable(t *testing.T) 
 		t.Fatalf("unsupported token was queried or shown as available: %s", account)
 	}
 }
+
+// q cancels a picker without a search box, like Escape, and stays a typed letter where the picker searches.
+func TestPickerQCancelsOnlyWithoutASearchBox(t *testing.T) {
+	items := []choice{{"a", "quartz", ""}, {"b", "basalt", ""}}
+	plain := &picker{items: items}
+	plain.filter()
+	if result, err := plain.HandleInput("q"); err != nil || !result.Done || result.Value != nil {
+		t.Fatalf("q must cancel a picker without search: %+v %v", result, err)
+	}
+	swap := &picker{items: items, swappable: true}
+	swap.filter()
+	if result, err := swap.HandleInput("q"); err != nil || !result.Done || result.Value != nil {
+		t.Fatalf("q must cancel a swappable picker: %+v %v", result, err)
+	}
+	if result, err := swap.HandleInput("r"); err != nil || result.Value != swapValue {
+		t.Fatalf("r still swaps: %+v %v", result, err)
+	}
+	search := &picker{items: items, searchable: true}
+	search.filter()
+	if result, err := search.HandleInput("q"); err != nil || result.Done {
+		t.Fatalf("q must be typed into the search: %+v %v", result, err)
+	}
+	if search.query != "q" || len(search.matches) != 1 {
+		t.Fatalf("the typed q must filter to quartz: query=%q matches=%v", search.query, search.matches)
+	}
+	if !strings.Contains(strings.Join(plain.Render(60), "\n"), "esc/q cancel") || strings.Contains(strings.Join(search.Render(60), "\n"), "esc/q") {
+		t.Fatal("the hint must name q only where it works")
+	}
+}

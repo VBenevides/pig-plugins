@@ -1,0 +1,72 @@
+# Changelog
+
+All notable changes to pig-plugins are documented here.
+
+## [0.1.1] - 2026-10-15
+
+### Features
+
+- Hashline `edit` now requires the exact-byte SHA-256 `Version` returned by `read`; stale versions are rejected with at most five source-free nearby anchors and a reread instruction.
+- Added a session-scoped read-authority engine (64 files / 32 MiB): destructive edits need every affected line fully displayed, and authority is revoked by mutations, session switches, and session start/tree/shutdown events.
+- Added a coordinated hashline `write` tool that shares the edit mutation queue, creates private (0600) new files, and replaces existing files explicitly.
+- Added cancellation support, bounded mutation admission and request budgets, required directory sync with explicit committed-but-uncertain errors, structured error categories, and payload-free engine metrics.
+- Added tool schema bounds, a race-detector CI job (`.github/workflows/hashline-race.yml`), and a tracked golden-fixture generator with a provenance gate (`scripts/hashline-golden`).
+- Added `/compact-settings` with persisted relative and absolute automatic compaction limits, capped by PiG's native threshold; `better-footer` shows the effective user-set limit after the context window.
+- Added whole-prompt selection in the patched editor: bundled keybindings map Ctrl+A to select all and Home to line start; typing, pasting, and deletion replace the selection, with undo support. Existing keybinding files are not overwritten.
+- Bounded stored image previews to 48 hours without use and 256 MiB, with least-recently-used eviction, abandoned temporary-file cleanup, and visible cleanup failures; older sessions can lose evicted previews without losing conversation text.
+- Added an opt-in, manually configured, text-only Cursor CLI beta using the selected Cursor OAuth account. Output is buffered, tools and reasoning are unsupported, and live account compatibility remains unverified; setup and limitations are in `docs/cursor-beta.md`.
+
+### Bugfixes
+
+- Stopped edits from silently changing stale interior lines, repeated-line occurrences, or a replaced same-content inode.
+- Rejected symlink escapes, hard-linked, read-only, privileged-bit, special-file, and parent-swapped targets; Linux metadata is checked and other platforms fail closed.
+- Fixed late-NUL misclassification, unbounded edit summaries, outlines and reads, unknown request fields, unsafe numeric inputs, and temporary-file name collisions.
+- Kept preparation files private until final validation and preserved write, close, and cleanup errors.
+- Stopped diagnostics from echoing malformed anchors or request values.
+- Fixed non-UTF-8 range reads with an over-cap line that returned "lines 1-0" and looped forever; shortened lines are now marked.
+- Corrected tool descriptions about staleness validation, range completeness, and empty-file handling.
+- Put the command before risk analysis and affected items in Smart Approve confirmation dialogs.
+- Made long `/todos` lists scrollable with arrow keys, j/k, page keys, Home, and End, with a visible row-position indicator.
+- Added q cancellation alongside Escape to non-text extension menus and patched host select/confirm dialogs, while preserving q as input in search boxes and text editors.
+- Preserved registered extension OAuth flows, including Cursor accounts, in the host login menu when the model registry exposes only API-key authentication.
+- Submitted SDK compaction requests before event handlers return, preventing the next prompt from racing compaction registration.
+- Preserved file, HTTP-response, transport, and temporary-file cleanup failures across configuration, quota, image, LANCET, LSP, update, and search operations; quota/search diagnostics continue to protect credentials.
+- Reported malformed LSP workspace-symbol and configuration responses instead of silently ignoring decode errors.
+
+### Other
+
+- Sped up insertion-versus-range conflict checks with a sorted search.
+- Documented snapshot expiry, path policy, literal replacement prefixes, and filesystem safety limits.
+- Added regression tests for aliases, publication order, commit failures, newline/BOM semantics, range continuation, host boundaries, guard path alignment, and path swaps.
+- Slimmed always-loaded agent prompts, consolidated todo guidance for substantial work, and clarified permitted formatter, auto-fixing linter, and LSP workflows without bypassing anchored-edit safety.
+- Added regression coverage for the default Smart Approve settings: guard enabled, interactive approval enabled, and LANCET classification disabled.
+- Formatted and tightened types in the vendored image-view fixture, locked its dependencies, and added Unicode image-marker boundary and segmentation tests.
+- Clarified commit scope naming and the final `BREAKING CHANGE:` footer convention in the format-commit skill.
+- Known limits: external compare-to-rename and ancestor-swap races remain, metadata checks are Linux-only, and golden-fixture source provenance is unpinned.
+
+### Breaking Changes
+
+- Hashline `edit` no longer accepts versionless calls or transcript-only anchors. Read the file in the current session, pass its `Version` as `version`, and fully display every line to replace or delete; reread after mutation or authority revocation.
+- Hashline mutations now fail closed outside supported Linux filesystem checks and reject unsupported targets or metadata. Use a supported Linux environment and ordinary writable targets; reads remain available on other platforms.
+- Repository memory is off by default when no explicit saved setting exists. Run `/pi-curator on` to enable capture, recall, consent prompts, and memory tools; previously saved enabled/disabled settings remain authoritative.
+
+## [0.1.0] - 2026-10-09
+
+### Features
+
+- Initial Go ports of the plugins: LANCET classifier, anchored `hashline-edit` read/edit, `smart-approve-lancet` approval guard, `pi-curator` repository memory, `todo` (phased tasks), and `web-search`.
+- Added native read-only `lsp` tools, the `ask-user-question` questionnaire, and `ask-mode` (`/ask`).
+- Added `auto-models` with `/usage`, `/auto-model`, scoped model choices, OAuth subscription quota checks, account rotation, and model-slot swapping.
+- Added native OAuth accounts, `better-footer` (speed, guard, and memory badges), `cursor-login`, `user-resources`, adhd-output guidance toggle, and image previews.
+- Added approval dialogs with risk descriptions, affected paths, "Always allow", and session-model explanations for unknown-scope commands.
+- Added the installer (`install.sh`, curl-piped installation, `pig-plugins` link), `dev_build.sh`, piglet manifest, bundled prompts and skills, and compatible-update/search fallback support.
+
+### Bugfixes
+
+- Fixed footer badge and throughput measurement, quota fallback and recovery, and account rotation before cross-provider fallback.
+- Fixed Codex context-limit recovery and interrupted websocket retries.
+- Persisted interactive approval mode, collapsed tool-output preferences, and default adhd-output mode; stopped reporting expected curator rejections.
+
+### Other
+
+- Added third-party notices and documentation for the ported extensions, installation, and phased todo usage; updated prompts and repository ignore rules.

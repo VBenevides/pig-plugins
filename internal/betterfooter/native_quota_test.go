@@ -45,7 +45,12 @@ func TestNativeQuotaInvalidationRejectsOlderRead(t *testing.T) {
 		<-release
 		return []RateWindow{{Percent: 0, CapturedAt: time.Now()}}, "", true, nil
 	}}
-	go func() { defer close(done); reader.Read(context.Background(), key, true, 0) }()
+	go func() {
+		defer close(done)
+		if _, _, err := reader.Read(context.Background(), key, true, 0); err != nil {
+			t.Errorf("read native quota: %v", err)
+		}
+	}()
 	<-started
 	store.Invalidate(key)
 	close(release)

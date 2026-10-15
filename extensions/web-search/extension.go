@@ -80,7 +80,7 @@ func (x *extension) sync(ctx sdk.Context) error {
 			}
 		}
 		for tool := range x.last {
-			if !current[tool] && !(tool == "url_context" && x.suppressed) {
+			if !current[tool] && (tool != "url_context" || !x.suppressed) {
 				delete(x.preferred, tool)
 			}
 		}

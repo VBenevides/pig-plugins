@@ -1,0 +1,27 @@
+name: Hashline safety races
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  hashline-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # No host-dependent tests here: snapshot/Engine/coordinator integration
+      # and guard policy tests run without PiG, so missing PiG cannot skip them.
+      - name: Run snapshot and mutation integration with race detection
+        env:
+          GOWORK: "off"
+          CGO_ENABLED: "1"
+          GORACE: "halt_on_error=1"
+        run: go test -race -count=1 ./internal/hashline ./internal/guard

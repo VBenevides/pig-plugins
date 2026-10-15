@@ -26,8 +26,7 @@ func WriteFileAtomic(path string, data []byte, perm fs.FileMode) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			tmp.Close()
-			os.Remove(tmp.Name())
+			err = errors.Join(err, cleanupFailedWrite(tmp))
 		}
 	}()
 	if _, err = tmp.Write(data); err != nil {
@@ -46,6 +45,18 @@ func WriteFileAtomic(path string, data []byte, perm fs.FileMode) (err error) {
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	return nil
+}
+
+// cleanupFailedWrite retains cleanup failures alongside the original write error.
+func cleanupFailedWrite(file *os.File) error {
+	var cleanupErr error
+	if err := file.Close(); err != nil && !errors.Is(err, fs.ErrClosed) {
+		cleanupErr = fmt.Errorf("close temporary file %s: %w", file.Name(), err)
+	}
+	if err := os.Remove(file.Name()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove temporary file %s: %w", file.Name(), err))
+	}
+	return cleanupErr
 }
 
 // ReadJSONFile decodes the JSON file at path into v. A missing file returns (false, nil). An unreadable or

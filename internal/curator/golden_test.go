@@ -2,6 +2,7 @@ package curator
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -113,7 +114,11 @@ func TestTypeScriptParity(t *testing.T) {
 					}
 					return d.Env[key]
 				}}
-				want := append([]string{"enabled: true"}, d.Lines...)
+				enabled := "enabled: false" // the PiG integration is off until the user turns it on
+				if loaded, err := LoadSettings(file); err == nil && loaded.Enabled != nil {
+					enabled = fmt.Sprintf("enabled: %t", *loaded.Enabled)
+				}
+				want := append([]string{enabled}, d.Lines...)
 				if got := config.Describe(); !reflect.DeepEqual(got, want) {
 					t.Errorf("describe=%v want %v", got, want)
 				}

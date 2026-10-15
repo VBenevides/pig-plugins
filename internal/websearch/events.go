@@ -124,12 +124,12 @@ func (r *stream) consume(event map[string]any) (bool, error) {
 		candidates := arr(data["candidates"])
 		if len(candidates) > 0 {
 			if finish := str(obj(candidates[0]), "finishReason"); finish != "" && finish != "STOP" {
-				return false, fmt.Errorf("Google search finish reason: %s", finish)
+				return false, fmt.Errorf("google search finish reason: %s", finish)
 			}
 		}
 	}
 	if r.Kind == "anthropic" && str(obj(event["delta"]), "stop_reason") == "max_tokens" {
-		return false, errors.New("Anthropic search reached max_tokens before completion")
+		return false, errors.New("anthropic search reached max_tokens before completion")
 	}
 	switch r.Kind {
 	case "google":

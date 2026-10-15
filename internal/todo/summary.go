@@ -75,9 +75,10 @@ func FormatSummary(phases []Phase, errors []string, readOnly bool) string {
 			if task.Status == "completed" {
 				checkbox = "[X]"
 			}
-			if task.Status == "in_progress" {
+			switch task.Status {
+			case "in_progress":
 				tag = " (in progress)"
-			} else if task.Status == "abandoned" {
+			case "abandoned":
 				tag = " (dropped)"
 			}
 			lines = append(lines, "    - "+checkbox+" "+task.Content+tag)

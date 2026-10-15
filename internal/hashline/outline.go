@@ -369,11 +369,31 @@ func RenderOutline(symbols []Symbol) string {
 		width = max(width, len(fmt.Sprintf("%d-%d", s.Start, s.End)))
 	}
 	rows := make([]string, 0, len(shown)+1)
+	remaining := LargeFileBytes - 256
+	byteCapped := false
 	for _, s := range shown {
-		rows = append(rows, fmt.Sprintf("%s%-*s  %s %s", strings.Repeat("  ", s.Depth), width, fmt.Sprintf("%d-%d", s.Start, s.End), s.Kind, s.Name))
+		name := s.Name
+		if length := utf16Length(name); length > MaxLineChars {
+			name = firstUTF16(name, MaxLineChars) + " …[symbol name truncated; read its line]"
+		}
+		depth := min(max(s.Depth, 0), 32)
+		row := fmt.Sprintf("%s%-*s  %s %s", strings.Repeat("  ", depth), width, fmt.Sprintf("%d-%d", s.Start, s.End), s.Kind, name)
+		if s.Depth > depth {
+			row += " [nesting truncated]"
+		}
+		if len(row)+1 > remaining {
+			byteCapped = true
+			break
+		}
+		rows = append(rows, row)
+		remaining -= len(row) + 1
 	}
-	if len(symbols) > len(shown) {
-		rows = append(rows, fmt.Sprintf("... %d more symbol(s) not listed", len(symbols)-len(shown)))
+	if len(symbols) > len(rows) {
+		notice := fmt.Sprintf("... %d more symbol(s) not listed", len(symbols)-len(rows))
+		if byteCapped {
+			notice += "; output byte cap reached, read the relevant source range"
+		}
+		rows = append(rows, notice)
 	}
 	return strings.Join(rows, "\n")
 }

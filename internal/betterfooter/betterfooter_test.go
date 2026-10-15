@@ -248,12 +248,17 @@ func TestHTTPRedirectBodyCapAndSafeErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/redirect":
-			http.Redirect(w, r, other.URL, 302)
+			http.Redirect(w, r, other.URL, http.StatusFound)
 		case "/large":
-			w.Write([]byte(strings.Repeat("a", MaxResponseBytes+1)))
+			if _, err := w.Write([]byte(strings.Repeat("a", MaxResponseBytes+1))); err != nil {
+				// The capped client may close before the oversized body finishes.
+				t.Logf("oversized response write interrupted: %v", err)
+			}
 		default:
 			w.WriteHeader(401)
-			w.Write([]byte("secret-token"))
+			if _, err := w.Write([]byte("secret-token")); err != nil {
+				t.Errorf("write denied response: %v", err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -276,7 +281,12 @@ func TestQuotaReadCannotOverwriteNewerHeaders(t *testing.T) {
 		return []RateWindow{{Scope: "old", Percent: 5}}, nil
 	}}
 	done := make(chan struct{})
-	go func() { defer close(done); reader.Read(context.Background(), CodexProvider, false, 0) }()
+	go func() {
+		defer close(done)
+		if _, _, err := reader.Read(context.Background(), CodexProvider, false, 0); err != nil {
+			t.Errorf("read quota: %v", err)
+		}
+	}()
 	<-started
 	store.Update(CodexProvider, time.Now(), func(q *ProviderQuota) { q.Windows = []RateWindow{{Scope: "new", Percent: 50}} })
 	close(release)
@@ -407,5 +417,41 @@ func TestOpenCodeCredentialPrecedenceAndCookiePermissions(t *testing.T) {
 	}
 	if value, ok := config.OpenCodeGoCookieConfig(); !ok || value.WorkspaceID != "workspace" {
 		t.Fatal(value, ok)
+	}
+}
+
+func TestCompactLimitShowsInParenthesesAfterTheWindow(t *testing.T) {
+	tokens := 84_000
+	base := RenderState{Cwd: "/p", ContextTokens: &tokens, ContextWindow: 1_000_000, ContextPercent: 8.4}
+	render := func(state RenderState, width int) string {
+		return strings.Join(RenderFooter(state, width, Theme{}, time.Unix(1000, 0)), "\n")
+	}
+	if got := render(base, 160); !strings.Contains(got, "84k/1.0M") || strings.Contains(got, "(") {
+		t.Fatalf("with no limit the counter must not change: %q", got)
+	}
+	limited := base
+	limited.CompactLimit = 250_000
+	if got := render(limited, 160); !strings.Contains(got, "84k/1.0M (250k)") {
+		t.Fatalf("limit not shown after the window: %q", got)
+	}
+	// Rounding follows the footer's own formatter: 1.2k, 12k, 1.2M.
+	for limit, want := range map[int]string{999: "(999)", 1_250: "(1.3k)", 12_000: "(12k)", 1_200_000: "(1.2M)"} {
+		limited.CompactLimit = limit
+		if got := render(limited, 160); !strings.Contains(got, "/1.0M "+want) {
+			t.Errorf("limit %d: want %s in %q", limit, want, got)
+		}
+	}
+	limited.CompactLimit = 250_000
+	for _, width := range []int{40, 24, 12} {
+		for _, line := range RenderFooter(limited, width, Theme{}, time.Unix(1000, 0)) {
+			if got := VisibleWidth(line); got > width {
+				t.Errorf("width %d: line is %d wide: %q", width, got, line)
+			}
+		}
+	}
+	unknown := limited
+	unknown.ContextWindow = 0
+	if got := render(unknown, 160); !strings.Contains(got, "?") {
+		t.Fatalf("unknown window keeps its placeholder: %q", got)
 	}
 }

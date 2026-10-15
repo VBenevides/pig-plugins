@@ -82,13 +82,17 @@ func LoadConfig(path, defaultRules string) (Config, error) {
 	return config, nil
 }
 
-func readBounded(path string, limit int64) ([]byte, error) {
+func readBounded(path string, limit int64) (data []byte, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close %s: %w", path, closeErr))
+		}
+	}()
+	data, err = io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, err
 	}

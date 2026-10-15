@@ -43,6 +43,13 @@ func repoHome(t *testing.T) *pigtest.Home {
 	if out, err := exec.Command("git", "init", "-q", home.Work).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
+	// Curator is off by default; these tests exercise the enabled extension unless they override this file.
+	if err := os.MkdirAll(home.AgentDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "pi-curator.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return home
 }
 

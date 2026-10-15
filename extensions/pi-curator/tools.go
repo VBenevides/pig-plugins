@@ -67,7 +67,7 @@ type buildFunc func(params map[string]any, engine string) (curator.ToolRequest, 
 func (x *extension) tool(build buildFunc) sdk.ToolFunc {
 	return func(ctx sdk.Context, params map[string]any) (any, error) {
 		if !x.enabled(ctx) {
-			return nil, errors.New("Repository memory is disabled or settings are invalid; use /pi-curator on to enable it")
+			return nil, errors.New("repository memory is disabled or settings are invalid; use /pi-curator on to enable it")
 		}
 		sessionID, err := ctx.GetSessionID()
 		if err != nil {
@@ -77,14 +77,14 @@ func (x *extension) tool(build buildFunc) sdk.ToolFunc {
 		defer x.announce(ctx)
 		state := x.current(sessionID, ctx.Cwd())
 		if state == nil {
-			return nil, errors.New("Repository memory is unavailable: initialize with consent first")
+			return nil, errors.New("repository memory is unavailable: initialize with consent first")
 		}
 		runCtx, cancel := sdkctx.Request(ctx)
 		defer cancel()
 		stop := context.AfterFunc(state.bg, cancel)
 		defer stop()
 		if runCtx.Err() != nil {
-			return nil, errors.New("Memory request aborted")
+			return nil, errors.New("memory request aborted")
 		}
 		values, err := x.config.Effective()
 		if err != nil {

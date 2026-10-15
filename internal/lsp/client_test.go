@@ -121,7 +121,11 @@ func TestHeaderBoundBeforeNewline(t *testing.T) {
 	reader, writer := io.Pipe()
 	r := NewRPC(reader, nopWriteCloser{io.Discard})
 	r.Start()
-	go func() { defer writer.Close(); writer.Write([]byte(strings.Repeat("x", 8192))) }()
+	written := make(chan error, 1)
+	go func() {
+		_, err := writer.Write([]byte(strings.Repeat("x", 8192)))
+		written <- errors.Join(err, writer.Close())
+	}()
 	select {
 	case <-r.done:
 		if !strings.Contains(r.failure.Error(), "buffer full") {
@@ -129,6 +133,12 @@ func TestHeaderBoundBeforeNewline(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("header read was not bounded")
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-written; err != nil && !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatal(err)
 	}
 }
 
@@ -176,7 +186,9 @@ func TestProjectCommandsRequireHashTrustAndCannotShadowDefaults(t *testing.T) {
 	}
 	candidate := filepath.Join(root, "node_modules/.bin/gopls")
 	put(t, candidate, "#!/bin/sh\nexit 9\n")
-	os.Chmod(candidate, 0700)
+	if err := os.Chmod(candidate, 0700); err != nil {
+		t.Fatal(err)
+	}
 	resolved := resolve(Server{Bin: "gopls"}, root, "", root, env)
 	if resolved.Bin == candidate {
 		t.Fatal("repository shadowing trusted server")

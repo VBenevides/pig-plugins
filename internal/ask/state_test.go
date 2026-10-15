@@ -97,3 +97,36 @@ func TestRenderBoundsAndTerminalControls(t *testing.T) {
 		}
 	}
 }
+
+// q cancels exactly where Escape does and nowhere that q is a letter: the typed-answer row and the note editor.
+func TestQCancelsLikeEscapeExceptWhereItIsText(t *testing.T) {
+	for _, multi := range []bool{false, true} {
+		s := New(Params{Questions: []Question{sample(multi)}})
+		if result := keys(t, s, "q"); result == nil || !result.Cancelled {
+			t.Fatalf("q on an option row (multi=%v) must cancel: %#v", multi, result)
+		}
+	}
+	retained := New(Params{Questions: []Question{sample(true)}})
+	if result := keys(t, retained, " ", "q"); result == nil || !result.Cancelled || len(result.Answers) != 1 {
+		t.Fatalf("q must keep partial answers like Escape: %#v", result)
+	}
+	typed := New(Params{Questions: []Question{sample(false)}})
+	if result := keys(t, typed, "\x1b[A", "q", "q"); result != nil {
+		t.Fatalf("q on the typed-answer row is a letter, not cancel: %#v", result)
+	}
+	if result := keys(t, typed, "\r"); result == nil || result.Answers[0].Answer == nil || *result.Answers[0].Answer != "qq" {
+		t.Fatalf("typed q characters must reach the answer: %#v", result)
+	}
+	note := New(Params{Questions: []Question{sample(false)}})
+	if result := keys(t, note, "n", "q", "\x1b"); result != nil {
+		t.Fatalf("q in the note editor is a letter, and Escape only closes the editor: %#v", result)
+	}
+	if result := keys(t, note, "\r"); result == nil || result.Answers[0].Notes != "q" {
+		t.Fatalf("the note must hold the typed q: %#v", result)
+	}
+	collapsed := New(Params{Questions: []Question{sample(false)}})
+	collapsed.CollapseKey = "ctrl+]"
+	if result := keys(t, collapsed, "\x1d", "q"); result == nil || !result.Cancelled {
+		t.Fatalf("q must cancel a collapsed questionnaire like Escape: %#v", result)
+	}
+}

@@ -1,19 +1,23 @@
 package hashline
 
 import (
+	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf16"
 )
+
+// toolMessageError preserves the model-facing wording pinned by upstream parity tests.
+type toolMessageError string
+
+func (err toolMessageError) Error() string { return string(err) }
 
 // A bare read of a file above either limit returns an outline instead of the text.
 const (
@@ -39,31 +43,33 @@ type Image struct {
 
 // Result is what a tool returns to the model.
 type Result struct {
-	Text    string
-	Details map[string]any
-	Images  []Image
+	Text        string
+	Details     map[string]any
+	Images      []Image
+	readContent []byte // Private exact-byte snapshot, never serialized into tool details.
 }
 
 // ReadDescription, ReadSnippet, ReadGuidelines, EditDescription, EditSnippet and EditGuidelines are the model-facing
 // text of the two tools.
 var (
-	ReadDescription = "Read a file. Text lines are printed as <line>#<hash>|text; the <line>#<hash> anchor is what edit takes. " +
+	ReadDescription = "Read a file. Editable text results include a Version token required by edit. Text lines are printed as <line>#<hash>|text; the <line>#<hash> anchor is what edit takes. " +
 		fmt.Sprintf("A bare read of a small file returns it all. A large source file (over %d lines or %d KB) returns an outline of symbols with line ranges instead; read the range you need ", LargeFileLines, LargeFileBytes/1024) +
-		"with offset (first line, 1-based) and limit (number of lines). offset/limit always return exactly that range. " +
+		"with offset (first line, 1-based) and limit (number of lines). Explicit ranges are capped at 2,000 lines and 50 KiB; long lines are shortened. Follow truncation notices and continuation offsets. " +
 		"Images are returned as attachments."
 	ReadSnippet    = "Read file contents as anchored lines; large source files return a symbol outline"
 	ReadGuidelines = []string{
 		"Use read to examine files instead of cat or sed. For a large file, read the outline first, then the range you need.",
 	}
-	EditDescription = "Edit one existing text file with the line anchors printed by read (<line>#<hash>). Every op is checked against " +
-		"the file as it was read: if any anchor no longer matches its line, the whole call is rejected, nothing changes, " +
-		"and you must read again. Text is never searched for. Ops: replace (anchor, optional end for a range, lines), " +
+	EditDescription = "Edit one existing text file using its Version token and line anchors from read (<line>#<hash>). The whole-file version must still match before any operation is applied. " +
+		"The extension requires retained read authority for this file in the current session. Replacement/deletion requires fully displayed source for every affected line. " +
+		"If the version or any anchor is stale, the whole call is rejected and nothing changes. " +
+		"Read again; text is never searched for. Ops: replace (anchor, optional end for a range, lines), " +
 		"insert_before / insert_after (anchor, lines), delete (anchor, optional end). lines is an array with one string " +
-		"per line, without line breaks. All ops use the anchors of the original read; ops in one call must not overlap " +
-		"and must not insert at the same position. Create files with write."
+		"per line, without line breaks. Do not paste display anchors into lines unless they are intended literal source; lines are never silently stripped or normalized. All ops use the anchors of the original read; ops in one call must not overlap " +
+		"and must not insert at the same position. After a successful mutation, read again before editing further. Create files with write; an empty existing file has no anchors, so fill it with write (explicit replacement keeps its permissions)."
 	EditSnippet    = "Edit a file with line anchors from read; stale or ambiguous anchors are rejected"
 	EditGuidelines = []string{
-		"Read the lines you want to change first, and copy anchors exactly as printed (for example 12#a3f9) when using edit.",
+		"Copy the Version token and full anchors from the same current read; never guess them. Reread after mutation or expired authority.",
 		"Put all changes to one file in a single edit call; every op refers to the original anchors, not to earlier ops.",
 	}
 )
@@ -71,11 +77,12 @@ var (
 // ReadSchema and EditSchema are the JSON schemas of the tool parameters.
 func ReadSchema() map[string]any {
 	return map[string]any{
-		"type": "object",
+		"type":                 "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
-			"path":   map[string]any{"type": "string", "description": "Path to the file to read (relative or absolute)"},
-			"offset": map[string]any{"type": "number", "description": "Line number to start reading from (1-indexed)"},
-			"limit":  map[string]any{"type": "number", "description": "Maximum number of lines to read"},
+			"path":   map[string]any{"type": "string", "minLength": 1, "description": "Path to the file to read (relative or absolute)"},
+			"offset": map[string]any{"type": "integer", "minimum": 1, "description": "Line number to start reading from (1-indexed)"},
+			"limit":  map[string]any{"type": "integer", "minimum": 1, "description": "Maximum number of lines to read"},
 		},
 		"required": []string{"path"},
 	}
@@ -83,29 +90,33 @@ func ReadSchema() map[string]any {
 
 func EditSchema() map[string]any {
 	return map[string]any{
-		"type": "object",
+		"type":                 "object",
+		"additionalProperties": false,
 		"properties": map[string]any{
-			"path": map[string]any{"type": "string", "description": "Path to the file to edit (relative or absolute)"},
+			"path":    map[string]any{"type": "string", "minLength": 1, "description": "Path to the file to edit (relative or absolute)"},
+			"version": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Version token from the same read as the anchors; required even if the selected lines are unchanged."},
 			"edits": map[string]any{
-				"type":        "array",
+				"type":     "array",
+				"minItems": 1, "maxItems": MaxEditOperations,
 				"description": "Anchored ops, all validated against the file as read.",
 				"items": map[string]any{
-					"type": "object",
+					"type":                 "object",
+					"additionalProperties": false,
 					"properties": map[string]any{
 						"op":     map[string]any{"type": "string", "enum": []string{"replace", "insert_before", "insert_after", "delete"}},
-						"anchor": map[string]any{"type": "string", "description": "First (or only) line, as <line>#<hash> from read."},
-						"end":    map[string]any{"type": "string", "description": "Last line of a range for replace/delete, as <line>#<hash>."},
-						"lines":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New lines, one string per line."},
+						"anchor": map[string]any{"type": "string", "pattern": "^[1-9][0-9]*#[0-9a-f]{4}$", "description": "First (or only) line, as <line>#<hash> from read."},
+						"end":    map[string]any{"type": "string", "pattern": "^[1-9][0-9]*#[0-9a-f]{4}$", "description": "Last line of a range for replace/delete, as <line>#<hash>."},
+						"lines":  map[string]any{"type": "array", "minItems": 1, "maxItems": MaxEditLines, "items": map[string]any{"type": "string"}, "description": "Required for replacement/insertion; forbidden for deletion. One string per line."},
 					},
 					"required": []string{"op", "anchor"},
 				},
 			},
 		},
-		"required": []string{"path", "edits"},
+		"required": []string{"path", "version", "edits"},
 	}
 }
 
-// jsonValue renders a value like JSON.stringify, for error messages.
+// jsonValue preserves numeric diagnostic compatibility without reflecting payloads.
 func jsonValue(value any) string {
 	if number, ok := value.(float64); ok {
 		if math.IsNaN(number) || math.IsInf(number, 0) {
@@ -113,11 +124,20 @@ func jsonValue(value any) string {
 		}
 		return strconv.FormatFloat(number, 'f', -1, 64)
 	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprintf("%v", value)
+	switch typed := value.(type) {
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case nil:
+		return "null"
+	case bool:
+		return strconv.FormatBool(typed)
+	case string:
+		return "<string>"
+	default:
+		return "<unsupported value>"
 	}
-	return string(data)
 }
 
 // positiveInteger reads an optional integer >= 1 parameter; 0 means absent.
@@ -126,21 +146,22 @@ func positiveInteger(params map[string]any, name string) (int, error) {
 	if !present {
 		return 0, nil
 	}
-	var number float64
 	switch typed := value.(type) {
-	case float64:
-		number = typed
 	case int:
-		number = float64(typed)
+		if typed >= 1 {
+			return typed, nil
+		}
 	case int64:
-		number = float64(typed)
-	default:
-		return 0, fmt.Errorf("%s must be an integer >= 1, got %s.", name, jsonValue(value))
+		if typed >= 1 && typed <= int64(math.MaxInt) {
+			return int(typed), nil
+		}
+	case float64:
+		// JSON numbers must be exact safe integers and fit the native signed int.
+		if typed >= 1 && typed <= (1<<53)-1 && typed < math.Ldexp(1, strconv.IntSize-1) && typed == math.Trunc(typed) {
+			return int(typed), nil
+		}
 	}
-	if number != math.Trunc(number) || math.IsInf(number, 0) || number < 1 {
-		return 0, fmt.Errorf("%s must be an integer >= 1, got %s.", name, jsonValue(value))
-	}
-	return int(min(number, 1<<40)), nil
+	return 0, toolMessageError(fmt.Sprintf("%s must be an integer >= 1, got %s.", name, jsonValue(value)))
 }
 
 func kilobytes(bytes int) string {
@@ -198,6 +219,7 @@ func rangeResult(file ParsedFile, from, to, maxLines, maxBytes int, mode string)
 	}
 	return Result{Text: body + notice, Details: map[string]any{
 		"mode": mode, "from": from, "to": last, "totalLines": len(file.Lines), "truncated": stoppedEarly,
+		"fullyDisplayedRanges": fullyDisplayedRanges(file, from, last),
 	}}
 }
 
@@ -229,15 +251,30 @@ func largeFileResult(filePath string, file ParsedFile, size int) (Result, error)
 			"To see code, call read again with path and offset/limit for a range above (for example offset=%d, "+
 			"limit=%d). Lines come back as <line>#<hash>|text; use those anchors with edit.",
 			filePath, dimensions, RenderOutline(symbols), symbols[0].Start, symbols[0].End-symbols[0].Start+1),
-		Details: map[string]any{"mode": "outline", "symbols": len(symbols), "totalLines": len(file.Lines)},
+		Details: map[string]any{"mode": "outline", "symbols": len(symbols), "totalLines": len(file.Lines), "fullyDisplayedRanges": [][2]int{}},
 	}, nil
 }
 
 // Read implements the read tool. Errors are returned to the model as tool errors.
-func Read(cwd string, params map[string]any) (Result, error) {
+func Read(cwd string, params map[string]any) (result Result, err error) {
+	return ReadContext(context.Background(), cwd, params)
+}
+
+func ReadContext(request Cancellation, cwd string, params map[string]any) (result Result, err error) {
+	if err := request.Err(); err != nil {
+		return Result{}, err
+	}
+	defer func() {
+		if cancelled := request.Err(); err == nil && cancelled != nil {
+			result, err = Result{}, cancelled
+		}
+	}()
 	path, _ := params["path"].(string)
 	if path == "" {
-		return Result{}, errors.New("path must be a non-empty string.")
+		return Result{}, toolMessageError("path must be a non-empty string.")
+	}
+	if err := rejectUnknownFields(params, "read request", "path", "offset", "limit"); err != nil {
+		return Result{}, err
 	}
 	offset, err := positiveInteger(params, "offset")
 	if err != nil {
@@ -253,25 +290,34 @@ func Read(cwd string, params map[string]any) (Result, error) {
 		return Result{}, fmt.Errorf("%s: no such file or directory, access '%s'", errnoName(err), absolute)
 	}
 	if stat.IsDir() {
-		return Result{}, fmt.Errorf("EISDIR: illegal operation on a directory, read '%s'; list a directory with bash (ls).", absolute)
+		return Result{}, toolMessageError(fmt.Sprintf("EISDIR: illegal operation on a directory, read '%s'; list a directory with bash (ls).", absolute))
 	}
 	if !stat.Mode().IsRegular() {
-		return Result{}, fmt.Errorf("%s is not a regular file.", absolute)
+		return Result{}, toolMessageError(fmt.Sprintf("%s is not a regular file.", absolute))
 	}
 	if stat.Size() > MaxEditBytes {
-		return Result{}, fmt.Errorf("%s is larger than %d bytes and cannot be anchored; inspect part of it with bash (head, tail, sed -n).", absolute, MaxEditBytes)
+		return Result{}, toolMessageError(fmt.Sprintf("%s is larger than %d bytes and cannot be anchored; inspect part of it with bash (head, tail, sed -n).", absolute, MaxEditBytes))
 	}
-	content, err := os.ReadFile(absolute)
+	content, err := readBoundedFileContext(request, absolute, MaxEditBytes)
 	if err != nil {
 		return Result{}, fmt.Errorf("read %s: %w", absolute, err)
 	}
 	if IsBinary(content) {
-		return readNonText(path, absolute, content, offset, limit)
+		return readNonText(request, path, absolute, content, offset, limit)
 	}
-	file := ParseFile(string(content))
+	defer func() {
+		if err == nil {
+			result = withVersion(result, content)
+			result.readContent = content
+		}
+	}()
+	file, err := ParseFileContext(request, string(content))
+	if err != nil {
+		return Result{}, err
+	}
 	total := len(file.Lines)
 	if total == 0 {
-		return Result{Text: "(empty file)", Details: map[string]any{"mode": "full", "totalLines": 0}}, nil
+		return Result{Text: "(empty file)", Details: map[string]any{"mode": "full", "totalLines": 0, "fullyDisplayedRanges": [][2]int{}}}, nil
 	}
 	if offset == 0 && limit == 0 {
 		if total > LargeFileLines || len(content) > LargeFileBytes {
@@ -281,22 +327,22 @@ func Read(cwd string, params map[string]any) (Result, error) {
 	}
 	from := max(offset, 1)
 	if from > total {
-		return Result{}, fmt.Errorf("Offset %d is beyond the end of the file (%d lines).", from, total)
+		return Result{}, toolMessageError(fmt.Sprintf("Offset %d is beyond the end of the file (%d lines).", from, total))
 	}
 	to := total
 	if limit > 0 {
-		to = min(total, from+limit-1)
+		to = from + min(limit, total-from+1) - 1
 	}
 	return rangeResult(file, from, to, MaxRangeLines, MaxRangeBytes, "range"), nil
 }
 
 // readNonText handles what anchors cannot address: images are attached, text in another encoding is shown
 // without anchors (and cannot be edited), NUL-containing content is refused.
-func readNonText(path, absolute string, content []byte, offset, limit int) (Result, error) {
+func readNonText(request Cancellation, path, absolute string, content []byte, offset, limit int) (Result, error) {
 	head := content[:min(len(content), 8192)]
 	if mime := ImageMIME(head); mime != "" {
 		if len(content) > MaxImageBytes {
-			return Result{}, fmt.Errorf("%s is an image of %d bytes; images above %d bytes are not attached.", absolute, len(content), MaxImageBytes)
+			return Result{}, toolMessageError(fmt.Sprintf("%s is an image of %d bytes; images above %d bytes are not attached.", absolute, len(content), MaxImageBytes))
 		}
 		return Result{
 			Text:    fmt.Sprintf("Read image file [%s]", mime),
@@ -304,115 +350,200 @@ func readNonText(path, absolute string, content []byte, offset, limit int) (Resu
 			Images:  []Image{{Data: base64.StdEncoding.EncodeToString(content), MimeType: mime}},
 		}, nil
 	}
-	if isBMP(head) || strings.IndexByte(string(head), 0) >= 0 {
-		return Result{}, fmt.Errorf("%s is a binary file; read does not print binary content.", path)
+	if isBMP(head) || strings.IndexByte(string(content), 0) >= 0 {
+		return Result{}, toolMessageError(fmt.Sprintf("%s is a binary file; read does not print binary content.", path))
 	}
 	// Invalid UTF-8 without NUL bytes: show it as text with replacement characters, as Pi's own read does.
-	file := ParseFile(strings.ToValidUTF8(string(content), "\ufffd"))
+	file, err := ParseFileContext(request, strings.ToValidUTF8(string(content), "\ufffd"))
+	if err != nil {
+		return Result{}, err
+	}
 	lines := make([]string, len(file.Lines))
 	for i, line := range file.Lines {
 		lines[i] = line.Text
 	}
 	from := max(offset, 1)
 	if from > len(lines) {
-		return Result{}, fmt.Errorf("Offset %d is beyond the end of the file (%d lines).", from, len(lines))
+		return Result{}, toolMessageError(fmt.Sprintf("Offset %d is beyond the end of the file (%d lines).", from, len(lines)))
 	}
 	to := len(lines)
 	if limit > 0 {
-		to = min(len(lines), from+limit-1)
+		to = from + min(limit, len(lines)-from+1) - 1
 	}
-	to = min(to, from+MaxRangeLines-1)
-	text := strings.Join(lines[from-1:to], "\n")
-	for len(text) > MaxRangeBytes {
+	to = from + min(to-from+1, MaxRangeLines) - 1
+	shownLines := make([]string, 0, to-from+1)
+	shortened := false
+	for _, line := range lines[from-1 : to] {
+		if length := utf16Length(line); length > MaxLineChars {
+			line = fmt.Sprintf("%s …[line truncated, %d more chars]", firstUTF16(line, MaxLineChars), length-MaxLineChars)
+			shortened = true
+		}
+		shownLines = append(shownLines, line)
+	}
+	text := strings.Join(shownLines, "\n")
+	// A single shortened line always fits, so every response makes progress.
+	for len(text) > MaxRangeBytes && to > from {
 		to--
-		text = strings.Join(lines[from-1:to], "\n")
+		shownLines = shownLines[:to-from+1]
+		text = strings.Join(shownLines, "\n")
 	}
 	notice := "\n[This file is not valid UTF-8; bytes that do not decode are shown as U+FFFD. Lines carry no anchors, and edit refuses the file.]"
+	if shortened {
+		notice += "\n[Some lines were shortened for display.]"
+	}
 	if to < len(lines) {
 		notice += fmt.Sprintf("\n[Showing lines %d-%d of %d. Continue with offset=%d.]", from, to, len(lines), to+1)
 	}
 	return Result{Text: text + notice, Details: map[string]any{"mode": "plain", "from": from, "to": to, "totalLines": len(lines)}}, nil
 }
 
+const MaxMutationParticipants = 1024
+const MaxPathParticipants = 64
+
 // editLocks serialises edits of one file in this process; entries are removed when the last holder leaves.
 var editLocks = struct {
 	sync.Mutex
-	held map[string]*lockEntry
+	held         map[string]*lockEntry
+	participants int
 }{held: map[string]*lockEntry{}}
 
 type lockEntry struct {
-	mu      sync.Mutex
+	ready   chan struct{}
 	holders int
 }
 
 func lockPath(path string) (unlock func()) {
+	unlock, err := lockPathContext(context.Background(), path)
+	if err != nil {
+		panic(err) // Trusted internal callers require successful admission.
+	}
+	return unlock
+}
+
+func lockPathContext(request Cancellation, path string) (func(), error) {
+	if err := request.Err(); err != nil {
+		return nil, err
+	}
 	key := path
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+	if resolved, err := canonicalMutationPath(path); err == nil {
 		key = resolved
 	}
 	editLocks.Lock()
 	entry := editLocks.held[key]
+	if editLocks.participants >= MaxMutationParticipants || entry != nil && entry.holders >= MaxPathParticipants {
+		editLocks.Unlock()
+		return nil, editErrorf("Mutation coordinator capacity reached; retry only after pending operations finish.")
+	}
 	if entry == nil {
-		entry = &lockEntry{}
+		entry = &lockEntry{ready: make(chan struct{}, 1)}
+		entry.ready <- struct{}{}
 		editLocks.held[key] = entry
 	}
 	entry.holders++
+	editLocks.participants++
 	editLocks.Unlock()
-	entry.mu.Lock()
-	return func() {
-		entry.mu.Unlock()
+	dropRegistration := func() {
 		editLocks.Lock()
 		entry.holders--
+		editLocks.participants--
 		if entry.holders == 0 {
 			delete(editLocks.held, key)
 		}
 		editLocks.Unlock()
 	}
+	select {
+	case <-request.Done():
+		dropRegistration()
+		return nil, request.Err()
+	case <-entry.ready:
+	}
+	var once sync.Once
+	unlock := func() {
+		once.Do(func() {
+			entry.ready <- struct{}{}
+			dropRegistration()
+		})
+	}
+	if err := request.Err(); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
 }
 
 // Edit implements the edit tool. A problem with the request or the file is an error starting "edit rejected: ".
 func Edit(cwd string, params map[string]any) (Result, error) {
+	return EditContext(context.Background(), cwd, params)
+}
+
+func EditContext(request Cancellation, cwd string, params map[string]any) (Result, error) {
 	path, _ := params["path"].(string)
 	if path == "" {
-		return Result{}, errors.New("path must be a non-empty string.")
+		return Result{}, toolMessageError("path must be a non-empty string.")
+	}
+	if err := rejectUnknownFields(params, "edit request", "path", "version", "edits"); err != nil {
+		return Result{}, fmt.Errorf("edit rejected: %w", err)
 	}
 	absolute := ResolveToolPath(path, cwd)
-	unlock := lockPath(absolute)
+	unlock, err := lockPathContext(request, absolute)
+	if err != nil {
+		return Result{}, fmt.Errorf("wait for edit lock %s: %w", absolute, err)
+	}
 	defer unlock()
-	result, err := editLocked(cwd, absolute, params["edits"], nil)
+	result, err := editLockedContext(request, cwd, absolute, params["version"], params["edits"], nil)
 	var rejected *EditError
 	if errors.As(err, &rejected) {
-		return Result{}, fmt.Errorf("edit rejected: %s", rejected.Message)
+		return Result{}, fmt.Errorf("edit rejected: %w", err)
 	}
 	return result, err
 }
 
-func editLocked(cwd, absolute string, edits any, beforeCommit func()) (Result, error) {
-	snapshot, err := TakeSnapshot(absolute, cwd, MaxEditBytes)
+func editLocked(cwd, absolute string, version, edits any, beforeCommit func()) (Result, error) {
+	return editLockedContext(context.Background(), cwd, absolute, version, edits, beforeCommit)
+}
+
+func editLockedContext(request Cancellation, cwd, absolute string, version, edits any, beforeCommit func()) (Result, error) {
+	snapshot, err := TakeSnapshotContext(request, absolute, cwd, MaxEditBytes)
 	if err != nil {
 		return Result{}, err
 	}
+	if err := checkVersion(version, snapshot.Bytes); err != nil {
+		return Result{}, staleRejectionContext(request, snapshot.Bytes, edits, err)
+	}
 	original := string(snapshot.Bytes)
-	edited, err := ApplyEdits(ParseFile(original), edits)
+	parsed, err := ParseFileContext(request, original)
 	if err != nil {
+		return Result{}, err
+	}
+	edited, err := ApplyEditsContext(request, parsed, edits)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := request.Err(); err != nil {
 		return Result{}, err
 	}
 	updated := edited.File.Serialize()
+	if IsBinary([]byte(updated)) {
+		return Result{}, editErrorf("The edit result is binary or not valid UTF-8; nothing was written.")
+	}
+	if err := request.Err(); err != nil {
+		return Result{}, err
+	}
 	if updated == original {
-		return Result{
+		return withVersion(Result{
 			Text:    fmt.Sprintf("No change: the edit produces identical content, %s was left untouched.", absolute),
 			Details: map[string]any{"changed": false},
-		}, nil
+		}, snapshot.Bytes), nil
 	}
-	if err := ReplaceAtomically(snapshot, updated, beforeCommit); err != nil {
+	if err := ReplaceAtomicallyContext(request, snapshot, updated, beforeCommit); err != nil {
 		return Result{}, err
 	}
 	regions := make([][2]int, len(edited.Regions))
 	copy(regions, edited.Regions)
-	return Result{
+	return withVersion(Result{
 		Text:    editSummary(absolute, len(edits.([]any)), edited.File, edited.Regions),
 		Details: map[string]any{"changed": true, "regions": regions},
-	}, nil
+	}, []byte(updated)), nil
 }
 
 func editSummary(absolute string, ops int, file ParsedFile, regions [][2]int) string {
@@ -427,18 +558,34 @@ func editSummary(absolute string, ops int, file ParsedFile, regions [][2]int) st
 			wanted = append(wanted, window)
 		}
 	}
+	header := fmt.Sprintf("Applied %d edit(s) to %s. Anchors of the changed region now (line numbers moved):\n", ops, absolute)
+	// Reserve room for the truncation notice and the version envelope added by the caller.
+	remainingBytes := MaxRangeBytes - len(header) - 256
 	var rows []string
+	byteCapped := false
+windows:
 	for _, window := range wanted {
 		if len(rows) > 0 {
+			if remainingBytes < 4 || len(rows) >= resultMaxLines {
+				byteCapped = true
+				break
+			}
 			rows = append(rows, "...")
+			remainingBytes -= 4
 		}
 		for n := window[0]; n <= window[1] && len(rows) < resultMaxLines; n++ {
-			rows = append(rows, FormatLine(n, file.Lines[n-1].Text))
+			row, _ := renderWindow(file, n, n, 1, MaxRangeBytes)
+			if len(row)+1 > remainingBytes {
+				byteCapped = true
+				break windows
+			}
+			rows = append(rows, row)
+			remainingBytes -= len(row) + 1
 		}
 	}
 	truncated := ""
-	if len(rows) >= resultMaxLines {
+	if byteCapped || len(rows) >= resultMaxLines {
 		truncated = "\n[more changed lines not shown; read again for their anchors]"
 	}
-	return fmt.Sprintf("Applied %d edit(s) to %s. Anchors of the changed region now (line numbers moved):\n%s%s", ops, absolute, strings.Join(rows, "\n"), truncated)
+	return header + strings.Join(rows, "\n") + truncated
 }

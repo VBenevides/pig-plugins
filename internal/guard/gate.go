@@ -290,7 +290,9 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 		if len(commandAffectedItems(command, analysis, items)) == 0 && call.ExplainUnknown != nil {
 			affected += unknownScopeAdvice(call, command)
 		}
-		return "Risk Description:\n" + risk + "\n\n" + affected + "\n\nCommand:\n" + command + "\n\nAllow this command to run?"
+		// The command comes first: the user must see exactly what would run before reading the analysis, and a
+		// long analysis scrolls below it.
+		return "Command:\n" + command + "\n\nRisk Description:\n" + risk + "\n\n" + affected + "\n\nAllow this command to run?"
 	}
 	if !g.ask(call, "Dangerous command: "+joined, body, Grant{Tool: call.Tool, Command: command, Item: strings.Join(items, "\n")}) {
 		return block("user denied dangerous command (%s).", joined), nil

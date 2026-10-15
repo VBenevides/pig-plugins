@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -88,12 +89,16 @@ func Resize(value Image, detail bool) (Image, error) {
 	}
 }
 
-func Read(path string) (Image, error) {
+func Read(path string) (value Image, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return Image{}, fmt.Errorf("open image %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close image %q: %w", path, closeErr))
+		}
+	}()
 	stat, err := f.Stat()
 	if err != nil {
 		return Image{}, err
@@ -111,7 +116,7 @@ func Read(path string) (Image, error) {
 	return Image{Type: "image", Data: base64.StdEncoding.EncodeToString(data)}, nil
 }
 
-func Store(value Image, root string) (string, error) {
+func Store(value Image, root string) (reference string, err error) {
 	data, err := base64.StdEncoding.DecodeString(value.Data)
 	if err != nil {
 		return "", err
@@ -132,14 +137,15 @@ func Store(value Image, root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(f.Name())
+	defer func() {
+		if removeErr := os.Remove(f.Name()); removeErr != nil && !os.IsNotExist(removeErr) {
+			err = errors.Join(err, fmt.Errorf("remove temporary image blob: %w", removeErr))
+		}
+	}()
 	if _, err = f.Write(data); err == nil {
 		err = f.Sync()
 	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
+	err = errors.Join(err, f.Close())
 	if err != nil {
 		return "", fmt.Errorf("write image blob: %w", err)
 	}

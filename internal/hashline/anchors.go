@@ -18,6 +18,7 @@
 package hashline
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -25,10 +26,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // EditError is a problem with the edit request or the file; the edit tool reports it as "edit rejected: ...".
-type EditError struct{ Message string }
+type EditError struct {
+	Message  string
+	Category ErrorCategory
+}
 
 func (e *EditError) Error() string { return e.Message }
 
@@ -72,10 +77,26 @@ func FormatLine(lineNumber int, text string) string {
 // ParseFile splits text into lines. The empty string has no lines, and a final terminator does not add an empty
 // line.
 func ParseFile(content string) ParsedFile {
+	file, err := ParseFileContext(context.Background(), content)
+	if err != nil {
+		panic(err) // Background parsing has no cancellation source.
+	}
+	return file
+}
+
+func ParseFileContext(request Cancellation, content string) (ParsedFile, error) {
+	if err := request.Err(); err != nil {
+		return ParsedFile{}, err
+	}
 	bom := strings.HasPrefix(content, byteOrderMark)
 	body := strings.TrimPrefix(content, byteOrderMark)
 	var lines []Line
 	for start := 0; start < len(body); {
+		if len(lines)%4096 == 0 {
+			if err := request.Err(); err != nil {
+				return ParsedFile{}, err
+			}
+		}
 		newline := strings.IndexByte(body[start:], '\n')
 		if newline < 0 {
 			lines = append(lines, Line{Text: body[start:]})
@@ -97,7 +118,10 @@ func ParseFile(content string) ParsedFile {
 			break
 		}
 	}
-	return ParsedFile{BOM: bom, Lines: lines, EOL: firstEOL}
+	if err := request.Err(); err != nil {
+		return ParsedFile{}, err
+	}
+	return ParsedFile{BOM: bom, Lines: lines, EOL: firstEOL}, nil
 }
 
 // Serialize is the inverse of ParseFile.
@@ -128,15 +152,18 @@ func parseAnchor(value any, label string) (parsedAnchor, error) {
 	if !ok {
 		return parsedAnchor{}, editErrorf(`%s: anchor must be a string like "12#a3f9".`, label)
 	}
+	if len(text) > 64 {
+		return parsedAnchor{}, editErrorf("%s: anchor exceeds 64 bytes.", label)
+	}
 	match := anchorPattern.FindStringSubmatch(jsTrim(text))
 	if match == nil {
-		return parsedAnchor{}, editErrorf(`%s: "%s" is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`, label, text)
+		return parsedAnchor{}, editErrorf(`%s: anchor is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`, label)
 	}
-	line, err := strconv.ParseUint(match[1], 10, 64)
-	if err != nil || line > maxSafeInteger || line < 1 {
+	line, err := strconv.Atoi(match[1])
+	if err != nil || line < 1 || uint64(line) > maxSafeInteger {
 		return parsedAnchor{}, editErrorf(`%s: line number in "%s" must be >= 1.`, label, text)
 	}
-	return parsedAnchor{line: int(line), hash: match[2]}, nil
+	return parsedAnchor{line: line, hash: match[2]}, nil
 }
 
 func checkAnchor(file ParsedFile, anchor parsedAnchor, label string) error {
@@ -156,8 +183,14 @@ func replacementLines(value any, label string) ([]string, error) {
 	var lines []string
 	switch items := value.(type) {
 	case []string:
+		if len(items) > MaxEditLines {
+			return nil, editErrorf("%s: replacement exceeds %d lines.", label, MaxEditLines)
+		}
 		lines = items
 	case []any:
+		if len(items) > MaxEditLines {
+			return nil, editErrorf("%s: replacement exceeds %d lines.", label, MaxEditLines)
+		}
 		lines = make([]string, 0, len(items))
 		for _, item := range items {
 			text, ok := item.(string)
@@ -172,9 +205,17 @@ func replacementLines(value any, label string) ([]string, error) {
 	if len(lines) == 0 {
 		return nil, editErrorf(`%s: "lines" must not be empty; use op "delete".`, label)
 	}
+	remainingBytes := MaxEditBytes
 	for _, line := range lines {
+		if len(line) > remainingBytes {
+			return nil, editErrorf("%s: replacement exceeds %d bytes.", label, MaxEditBytes)
+		}
+		remainingBytes -= len(line)
 		if strings.ContainsAny(line, "\r\n") {
 			return nil, editErrorf(`%s: each "lines" entry is one line and must not contain a line break.`, label)
+		}
+		if !utf8.ValidString(line) || strings.IndexByte(line, 0) >= 0 {
+			return nil, editErrorf(`%s: each "lines" entry must be valid UTF-8 text without NUL bytes.`, label)
 		}
 	}
 	return lines, nil
@@ -211,6 +252,9 @@ func resolveOp(file ParsedFile, raw any, index int) (resolved, error) {
 	op, ok := raw.(map[string]any)
 	if !ok {
 		return resolved{}, editErrorf("%s: must be an object.", label)
+	}
+	if err := rejectUnknownFields(op, label, "op", "anchor", "end", "lines"); err != nil {
+		return resolved{}, err
 	}
 	kindText, _ := op["op"].(string)
 	kind := opKind(kindText)
@@ -269,18 +313,42 @@ func resolveOp(file ParsedFile, raw any, index int) (resolved, error) {
 // ApplyEdits validates every op against file (the original snapshot) and returns the edited file. It returns an
 // *EditError and changes nothing on the first problem. ops is the decoded JSON array of ops.
 func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
+	return ApplyEditsContext(context.Background(), file, ops)
+}
+
+func ApplyEditsContext(request Cancellation, file ParsedFile, ops any) (EditResult, error) {
+	if err := request.Err(); err != nil {
+		return EditResult{}, err
+	}
 	list, ok := ops.([]any)
 	if !ok || len(list) == 0 {
 		return EditResult{}, editErrorf(`"edits" must be a non-empty array of ops.`)
+	}
+	if len(list) > MaxEditOperations {
+		return EditResult{}, editErrorf("Edit request exceeds %d operations.", MaxEditOperations)
 	}
 	if len(file.Lines) == 0 {
 		return EditResult{}, editErrorf("The file is empty, so it has no anchors. Use write to create its content.")
 	}
 	all := make([]resolved, len(list))
+	remainingLines, remainingBytes := MaxEditLines, MaxEditBytes
 	for index, raw := range list {
+		if err := request.Err(); err != nil {
+			return EditResult{}, err
+		}
 		item, err := resolveOp(file, raw, index)
 		if err != nil {
 			return EditResult{}, err
+		}
+		if len(item.lines) > remainingLines {
+			return EditResult{}, editErrorf("Edit request exceeds %d replacement lines.", MaxEditLines)
+		}
+		remainingLines -= len(item.lines)
+		for _, line := range item.lines {
+			if len(line) > remainingBytes {
+				return EditResult{}, editErrorf("Edit request exceeds %d replacement bytes.", MaxEditBytes)
+			}
+			remainingBytes -= len(line)
 		}
 		all[index] = item
 	}
@@ -294,7 +362,7 @@ func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
 	sort.SliceStable(ranges, func(a, b int) bool { return ranges[a].first < ranges[b].first })
 	for i := 1; i < len(ranges); i++ {
 		if ranges[i].first <= ranges[i-1].last {
-			return EditResult{}, editErrorf("Ambiguous edits: edits[%d] and edits[%d] cover the same line(s). Merge them into one op. Nothing was edited.",
+			return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] and edits[%d] cover the same line(s). Merge them into one op. Nothing was edited.",
 				ranges[i-1].index, ranges[i].index)
 		}
 	}
@@ -304,15 +372,15 @@ func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
 			continue
 		}
 		if earlier, seen := gaps[item.gap]; seen {
-			return EditResult{}, editErrorf("Ambiguous edits: edits[%d] and edits[%d] insert at the same position. Merge them into one insert. Nothing was edited.",
+			return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] and edits[%d] insert at the same position. Merge them into one insert. Nothing was edited.",
 				earlier, item.index)
 		}
 		gaps[item.gap] = item.index
-		for _, rng := range ranges {
-			if rng.first < item.gap && item.gap <= rng.last {
-				return EditResult{}, editErrorf("Ambiguous edits: edits[%d] inserts inside the lines changed by edits[%d]. Nothing was edited.",
-					item.index, rng.index)
-			}
+		// Disjoint ranges are sorted; only the preceding start can contain this gap.
+		position := sort.Search(len(ranges), func(index int) bool { return ranges[index].first >= item.gap }) - 1
+		if position >= 0 && item.gap <= ranges[position].last {
+			return EditResult{}, categorizedEditError(CategoryConflict, "Ambiguous edits: edits[%d] inserts inside the lines changed by edits[%d]. Nothing was edited.",
+				item.index, ranges[position].index)
 		}
 	}
 
@@ -330,6 +398,14 @@ func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
 	var regions [][2]int
 	created := func(text string) Line { return Line{Text: text, EOL: file.EOL} }
 	for index := 0; index <= len(file.Lines); index++ {
+		if index%4096 == 0 {
+			if err := request.Err(); err != nil {
+				return EditResult{}, err
+			}
+		}
+		if len(output) > MaxEditLines {
+			return EditResult{}, editErrorf("Edit result exceeds %d lines; nothing was written.", MaxEditLines)
+		}
 		if insert, ok := insertAt[index]; ok {
 			regions = append(regions, [2]int{len(output) + 1, len(output) + len(insert.lines)})
 			for _, text := range insert.lines {
@@ -362,7 +438,14 @@ func ApplyEdits(file ParsedFile, ops any) (EditResult, error) {
 			}
 		}
 	}
-	return EditResult{File: ParsedFile{BOM: file.BOM, Lines: output, EOL: file.EOL}, Regions: regions}, nil
+	result := ParsedFile{BOM: file.BOM, Lines: output, EOL: file.EOL}
+	if err := validateResultSize(result); err != nil {
+		return EditResult{}, err
+	}
+	if err := request.Err(); err != nil {
+		return EditResult{}, err
+	}
+	return EditResult{File: result, Regions: regions}, nil
 }
 
 // jsTrim trims what JavaScript's String.prototype.trim trims: Unicode white space and the byte order mark.

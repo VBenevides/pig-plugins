@@ -149,7 +149,7 @@ func TestSymlinkInsideWorkingDirectoryIsEditedAtItsTarget(t *testing.T) {
 	if err := os.Symlink("real.txt", filepath.Join(dir, "alias")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Edit(dir, map[string]any{"path": "alias", "edits": []any{
+	_, err := Edit(dir, map[string]any{"path": "alias", "version": ContentVersion([]byte("x\n")), "edits": []any{
 		map[string]any{"op": "replace", "anchor": FormatAnchor(1, "x"), "lines": []any{"y"}},
 	}})
 	if err != nil {
@@ -180,9 +180,20 @@ func TestConcurrentEditsOfOneFileAreSerialisedAndLoseNothing(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			text := "line" + string(rune('a'+i))
-			_, errs[i] = Edit(dir, map[string]any{"path": "f.txt", "edits": []any{
-				map[string]any{"op": "replace", "anchor": FormatAnchor(i+1, text), "lines": []any{strings.ToUpper(text)}},
-			}})
+			// Callers explicitly reread and retry stale versions; the tool never retries silently.
+			for attempt := 0; attempt < lines+1; attempt++ {
+				current, err := Read(dir, map[string]any{"path": "f.txt"})
+				if err != nil {
+					errs[i] = err
+					return
+				}
+				_, errs[i] = Edit(dir, map[string]any{"path": "f.txt", "version": current.Details["version"], "edits": []any{
+					map[string]any{"op": "replace", "anchor": FormatAnchor(i+1, text), "lines": []any{strings.ToUpper(text)}},
+				}})
+				if errs[i] == nil || !strings.Contains(errs[i].Error(), "stale version") {
+					return
+				}
+			}
 		}()
 	}
 	wg.Wait()

@@ -119,7 +119,11 @@ func ReadGitChanges(ctx context.Context, dir string) (changes GitChanges, ok boo
 	if err != nil {
 		return GitChanges{}, false, fmt.Errorf("git: temporary index: %w", err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if removeErr := os.RemoveAll(tmp); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("git: remove temporary index: %w", removeErr))
+		}
+	}()
 	index := filepath.Join(tmp, "index")
 	env := []string{"GIT_INDEX_FILE=" + index}
 

@@ -143,7 +143,7 @@ func TestInstallModelRefusesBadDownloadsAndLeavesNothing(t *testing.T) {
 		mutate  func(p *ModelPins)
 		want    string
 	}{
-		{name: "HTTP error", handler: func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", 503) }, want: "HTTP 503"},
+		{name: "HTTP error", handler: func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", http.StatusServiceUnavailable) }, want: "HTTP 503"},
 		{name: "wrong checksum", handler: func(w http.ResponseWriter, _ *http.Request) {
 			data := append([]byte(nil), good.archive...)
 			data[len(data)/2] ^= 0xff

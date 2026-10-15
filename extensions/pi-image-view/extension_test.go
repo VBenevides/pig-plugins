@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBlocksCopy(t *testing.T) {
@@ -95,5 +96,64 @@ func TestRPCDetailClearAndFailedNeighbor(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(result.Notices(), "\n"), "missing.png") {
 		t.Fatal("missing image failure not observable")
+	}
+}
+
+// A session start removes previews unused for two days, keeps recent ones and unrelated files, and storing a new
+// preview refreshes an identical old blob instead of letting the cleanup delete it.
+func TestSessionCleansOldPreviewsAndKeepsUsedOnes(t *testing.T) {
+	pigtest.RequirePig(t)
+	_, file, _, _ := runtime.Caller(0)
+	home := pigtest.NewHome(t)
+	blobs := filepath.Join(home.AgentDir(), "image-view", "blobs")
+	if err := os.MkdirAll(blobs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seed := func(name string, age time.Duration) string {
+		path := filepath.Join(blobs, name)
+		if err := os.WriteFile(path, []byte("blob"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		when := time.Now().Add(-age)
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	old := seed(strings.Repeat("a", 64)+".png", 50*time.Hour)
+	recent := seed(strings.Repeat("b", 64)+".png", 10*time.Hour)
+	note := seed("keep-me.txt", 500*time.Hour)
+
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 40, 20))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.Work, "small.png"), encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock := pigtest.NewMockLLM(pigtest.Text("ok"))
+	defer mock.Close()
+	home.RunRPC(t, mock, pigtest.RPCOptions{Vision: true, Extensions: []string{filepath.Dir(file)}, Prompts: []string{"inspect ./small.png"}})
+
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("a preview unused for 50 hours must be removed: %v", err)
+	}
+	for name, path := range map[string]string{"recent preview": recent, "unrelated file": note} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("%s must stay: %v", name, err)
+		}
+	}
+	entries, err := os.ReadDir(blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := 0
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".png") && len(entry.Name()) == 68 && entry.Name() != filepath.Base(recent) {
+			stored++
+		}
+	}
+	if stored != 1 {
+		t.Fatalf("the new image must be stored once, found %d new blobs in %v", stored, entries)
 	}
 }
