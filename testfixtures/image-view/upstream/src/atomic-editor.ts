@@ -49,15 +49,15 @@ const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
  * instance decorator rather than a visual wrapper, so an existing editor such
  * as Zentui keeps ownership of rendering, status, focus, and callbacks.
  */
-export function enhanceAtomicMarkerEditor<T extends object>(
+function installAtomicMarkerEditor<T extends object>(
   editor: T,
   tui: TUI,
   keys: KeybindingsManager,
   options: AtomicEditorOptions,
-): T {
+): void {
   const host = editor as T &
     AtomicEditorHost & { [ATOMIC_EDITOR_INSTALLED]?: true };
-  if (host[ATOMIC_EDITOR_INSTALLED]) return editor;
+  if (host[ATOMIC_EDITOR_INSTALLED]) return;
   if (
     typeof host.handleInput !== "function" ||
     typeof host.getCursor !== "function" ||
@@ -65,7 +65,7 @@ export function enhanceAtomicMarkerEditor<T extends object>(
     typeof host.getText !== "function"
   ) {
     debugLog("Atomic markers skipped: editor is missing a required method");
-    return editor;
+    return;
   }
   // Decorating a forwarding wrapper is unsafe in both directions. Its editing
   // state lives on the wrapped editor, and the instance accessors installed
@@ -75,7 +75,7 @@ export function enhanceAtomicMarkerEditor<T extends object>(
   // usually already enhanced, which keeps every behavior working.
   if (!Object.hasOwn(host, "state") || !Array.isArray(host.state?.lines)) {
     debugLog("Atomic markers skipped: editor does not own its editing state");
-    return editor;
+    return;
   }
 
   Object.defineProperty(host, ATOMIC_EDITOR_INSTALLED, { value: true });
@@ -167,15 +167,13 @@ export function enhanceAtomicMarkerEditor<T extends object>(
   };
 
   host.handleInput = (data: string): void => {
-    const action = keys.matches(data, "tui.editor.cursorLeft")
-      ? "left"
-      : keys.matches(data, "tui.editor.cursorRight")
-        ? "right"
-        : keys.matches(data, "tui.editor.deleteCharBackward")
-          ? "backspace"
-          : keys.matches(data, "tui.editor.deleteCharForward")
-            ? "delete"
-            : undefined;
+    let action: "left" | "right" | "backspace" | "delete" | undefined;
+    if (keys.matches(data, "tui.editor.cursorLeft")) action = "left";
+    else if (keys.matches(data, "tui.editor.cursorRight")) action = "right";
+    else if (keys.matches(data, "tui.editor.deleteCharBackward"))
+      action = "backspace";
+    else if (keys.matches(data, "tui.editor.deleteCharForward"))
+      action = "delete";
     if (!action) return originalHandleInput(data);
     const cursor = host.getCursor();
     const line = host.getLines()[cursor.line] ?? "";
@@ -189,7 +187,15 @@ export function enhanceAtomicMarkerEditor<T extends object>(
     if (!deleteRange(cursor.line, span.start, span.end))
       originalHandleInput(data);
   };
+}
 
+export function enhanceAtomicMarkerEditor<T extends object>(
+  editor: T,
+  tui: TUI,
+  keys: KeybindingsManager,
+  options: AtomicEditorOptions,
+): T {
+  installAtomicMarkerEditor(editor, tui, keys, options);
   return editor;
 }
 

@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const codexHeaderPrefix = "x-codex-"
+
 // ParseCodexUsageHeaders reads the x-codex-* response headers into the windows the app-server produces, so the
 // footer stays fresh between polls without spawning a process. It returns nil when the response does not look like
 // Codex (no x-codex-* header and no 429). A slot without a reset keeps the previous window's reset and capture time
@@ -24,22 +26,16 @@ func ParseCodexUsageHeaders(headers map[string]string, status int, previous []Ra
 	for name, value := range headers {
 		lower[strings.ToLower(name)] = value
 	}
-	looksLikeCodex := status == 429
-	for name := range lower {
-		if strings.HasPrefix(name, "x-codex-") {
-			looksLikeCodex = true
-		}
-	}
-	if !looksLikeCodex {
+	if status != 429 && !hasCodexUsageHeader(lower) {
 		return nil
 	}
 	clamp := func(n float64) float64 { return math.Max(0, math.Min(100, n)) }
 	var out []RateWindow
 	for _, slot := range []string{"primary", "secondary"} {
-		used := parseNumber(lower["x-codex-"+slot+"-used-percent"])
-		minutes := parseNumber(lower["x-codex-"+slot+"-window-minutes"])
-		after := parseNumber(lower["x-codex-"+slot+"-reset-after-seconds"])
-		at := parseNumber(lower["x-codex-"+slot+"-reset-at"])
+		used := parseNumber(lower[codexHeaderPrefix+slot+"-used-percent"])
+		minutes := parseNumber(lower[codexHeaderPrefix+slot+"-window-minutes"])
+		after := parseNumber(lower[codexHeaderPrefix+slot+"-reset-after-seconds"])
+		at := parseNumber(lower[codexHeaderPrefix+slot+"-reset-at"])
 		if used == nil && minutes == nil && after == nil && at == nil {
 			continue
 		}
@@ -76,6 +72,15 @@ func ParseCodexUsageHeaders(headers map[string]string, status int, previous []Ra
 		out = append(out, window)
 	}
 	return out
+}
+
+func hasCodexUsageHeader(headers map[string]string) bool {
+	for name := range headers {
+		if strings.HasPrefix(name, codexHeaderPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 type codexWindowPayload struct {
@@ -119,10 +124,8 @@ func ParseCodexRateLimits(result json.RawMessage, now time.Time) ([]RateWindow, 
 			return
 		}
 		var resetSec float64
-		if value.ResetsAt != nil {
-			if at := *value.ResetsAt * 1000; at > float64(now.UnixMilli()) {
-				resetSec = (at - float64(now.UnixMilli())) / 1000
-			}
+		if value.ResetsAt != nil && *value.ResetsAt*1000 > float64(now.UnixMilli()) {
+			resetSec = (*value.ResetsAt*1000 - float64(now.UnixMilli())) / 1000
 		}
 		w := RateWindow{Scope: "codex:" + name, Percent: math.Max(0, math.Min(100, 100-*value.UsedPercent)), HasReset: resetSec > 0, ResetSec: resetSec, CapturedAt: now, Advisory: stillUsable}
 		if value.WindowDurationMins != nil {

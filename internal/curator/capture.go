@@ -125,7 +125,9 @@ func NewCapture(send Transport, options CaptureOptions) *Capture {
 		c.maxGaps = 1000
 	}
 	if c.problem == nil {
-		c.problem = func(string) {}
+		c.problem = func(string) {
+			// Problem notifications are optional; queue and outcome statistics still record failures.
+		}
 	}
 	return c
 }

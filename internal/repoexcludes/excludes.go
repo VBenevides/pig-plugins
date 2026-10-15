@@ -106,9 +106,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 // The exclusive lock file remains in place until rename commits the complete file.
 // This uses Git's own lock-file protocol, rather than locking the replaced inode.
 func appendLocked(ctx context.Context, root *os.Root, dir *os.File) (changed bool, err error) {
+	const lockName = "exclude.lock"
 	var lock *os.File
 	for {
-		lock, err = root.OpenFile("exclude.lock", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		lock, err = root.OpenFile(lockName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			break
 		}
@@ -127,7 +128,7 @@ func appendLocked(ctx context.Context, root *os.Root, dir *os.File) (changed boo
 			err = errors.Join(err, lock.Close())
 		}
 		if !committed {
-			err = errors.Join(err, root.Remove("exclude.lock"))
+			err = errors.Join(err, root.Remove(lockName))
 		}
 	}()
 	data, mode, original, err := readExclude(root)
@@ -162,7 +163,7 @@ func appendLocked(ctx context.Context, root *os.Root, dir *os.File) (changed boo
 	} else if statErr != nil || !current.Mode().IsRegular() || !os.SameFile(original, current) {
 		return false, fmt.Errorf("git exclude file changed during update: %w", errors.Join(statErr, fs.ErrInvalid))
 	}
-	if err := root.Rename("exclude.lock", "exclude"); err != nil {
+	if err := root.Rename(lockName, "exclude"); err != nil {
 		return false, fmt.Errorf("replace Git exclude file: %w", err)
 	}
 	committed = true

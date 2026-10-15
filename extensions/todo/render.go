@@ -208,7 +208,7 @@ func resultLines(result sdk.ToolRenderResult, options sdk.ToolRenderResultOption
 // defaultViewerRows is the number of list rows shown at once when the terminal height is unknown.
 const defaultViewerRows = 12
 
-// viewer shows the todo list in a window of rows that scrolls, so a list longer than the terminal stays reachable.
+// viewer shows the task list in a window of rows that scrolls, so a list longer than the terminal stays reachable.
 type viewer struct {
 	phases []tasks.Phase
 	theme  sdk.UITheme

@@ -1,4 +1,4 @@
-// Package todoext ports pi-todotools' session-backed phased todo tool.
+// Session-backed phased task management follows the upstream tool's operations.
 package todoext
 
 import (

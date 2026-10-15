@@ -62,7 +62,7 @@ const diacriticFor = (n: number) =>
   String.fromCodePoint(ROW_COL_DIACRITICS[n] ?? ROW_COL_DIACRITICS[0]!);
 
 // Kitty graphics packets use ESC as their delimiter; keep the protocol byte explicit.
-const ESC = String.fromCharCode(27);
+const ESC = String.fromCodePoint(27);
 const KITTY_PACKET_RE = new RegExp(`${ESC}_G([^${ESC}]*)${ESC}\\\\`, "g");
 
 function wrapForTmux(sequence: string): string {
@@ -94,9 +94,10 @@ function transmit(
     const chunk = data.slice(offset, offset + chunkSize);
     const first = offset === 0;
     const last = offset + chunkSize >= data.length;
+    const continuation = last ? 0 : 1;
     const controls = first
       ? `a=T,U=1,f=100,i=${id},c=${columns},r=${rows},q=2,m=1`
-      : `m=${last ? 0 : 1}`;
+      : `m=${continuation}`;
     write(`\x1b_G${controls};${chunk}\x1b\\`);
   }
 }

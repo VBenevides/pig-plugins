@@ -77,6 +77,7 @@ func commandAffectedItems(command string, analysis Analysis, items []string) []s
 }
 
 func pushAffectedItems(args []string) []string {
+	const tagRefPrefix = "refs/tags/"
 	var operands []string
 	force, deleteRefs, endOptions := false, false, false
 	for _, arg := range args {
@@ -101,7 +102,7 @@ func pushAffectedItems(args []string) []string {
 		if len(operands) != 3 {
 			return nil
 		}
-		operands = []string{operands[0], "refs/tags/" + operands[2]}
+		operands = []string{operands[0], tagRefPrefix + operands[2]}
 	}
 	var lines []string
 	for _, ref := range operands[1:] {
@@ -122,8 +123,8 @@ func pushAffectedItems(args []string) []string {
 		}
 		kind := "branch"
 		switch {
-		case strings.HasPrefix(ref, "refs/tags/"):
-			kind, ref = "tag", strings.TrimPrefix(ref, "refs/tags/")
+		case strings.HasPrefix(ref, tagRefPrefix):
+			kind, ref = "tag", strings.TrimPrefix(ref, tagRefPrefix)
 		case strings.HasPrefix(ref, "refs/heads/"):
 			ref = strings.TrimPrefix(ref, "refs/heads/")
 		case strings.HasPrefix(ref, "refs/"):

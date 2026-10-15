@@ -25,6 +25,8 @@ import (
 const Name = "compact-settings"
 
 const usage = "usage: /compact-settings [status] | limit [status] | limit relative <0-100|off> | limit absolute <tokens like 200000, 200k, 1M|off> | limit off"
+const commandPrefix = Name + ": "
+const unchangedSuffix = ". Nothing was changed."
 
 // state serializes settings changes and the compact trigger.
 type state struct {
@@ -91,7 +93,7 @@ func handle(ctx sdk.Context, args string) (string, string) {
 		}
 		percent, err := compactlimit.ParsePercent(words[2])
 		if err != nil {
-			return "compact-settings: " + err.Error() + ". Nothing was changed.", "warning"
+			return commandPrefix + err.Error() + unchangedSuffix, "warning"
 		}
 		limits.Relative = &percent
 	case len(words) == 3 && words[1] == "absolute":
@@ -101,11 +103,11 @@ func handle(ctx sdk.Context, args string) (string, string) {
 		}
 		tokens, err := compactlimit.ParseTokens(words[2])
 		if err != nil {
-			return "compact-settings: " + err.Error() + ". Nothing was changed.", "warning"
+			return commandPrefix + err.Error() + unchangedSuffix, "warning"
 		}
 		limits.Absolute = &tokens
 	default:
-		return "compact-settings: " + usage + ". Nothing was changed.", "warning"
+		return commandPrefix + usage + unchangedSuffix, "warning"
 	}
 	if err := compactlimit.Save(file, limits); err != nil {
 		return fmt.Sprintf("compact-settings: could not save the limit: %v. Nothing was changed.", err), "error"

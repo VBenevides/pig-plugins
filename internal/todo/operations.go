@@ -1,4 +1,4 @@
-// Package todo ports pi-todotools' phased operations (MIT).
+// Phased task operations port the upstream implementation (MIT).
 // Copyright (c) 2025 Mario Zechner; (c) 2025-2026 Can Bölük.
 package todo
 

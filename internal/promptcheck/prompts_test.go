@@ -1,5 +1,5 @@
 // Package promptcheck tests the always-loaded prompt files: they must stay small, keep every essential rule, and
-// state each rule once. It has no code; the files it checks are prompts/agent/*.md and the todo guidance.
+// state each rule once. It has no code; the files it checks are prompts/agent/*.md and the task-management guidance.
 package promptcheck
 
 import (

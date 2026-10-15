@@ -97,6 +97,25 @@ chmod +x "$2"
         self.assertIn("-p=2|2|", Path(self.env["TOOL_LOG"]).read_text())
         self.assertFalse(list((self.root / "build").glob("dev-source.*")))
 
+    def test_extension_lock_uses_clean_module_snapshot(self):
+        # Go factories resolve to the containing module, not the extension directory.
+        (self.root / '.agent-work/python').symlink_to(self.tools)
+        self.tool('builder', '''
+module=$(dirname -- "$3")
+for name in .git .agent-work build node_modules .ouro go.work go.work.sum; do
+    [ ! -e "$module/$name" ] || { echo "unexpected lock input: $name" >&2; exit 42; }
+done
+[ -f "$module/go.mod" ]
+[ -f "$module/prompts/agent/SYSTEM.md" ]
+[ -f "$module/skills/example/SKILL.md" ]
+while [ "$1" != --out ]; do shift; done
+printf '#!/bin/sh\\nexit 0\\n' > "$2"
+chmod +x "$2"
+''')
+        result = self.run_script('dev_build.sh')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.root / '.agent-work/python').is_symlink())
+
     def test_failure_preserves_existing_binary(self):
         out = self.root / "build/result"
         out.write_text("previous binary")

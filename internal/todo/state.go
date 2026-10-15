@@ -1,4 +1,4 @@
-// Package todo implements pi-todotools' branch-local phased session state.
+// Branch-local phased task state follows the upstream session snapshot format.
 package todo
 
 import (

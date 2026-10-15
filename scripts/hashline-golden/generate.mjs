@@ -29,7 +29,13 @@ function treeDigest(root) {
   };
   walk(root);
   const hash = createHash("sha256");
-  for (const file of files.map((f) => f.slice(root.length + 1)).sort()) {
+  const relativeFiles = files.map((f) => f.slice(root.length + 1));
+  relativeFiles.sort((left, right) => {
+    if (left < right) return -1;
+    if (left > right) return 1;
+    return 0;
+  });
+  for (const file of relativeFiles) {
     hash.update(file + "\0").update(readFileSync(join(root, file))).update("\0");
   }
   return hash.digest("hex");

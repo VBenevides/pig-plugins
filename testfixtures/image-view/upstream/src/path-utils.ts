@@ -64,7 +64,7 @@ export function isScreenshotToolResult(event: {
   return typeof maybeTool === "string" && isScreenshotToolName(maybeTool);
 }
 
-const SCREENSHOT_SAVE_LINE_RE = /^Saved screenshot to\s+(.+)$/gim;
+const SCREENSHOT_SAVE_LINE_RE = /^Saved screenshot to\s+([^\s].*)$/gim;
 
 export function extractSavedScreenshotPaths(text: string): string[] {
   const paths: string[] = [];

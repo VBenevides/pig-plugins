@@ -19,7 +19,7 @@ Only read, search and explain. If the user asks for a change, say it is blocked 
 The only exception: a file inside the project's .agent-work/ directory, and only when the user EXPLICITLY asked you in this conversation to write it. Such writes also need the user's confirmation.
 Blocked tool calls are rejected by the host; do not try to work around them.`
 
-// readOnlyTools never change state. todo keeps only in-memory/session notes.
+// readOnlyTools never change project files. Task management keeps only in-memory/session notes.
 var readOnlyTools = map[string]bool{
 	"read": true, "grep": true, "find": true, "ls": true, "todo": true,
 	"web_search": true, "url_context": true, "ask_user_question": true, "tool_search": true,

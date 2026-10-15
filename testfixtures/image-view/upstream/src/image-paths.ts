@@ -9,12 +9,12 @@ export interface DetectedImagePath {
 }
 
 const IMAGE_EXT = "(?:png|jpe?g|gif|webp)";
-const PATH_END = `(?=[\\s,.;:!?)\\]]|$)`;
-const BARE_PATH = `(?:~/|\\.\\.?/|/)(?:\\\\.|[^\\s:*?"<>|])*\\.${IMAGE_EXT}${PATH_END}`;
-const WINDOWS_DRIVE_PATH = `[A-Za-z]:[\\\\/][^\\s*?"<>|]*\\.${IMAGE_EXT}${PATH_END}`;
-const WINDOWS_UNC_PATH = `\\\\\\\\[^\\\\/\\s:*?"<>|]+[\\\\/][^\\s*?"<>|]*\\.${IMAGE_EXT}${PATH_END}`;
-const DOUBLE_QUOTED_PATH = `"(?:\\\\.|[^"\\\\])*\\.${IMAGE_EXT}"`;
-const SINGLE_QUOTED_PATH = `'(?:\\\\.|[^'\\\\])*\\.${IMAGE_EXT}'`;
+const PATH_END = String.raw`(?=[\s,.;:!?)\]]|$)`;
+const BARE_PATH = String.raw`(?:~/|\.\.?/|/)(?:\\.|[^\s:*?"<>|])*\.${IMAGE_EXT}${PATH_END}`;
+const WINDOWS_DRIVE_PATH = String.raw`[A-Za-z]:[\\/][^\s*?"<>|]*\.${IMAGE_EXT}${PATH_END}`;
+const WINDOWS_UNC_PATH = String.raw`\\\\[^\\/\s:*?"<>|]+[\\/][^\s*?"<>|]*\.${IMAGE_EXT}${PATH_END}`;
+const DOUBLE_QUOTED_PATH = String.raw`"(?:\\.|[^"\\])*\.${IMAGE_EXT}"`;
+const SINGLE_QUOTED_PATH = String.raw`'(?:\\.|[^'\\])*\.${IMAGE_EXT}'`;
 const IMAGE_PATH_RE = new RegExp(
   `${DOUBLE_QUOTED_PATH}|${SINGLE_QUOTED_PATH}|${WINDOWS_UNC_PATH}|${WINDOWS_DRIVE_PATH}|${BARE_PATH}`,
   "gi",
@@ -39,16 +39,16 @@ export function normalizeDetectedImagePath(
   options: PathNormalizationOptions = {},
 ): string {
   const value = stripQuotes(raw);
-  const drive = /^([A-Za-z]):[\\\\/](.*)$/.exec(value);
+  const drive = /^([A-Za-z]):[\\/](.*)$/.exec(value);
   if (drive) {
     const platform = options.platform ?? process.platform;
     const env = options.env ?? process.env;
     if (platform === "linux" && (env.WSL_DISTRO_NAME || env.WSL_INTEROP)) {
-      return `/mnt/${drive[1]!.toLowerCase()}/${drive[2]!.replace(/\\/g, "/")}`;
+      return `/mnt/${drive[1]!.toLowerCase()}/${drive[2]!.replaceAll("\\", "/")}`;
     }
     return value;
   }
-  if (/^\\\\/.test(value)) return value;
+  if (value.startsWith("\\\\")) return value;
   // Shell escapes must be resolved before the ~ and ./ prefixes are interpreted:
   // dragging a file into the terminal yields "~/My\ Photo.png", and resolving that
   // against the home directory without unescaping keeps the literal backslash.

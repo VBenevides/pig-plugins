@@ -318,20 +318,18 @@ export function registerImagePreviewExtension(
   function ensurePreview(entry: TrackedImage): Promise<ImageContent> {
     if (entry.previewImage) return Promise.resolve(entry.previewImage);
     if (!deps.maybeResizeImage) return Promise.resolve(entry.image);
-    if (!entry.previewPromise) {
-      entry.previewPromise = deps
-        .maybeResizeImage(entry.image)
-        .then((preview) => {
-          entry.previewImage = preview;
-          if (latestCtx && tracked.get(entry.placeholder) === entry)
-            refreshWidget(latestCtx);
-          return preview;
-        })
-        .catch((error) => {
-          debugLog(`Failed to resize image ${entry.filePath}`, error);
-          return entry.image;
-        });
-    }
+    entry.previewPromise ??= deps
+      .maybeResizeImage(entry.image)
+      .then((preview) => {
+        entry.previewImage = preview;
+        if (latestCtx && tracked.get(entry.placeholder) === entry)
+          refreshWidget(latestCtx);
+        return preview;
+      })
+      .catch((error) => {
+        debugLog(`Failed to resize image ${entry.filePath}`, error);
+        return entry.image;
+      });
     return entry.previewPromise;
   }
 
@@ -349,9 +347,7 @@ export function registerImagePreviewExtension(
         };
       },
     );
-    if (!presenter) {
-      presenter = new GalleryPresenter({ widget: ctx.ui, key: WIDGET_KEY });
-    }
+    presenter ??= new GalleryPresenter({ widget: ctx.ui, key: WIDGET_KEY });
     presenter.update(galleryImages);
   }
 
@@ -786,9 +782,10 @@ export function registerImagePreviewExtension(
         const marker = reference
           ? createImageMarkerLink(candidate.entry.placeholder, reference)
           : candidate.entry.placeholder;
+        const separator = transformedText ? " " : "";
         transformedText = candidate.token
           ? transformedText.replace(candidate.token, marker)
-          : `${transformedText}${transformedText ? " " : ""}${marker}`;
+          : `${transformedText}${separator}${marker}`;
       }
       const images = [...(event.images ?? [])];
       for (const { image, existingIndex } of preparedImages) {

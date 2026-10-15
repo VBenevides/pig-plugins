@@ -14,7 +14,7 @@ const LEGACY_REFERENCE_RE = new RegExp(
 );
 
 function isSupportedReference(reference: string): boolean {
-  return new RegExp(String.raw`^${TARGET}$`).test(reference);
+  return new RegExp(`^${TARGET}$`).test(reference);
 }
 
 export function createImageMarkerLink(

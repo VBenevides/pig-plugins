@@ -93,21 +93,7 @@ func (m *MockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "mockllm: invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	m.mu.Lock()
-	m.requests = append(m.requests, body)
-	call := len(m.requests)
-	model, _ := body["model"].(string)
-	queue, ok := m.script[model]
-	key := model
-	if !ok {
-		queue, key = m.script[AnyModel], AnyModel
-	}
-	reply := Text("done")
-	if len(queue) > 0 {
-		reply = queue[0]
-		m.script[key] = queue[1:]
-	}
-	m.mu.Unlock()
+	reply, call := m.nextReply(body)
 
 	if reply.Delay > 0 {
 		time.Sleep(reply.Delay)
@@ -126,6 +112,31 @@ func (m *MockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeMockStream(w, reply, call)
+}
+
+// nextReply records a request and consumes its scripted response under one lock.
+func (m *MockLLM) nextReply(body map[string]any) (Reply, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests = append(m.requests, body)
+	call := len(m.requests)
+	model, _ := body["model"].(string)
+	queue, ok := m.script[model]
+	key := model
+	if !ok {
+		queue, key = m.script[AnyModel], AnyModel
+	}
+	reply := Text("done")
+	if len(queue) > 0 {
+		reply = queue[0]
+		m.script[key] = queue[1:]
+	}
+	return reply, call
+}
+
+// writeMockStream stops immediately on a disconnected response writer.
+func writeMockStream(w http.ResponseWriter, reply Reply, call int) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 	flush := func() {
