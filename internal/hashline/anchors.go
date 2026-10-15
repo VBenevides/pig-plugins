@@ -159,11 +159,11 @@ func parseAnchor(value any, label string) (parsedAnchor, error) {
 	if match == nil {
 		return parsedAnchor{}, editErrorf(`%s: anchor is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`, label)
 	}
-	line, err := strconv.ParseUint(match[1], 10, 64)
-	if err != nil || line > maxSafeInteger || line > uint64(^uint(0)>>1) || line < 1 {
+	line, err := strconv.Atoi(match[1])
+	if err != nil || line < 1 || uint64(line) > maxSafeInteger {
 		return parsedAnchor{}, editErrorf(`%s: line number in "%s" must be >= 1.`, label, text)
 	}
-	return parsedAnchor{line: int(line), hash: match[2]}, nil
+	return parsedAnchor{line: line, hash: match[2]}, nil
 }
 
 func checkAnchor(file ParsedFile, anchor parsedAnchor, label string) error {

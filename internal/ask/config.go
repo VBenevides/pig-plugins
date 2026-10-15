@@ -71,8 +71,8 @@ func LoadConfig(getenv func(string) string) Config {
 		out.Warning = fmt.Sprintf("questionnaire config %s: %v", path, err)
 		return out
 	}
-	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	err = errors.Join(err, file.Close())
 	var raw map[string]any
 	if err == nil {
 		if len(data) > 1<<20 {

@@ -3,6 +3,7 @@
 package tui
 
 import (
+	"log/slog"
 	"os"
 	"syscall"
 	"unsafe"
@@ -16,7 +17,11 @@ func TerminalRows() int {
 	if err != nil {
 		return 0
 	}
-	defer tty.Close()
+	defer func() {
+		if err := tty.Close(); err != nil {
+			slog.Warn("close controlling terminal", "error", err)
+		}
+	}()
 	var size struct{ rows, cols, x, y uint16 }
 	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, tty.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&size))); errno != 0 {
 		return 0

@@ -108,7 +108,7 @@ func TestPrintModeGatesBashWriteAndEdit(t *testing.T) {
 	for i, got := range results {
 		want, blocked := wantBlocked[i]
 		switch {
-		case blocked && !(strings.HasPrefix(got, guard.Prefix+"blocked ") && strings.Contains(got, want)):
+		case blocked && (!strings.HasPrefix(got, guard.Prefix+"blocked ") || !strings.Contains(got, want)):
 			t.Errorf("result %d = %q, want a block containing %q", i, got, want)
 		case !blocked && strings.Contains(got, guard.Prefix):
 			t.Errorf("result %d was blocked: %q", i, got)

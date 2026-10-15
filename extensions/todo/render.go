@@ -150,9 +150,10 @@ func phaseLines(phases []tasks.Phase, completed []tasks.Completion, expanded boo
 		add(title, "accent", true, false)
 		for _, task := range p.Tasks {
 			color := ""
-			if task.Status == "in_progress" {
+			switch task.Status {
+			case "in_progress":
 				color = "accent"
-			} else if task.Status == "completed" || task.Status == "abandoned" {
+			case "completed", "abandoned":
 				color = "dim"
 			}
 			add("  "+tasks.Marker(task.Status)+" "+tasks.SanitizeText(task.Content), color, task.Status == "in_progress", task.Status == "completed")

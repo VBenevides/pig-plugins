@@ -4,6 +4,7 @@ package updates
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -53,7 +54,7 @@ func Newer(latest, current string) (bool, error) {
 	return false, nil
 }
 
-func fetchVersionSource(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+func fetchVersionSource(ctx context.Context, client *http.Client, url string) (data []byte, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -62,7 +63,11 @@ func fetchVersionSource(ctx context.Context, client *http.Client, url string) ([
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close version response: %w", closeErr))
+		}
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, url)
 	}

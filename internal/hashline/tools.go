@@ -14,6 +14,11 @@ import (
 	"unicode/utf16"
 )
 
+// toolMessageError preserves the model-facing wording pinned by upstream parity tests.
+type toolMessageError string
+
+func (err toolMessageError) Error() string { return string(err) }
+
 // A bare read of a file above either limit returns an outline instead of the text.
 const (
 	LargeFileLines = 400
@@ -156,7 +161,7 @@ func positiveInteger(params map[string]any, name string) (int, error) {
 			return int(typed), nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be an integer >= 1, got %s.", name, jsonValue(value))
+	return 0, toolMessageError(fmt.Sprintf("%s must be an integer >= 1, got %s.", name, jsonValue(value)))
 }
 
 func kilobytes(bytes int) string {
@@ -266,7 +271,7 @@ func ReadContext(request Cancellation, cwd string, params map[string]any) (resul
 	}()
 	path, _ := params["path"].(string)
 	if path == "" {
-		return Result{}, errors.New("path must be a non-empty string.")
+		return Result{}, toolMessageError("path must be a non-empty string.")
 	}
 	if err := rejectUnknownFields(params, "read request", "path", "offset", "limit"); err != nil {
 		return Result{}, err
@@ -285,13 +290,13 @@ func ReadContext(request Cancellation, cwd string, params map[string]any) (resul
 		return Result{}, fmt.Errorf("%s: no such file or directory, access '%s'", errnoName(err), absolute)
 	}
 	if stat.IsDir() {
-		return Result{}, fmt.Errorf("EISDIR: illegal operation on a directory, read '%s'; list a directory with bash (ls).", absolute)
+		return Result{}, toolMessageError(fmt.Sprintf("EISDIR: illegal operation on a directory, read '%s'; list a directory with bash (ls).", absolute))
 	}
 	if !stat.Mode().IsRegular() {
-		return Result{}, fmt.Errorf("%s is not a regular file.", absolute)
+		return Result{}, toolMessageError(fmt.Sprintf("%s is not a regular file.", absolute))
 	}
 	if stat.Size() > MaxEditBytes {
-		return Result{}, fmt.Errorf("%s is larger than %d bytes and cannot be anchored; inspect part of it with bash (head, tail, sed -n).", absolute, MaxEditBytes)
+		return Result{}, toolMessageError(fmt.Sprintf("%s is larger than %d bytes and cannot be anchored; inspect part of it with bash (head, tail, sed -n).", absolute, MaxEditBytes))
 	}
 	content, err := readBoundedFileContext(request, absolute, MaxEditBytes)
 	if err != nil {
@@ -322,7 +327,7 @@ func ReadContext(request Cancellation, cwd string, params map[string]any) (resul
 	}
 	from := max(offset, 1)
 	if from > total {
-		return Result{}, fmt.Errorf("Offset %d is beyond the end of the file (%d lines).", from, total)
+		return Result{}, toolMessageError(fmt.Sprintf("Offset %d is beyond the end of the file (%d lines).", from, total))
 	}
 	to := total
 	if limit > 0 {
@@ -337,7 +342,7 @@ func readNonText(request Cancellation, path, absolute string, content []byte, of
 	head := content[:min(len(content), 8192)]
 	if mime := ImageMIME(head); mime != "" {
 		if len(content) > MaxImageBytes {
-			return Result{}, fmt.Errorf("%s is an image of %d bytes; images above %d bytes are not attached.", absolute, len(content), MaxImageBytes)
+			return Result{}, toolMessageError(fmt.Sprintf("%s is an image of %d bytes; images above %d bytes are not attached.", absolute, len(content), MaxImageBytes))
 		}
 		return Result{
 			Text:    fmt.Sprintf("Read image file [%s]", mime),
@@ -346,7 +351,7 @@ func readNonText(request Cancellation, path, absolute string, content []byte, of
 		}, nil
 	}
 	if isBMP(head) || strings.IndexByte(string(content), 0) >= 0 {
-		return Result{}, fmt.Errorf("%s is a binary file; read does not print binary content.", path)
+		return Result{}, toolMessageError(fmt.Sprintf("%s is a binary file; read does not print binary content.", path))
 	}
 	// Invalid UTF-8 without NUL bytes: show it as text with replacement characters, as Pi's own read does.
 	file, err := ParseFileContext(request, strings.ToValidUTF8(string(content), "\ufffd"))
@@ -359,7 +364,7 @@ func readNonText(request Cancellation, path, absolute string, content []byte, of
 	}
 	from := max(offset, 1)
 	if from > len(lines) {
-		return Result{}, fmt.Errorf("Offset %d is beyond the end of the file (%d lines).", from, len(lines))
+		return Result{}, toolMessageError(fmt.Sprintf("Offset %d is beyond the end of the file (%d lines).", from, len(lines)))
 	}
 	to := len(lines)
 	if limit > 0 {
@@ -474,7 +479,7 @@ func Edit(cwd string, params map[string]any) (Result, error) {
 func EditContext(request Cancellation, cwd string, params map[string]any) (Result, error) {
 	path, _ := params["path"].(string)
 	if path == "" {
-		return Result{}, errors.New("path must be a non-empty string.")
+		return Result{}, toolMessageError("path must be a non-empty string.")
 	}
 	if err := rejectUnknownFields(params, "edit request", "path", "version", "edits"); err != nil {
 		return Result{}, fmt.Errorf("edit rejected: %w", err)

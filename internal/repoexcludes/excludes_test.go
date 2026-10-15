@@ -232,12 +232,20 @@ func TestLockTimeoutPreservesExistingLockAndExclude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() {
+		if err := root.Close(); err != nil {
+			t.Errorf("close repository root: %v", err)
+		}
+	}()
 	dir, err := root.Open(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dir.Close()
+	defer func() {
+		if err := dir.Close(); err != nil {
+			t.Errorf("close repository directory: %v", err)
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if changed, err := appendLocked(ctx, root, dir); err == nil || changed {
@@ -286,7 +294,11 @@ func TestWritePermissionFailure(t *testing.T) {
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(dir, 0o755)
+	defer func() {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Errorf("restore directory permissions: %v", err)
+		}
+	}()
 	if changed, err := Ensure(cwd); err == nil || changed {
 		t.Fatalf("write permission failure silently accepted: %v, %v", changed, err)
 	}

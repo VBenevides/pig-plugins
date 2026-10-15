@@ -330,7 +330,7 @@ func TestDialogShowsCommandBeforeRiskAndEffects(t *testing.T) {
 	}
 	text := d.asked[0]
 	commandAt, riskAt, effectsAt := strings.Index(text, "Command:\n"+command), strings.Index(text, "Risk Description:"), strings.Index(text, "Affected items:")
-	if commandAt < 0 || riskAt < 0 || effectsAt < 0 || !(commandAt < riskAt && riskAt < effectsAt) {
+	if commandAt < 0 || riskAt < 0 || effectsAt < 0 || commandAt >= riskAt || riskAt >= effectsAt {
 		t.Fatalf("order must be command, risk, effects (got %d, %d, %d):\n%s", commandAt, riskAt, effectsAt, text)
 	}
 	if !strings.HasSuffix(text, "Allow this command to run?") {

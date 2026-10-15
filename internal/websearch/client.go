@@ -251,7 +251,7 @@ func validCopilotHost(host string) bool {
 }
 
 // Search uses one bounded request. Cancellation interrupts transport and SSE reads.
-func Search(ctx context.Context, req Request, update func(string)) (Result, error) {
+func Search(ctx context.Context, req Request, update func(string)) (result Result, err error) {
 	endpoint, headers, body, err := Build(req)
 	if err != nil {
 		return Result{}, err
@@ -272,7 +272,11 @@ func Search(ctx context.Context, req Request, update func(string)) (Result, erro
 	if err != nil {
 		return Result{}, fmt.Errorf("provider search request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			err = errors.Join(err, errors.New("provider search response close: "+redact(closeErr.Error(), req.Auth)))
+		}
+	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(response.Body, 8192))
 		return Result{}, fmt.Errorf("provider search HTTP %d: %s", response.StatusCode, redact(string(raw), req.Auth))

@@ -42,15 +42,6 @@ func selectedAccount(source accountSource, provider string) (sdk.OAuthAccount, b
 	return sdk.OAuthAccount{}, false, nil
 }
 
-func selectedAuth(source accountSource, provider string) (quota.AuthEntry, bool, error) {
-	account, ok, err := selectedAccount(source, provider)
-	if err != nil || !ok {
-		return quota.AuthEntry{}, false, err
-	}
-	entry, err := accountAuth(source, account.ID)
-	return entry, err == nil, err
-}
-
 // accountStatus is shared by the footer and deterministic quota integration tests.
 func (x *extension) accountStatus(run context.Context, source accountSource, account sdk.OAuthAccount) (*quota.StatusQuota, error) {
 	status, _, err := x.accountQuota(run, source, account)

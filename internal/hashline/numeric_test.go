@@ -35,8 +35,13 @@ func TestReadNumericBoundaries(t *testing.T) {
 			t.Fatal("accepted beyond-end offset")
 		}
 	}
-	if _, err := parseAnchor("18446744073709551616#abcd", "anchor"); err == nil {
-		t.Fatal("accepted overflowing anchor")
+	for _, anchor := range []string{"0#abcd", "9007199254740992#abcd", "9223372036854775808#abcd", "18446744073709551615#abcd", "18446744073709551616#abcd"} {
+		if _, err := parseAnchor(anchor, "anchor"); err == nil {
+			t.Fatalf("accepted unsupported anchor %q", anchor)
+		}
+	}
+	if anchor, err := parseAnchor("12#abcd", "anchor"); err != nil || anchor.line != 12 {
+		t.Fatalf("valid anchor rejected: %+v %v", anchor, err)
 	}
 	if strconv.IntSize == 32 {
 		if _, err := parseAnchor("2147483648#abcd", "anchor"); err == nil {

@@ -90,14 +90,14 @@ func WriteContext(request Cancellation, cwd string, params map[string]any) (Resu
 	}
 	path, _ := params["path"].(string)
 	if path == "" {
-		return Result{}, errors.New("path must be a non-empty string.")
+		return Result{}, toolMessageError("path must be a non-empty string.")
 	}
 	if err := rejectUnknownFields(params, "write request", "path", "content"); err != nil {
 		return Result{}, fmt.Errorf("write rejected: %w", err)
 	}
 	content, ok := params["content"].(string)
 	if !ok {
-		return Result{}, errors.New("content must be a string.")
+		return Result{}, toolMessageError("content must be a string.")
 	}
 	if len(content) > MaxEditBytes {
 		return Result{}, editErrorf("Write exceeds %d bytes.", MaxEditBytes)

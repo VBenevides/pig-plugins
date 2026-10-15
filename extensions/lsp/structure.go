@@ -71,9 +71,12 @@ func (x *extension) structure(ctx sdk.Context, run context.Context, name string,
 				raw, e := client.Request(run, "workspace/symbol", map[string]any{"query": query})
 				if e == nil {
 					var items []json.RawMessage
-					json.Unmarshal(raw, &items)
-					lspCount = len(items)
-					text += "\n\nLSP workspace symbols:\n" + pretty(raw)
+					if err := json.Unmarshal(raw, &items); err != nil {
+						text += "\n\nLSP workspace symbols could not be decoded: " + err.Error()
+					} else {
+						lspCount = len(items)
+						text += "\n\nLSP workspace symbols:\n" + pretty(raw)
+					}
 				} else {
 					text += "\n\nLSP workspace symbols unavailable: " + e.Error()
 				}

@@ -54,7 +54,9 @@ func TestIngestWarningsRemainObservable(t *testing.T) {
 	var warnings []string
 	c := NewCapture(IngestTransport(Options{Bin: bin}), CaptureOptions{OnProblem: func(s string) { warnings = append(warnings, s) }})
 	c.Enqueue([]EventIn{ev("a")})
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if c.Stats().Durable != 1 || len(warnings) != 1 || !strings.Contains(warnings[0], "malformed record") {
 		t.Fatal(c.Stats(), warnings)
 	}
@@ -65,7 +67,9 @@ func TestOversizedCaptureDoesNotDiscardNeighbor(t *testing.T) {
 	large := ev("large")
 	large.Content = new(strings.Repeat("x", 256<<10+1))
 	c.Enqueue([]EventIn{large, ev("good")})
-	c.Flush(context.Background())
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if got := c.Stats(); got.Durable != 1 || got.Gaps != 0 {
 		t.Fatal(got)
 	}

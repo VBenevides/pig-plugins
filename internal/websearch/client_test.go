@@ -26,11 +26,15 @@ func fixtures(t *testing.T) map[string][]map[string]any {
 	}
 	return data
 }
-func emit(w http.ResponseWriter, events []map[string]any) {
+func emit(t testing.TB, w http.ResponseWriter, events []map[string]any) {
+	t.Helper()
 	w.Header().Set("Content-Type", "text/event-stream")
 	for _, event := range events {
 		raw, _ := json.Marshal(event)
-		fmt.Fprintf(w, "data: %s\n\n", raw)
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", raw); err != nil {
+			t.Errorf("write search event: %v", err)
+			return
+		}
 	}
 }
 func TestNativeStreamParity(t *testing.T) {
@@ -53,7 +57,7 @@ func TestNativeStreamParity(t *testing.T) {
 				if r.Method != "POST" {
 					t.Errorf("unexpected request %s", r.Method)
 				}
-				emit(w, events)
+				emit(t, w, events)
 			}))
 			defer server.Close()
 			api := "openai-responses"
@@ -88,10 +92,12 @@ func TestFailuresAreNotSuccess(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tc.status != 200 {
 					w.WriteHeader(tc.status)
-					fmt.Fprint(w, "secret-key")
+					if _, err := fmt.Fprint(w, "secret-key"); err != nil {
+						t.Errorf("write search failure: %v", err)
+					}
 					return
 				}
-				emit(w, tc.events)
+				emit(t, w, tc.events)
 			}))
 			defer server.Close()
 			result, err := Search(context.Background(), Request{Model: Model{ID: "m", Provider: tc.api, API: tc.api, BaseURL: server.URL}, Auth: Auth{OK: true, Key: "secret-key"}}, nil)

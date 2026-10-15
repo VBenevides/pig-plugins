@@ -2,6 +2,7 @@
 package projectprompt
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,7 +35,7 @@ const maxLocalInstructionBytes = 256 << 10
 
 // appendPrompt reads the literal defaults on every request. It does not cache
 // instructions or substitute local/APPEND_SYSTEM.md for .local/APPEND_SYSTEM.md.
-func appendPrompt(base, cwd string, trusted bool) (any, error) {
+func appendPrompt(base, cwd string, trusted bool) (result any, err error) {
 	if !trusted {
 		return nil, nil
 	}
@@ -42,7 +43,7 @@ func appendPrompt(base, cwd string, trusted bool) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("project-prompt: open workspace: %w", err)
 	}
-	defer root.Close()
+	defer func() { err = errors.Join(err, root.Close()) }()
 	var additions strings.Builder
 	for _, path := range []string{".local/APPEND_SYSTEM.md", "local/AGENTS.md"} {
 		content, err := readLocalInstructions(root, path)
@@ -63,7 +64,7 @@ func appendPrompt(base, cwd string, trusted bool) (any, error) {
 	return map[string]any{"systemPrompt": base + additions.String()}, nil
 }
 
-func readLocalInstructions(root *os.Root, path string) (string, error) {
+func readLocalInstructions(root *os.Root, path string) (result string, err error) {
 	info, err := root.Stat(path)
 	if os.IsNotExist(err) {
 		return "", nil
@@ -81,7 +82,7 @@ func readLocalInstructions(root *os.Root, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { err = errors.Join(err, file.Close()) }()
 	info, err = file.Stat()
 	if err != nil {
 		return "", err

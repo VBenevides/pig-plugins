@@ -2,6 +2,7 @@ package websearch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -25,10 +26,10 @@ func resolveGoogle(ctx context.Context, r *Result) {
 				response, e := client.Do(request)
 				err = e
 				if response != nil {
-					if location := response.Header.Get("Location"); location != "" {
+					err = errors.Join(err, response.Body.Close())
+					if location := response.Header.Get("Location"); err == nil && location != "" {
 						resolved[raw] = location
 					}
-					response.Body.Close()
 				}
 			}
 			cancel()

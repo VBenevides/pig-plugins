@@ -3,6 +3,7 @@ package lancet
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 
@@ -32,8 +33,7 @@ func newORTEncoder(libraryPath string, model []byte) (*ortEncoder, error) {
 	}
 	env, err := rt.NewEnv("lancet", ort.LoggingLevelError)
 	if err != nil {
-		rt.Close()
-		return nil, fmt.Errorf("create ONNX Runtime environment: %w", err)
+		return nil, errors.Join(fmt.Errorf("create ONNX Runtime environment: %w", err), rt.Close())
 	}
 	session, err := rt.NewSessionFromReader(env, bytes.NewReader(model), &ort.SessionOptions{
 		IntraOpNumThreads:  4,
@@ -41,15 +41,13 @@ func newORTEncoder(libraryPath string, model []byte) (*ortEncoder, error) {
 	})
 	if err != nil {
 		env.Close()
-		rt.Close()
-		return nil, fmt.Errorf("create LANCET encoder session: %w", err)
+		return nil, errors.Join(fmt.Errorf("create LANCET encoder session: %w", err), rt.Close())
 	}
 	outputs := session.OutputNames()
 	if len(outputs) == 0 {
 		session.Close()
 		env.Close()
-		rt.Close()
-		return nil, fmt.Errorf("LANCET encoder has no outputs")
+		return nil, errors.Join(fmt.Errorf("LANCET encoder has no outputs"), rt.Close())
 	}
 	return &ortEncoder{rt: rt, env: env, session: session, output: outputs[0]}, nil
 }

@@ -14,7 +14,7 @@ func thinkingEffort(model Model, requested string) (string, bool) {
 			return level == "off"
 		}
 		mapped, present := model.ThinkingMap[level]
-		return !(present && mapped == nil) && (level != "xhigh" || present)
+		return (!present || mapped != nil) && (level != "xhigh" || present)
 	}
 	level := requested
 	if !available(level) {

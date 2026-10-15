@@ -5,6 +5,7 @@ package pigtest
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -119,7 +120,9 @@ func (m *MockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		payload, _ := json.Marshal(map[string]any{"error": map[string]any{"message": message, "type": "mock_error"}})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(reply.Status)
-		w.Write(payload)
+		if _, err := w.Write(payload); err != nil {
+			slog.Warn("write mock error response", "request", call, "error", err)
+		}
 		return
 	}
 
@@ -130,13 +133,19 @@ func (m *MockLLM) handle(w http.ResponseWriter, r *http.Request) {
 			f.Flush()
 		}
 	}
-	send := func(chunk any) {
+	send := func(chunk any) bool {
 		payload, _ := json.Marshal(chunk)
-		fmt.Fprintf(w, "data: %s\n\n", payload)
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			slog.Warn("write mock stream response", "request", call, "error", err)
+			return false
+		}
+		return true
 	}
 	for _, piece := range reply.Chunks {
-		send(map[string]any{"choices": []any{map[string]any{"index": 0,
-			"delta": map[string]any{"role": "assistant", "content": piece}, "finish_reason": nil}}})
+		if !send(map[string]any{"choices": []any{map[string]any{"index": 0,
+			"delta": map[string]any{"role": "assistant", "content": piece}, "finish_reason": nil}}}) {
+			return
+		}
 		flush()
 		time.Sleep(reply.ChunkDelay)
 	}
@@ -157,11 +166,16 @@ func (m *MockLLM) handle(w http.ResponseWriter, r *http.Request) {
 	if promptTokens == 0 {
 		promptTokens = 10
 	}
-	send(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": nil}}})
-	send(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finish}}})
-	send(map[string]any{"choices": []any{}, "usage": map[string]any{
-		"prompt_tokens": promptTokens, "completion_tokens": 5, "total_tokens": promptTokens + 5}})
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	if !send(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": nil}}}) ||
+		!send(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": finish}}}) ||
+		!send(map[string]any{"choices": []any{}, "usage": map[string]any{
+			"prompt_tokens": promptTokens, "completion_tokens": 5, "total_tokens": promptTokens + 5}}) {
+		return
+	}
+	if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
+		slog.Warn("write mock stream terminator", "request", call, "error", err)
+		return
+	}
 	flush()
 }
 

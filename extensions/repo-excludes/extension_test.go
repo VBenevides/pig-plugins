@@ -116,9 +116,10 @@ func TestRealRPCStartup(t *testing.T) {
 					t.Fatal(err)
 				}
 				want := "original-no-newline"
-				if scenario == "trusted" {
+				switch scenario {
+				case "trusted":
 					want += "\n.agent-work/\n.ouro/\n.curator/\n"
-				} else if scenario == "error notification" {
+				case "error notification":
 					want = "outside-sentinel"
 				}
 				if string(data) != want {

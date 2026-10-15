@@ -248,12 +248,17 @@ func TestHTTPRedirectBodyCapAndSafeErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/redirect":
-			http.Redirect(w, r, other.URL, 302)
+			http.Redirect(w, r, other.URL, http.StatusFound)
 		case "/large":
-			w.Write([]byte(strings.Repeat("a", MaxResponseBytes+1)))
+			if _, err := w.Write([]byte(strings.Repeat("a", MaxResponseBytes+1))); err != nil {
+				// The capped client may close before the oversized body finishes.
+				t.Logf("oversized response write interrupted: %v", err)
+			}
 		default:
 			w.WriteHeader(401)
-			w.Write([]byte("secret-token"))
+			if _, err := w.Write([]byte("secret-token")); err != nil {
+				t.Errorf("write denied response: %v", err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -276,7 +281,12 @@ func TestQuotaReadCannotOverwriteNewerHeaders(t *testing.T) {
 		return []RateWindow{{Scope: "old", Percent: 5}}, nil
 	}}
 	done := make(chan struct{})
-	go func() { defer close(done); reader.Read(context.Background(), CodexProvider, false, 0) }()
+	go func() {
+		defer close(done)
+		if _, _, err := reader.Read(context.Background(), CodexProvider, false, 0); err != nil {
+			t.Errorf("read quota: %v", err)
+		}
+	}()
 	<-started
 	store.Update(CodexProvider, time.Now(), func(q *ProviderQuota) { q.Windows = []RateWindow{{Scope: "new", Percent: 50}} })
 	close(release)

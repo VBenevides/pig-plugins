@@ -106,6 +106,7 @@ chmod -R u+w "$stage/sdk"
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0002-native-oauth-accounts-sdk.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0011-conditional-draft-editor-sdk.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0013-native-image-preview-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0022-ordered-compact-sdk.patch" >&2
 (
     cd "$stage/source"
     rm -f go.work go.work.sum

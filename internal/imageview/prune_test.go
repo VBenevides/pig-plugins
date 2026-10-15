@@ -136,7 +136,11 @@ func TestPruneReportsEveryFailureAndFinishesOnTheNextRun(t *testing.T) {
 	if err := os.Chmod(root, 0o500); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(root, 0o700)
+	defer func() {
+		if err := os.Chmod(root, 0o700); err != nil {
+			t.Errorf("restore directory permissions: %v", err)
+		}
+	}()
 	result, err := Prune(root, pruneNow, MaxBlobAge, MaxBlobBytes)
 	if err == nil || !strings.Contains(err.Error(), filepath.Base(first)) || !strings.Contains(err.Error(), filepath.Base(second)) {
 		t.Fatalf("both failures must be reported, got %v", err)

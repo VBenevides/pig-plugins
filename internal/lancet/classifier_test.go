@@ -39,7 +39,11 @@ func loadReal(t *testing.T) *Classifier {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { c.Close() })
+	t.Cleanup(func() {
+		if err := c.Close(); err != nil {
+			t.Errorf("close classifier: %v", err)
+		}
+	})
 	return c
 }
 

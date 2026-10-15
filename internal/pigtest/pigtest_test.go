@@ -15,7 +15,11 @@ func post(t *testing.T, m *MockLLM, model string) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("close mock response: %v", err)
+		}
+	}()
 	var sb strings.Builder
 	buf := make([]byte, 4096)
 	for {

@@ -56,10 +56,10 @@ func TestAnalyzeMatchesTypeScript(t *testing.T) {
 			t.Errorf("%q: %v", c.Command, err)
 			continue
 		}
-		if !slices.Equal(got.Behaviors, c.Behaviors) && !(len(got.Behaviors) == 0 && len(c.Behaviors) == 0) {
+		if !slices.Equal(got.Behaviors, c.Behaviors) {
 			t.Errorf("%q behaviors: got %v, TypeScript %v", c.Command, got.Behaviors, c.Behaviors)
 		}
-		if !slices.Equal(got.Labels, c.Labels) && !(len(got.Labels) == 0 && len(c.Labels) == 0) {
+		if !slices.Equal(got.Labels, c.Labels) {
 			t.Errorf("%q labels: got %v, TypeScript %v", c.Command, got.Labels, c.Labels)
 		}
 		if got.HardBlocked != c.HardBlocked || got.DenyTier != c.DenyTier {

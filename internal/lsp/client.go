@@ -87,14 +87,11 @@ func Start(ctx context.Context, spec Server, root string) (*Client, error) {
 	}
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		in.Close()
-		return nil, err
+		return nil, errors.Join(err, in.Close())
 	}
 	cmd.Stderr = io.Discard
 	if err = cmd.Start(); err != nil {
-		in.Close()
-		out.Close()
-		return nil, fmt.Errorf("start %s: %w", spec.ID, err)
+		return nil, errors.Join(fmt.Errorf("start %s: %w", spec.ID, err), in.Close(), out.Close())
 	}
 	c := &Client{Spec: spec, Root: root, cmd: cmd, waited: make(chan struct{}), docs: map[string]document{}, diagnostics: map[string]publication{}, updated: make(chan struct{}, 1)}
 	c.rpc = NewRPC(out, in)
@@ -137,7 +134,9 @@ func (c *Client) handle(method string, p json.RawMessage) (any, error) {
 		var params struct {
 			Items []any `json:"items"`
 		}
-		json.Unmarshal(p, &params)
+		if err := json.Unmarshal(p, &params); err != nil {
+			return nil, fmt.Errorf("decode workspace/configuration: %w", err)
+		}
 		out := make([]any, len(params.Items))
 		for i := range out {
 			out[i] = c.Spec.Settings
@@ -300,12 +299,16 @@ func (c *Client) Close() {
 }
 
 // ReadText rejects binary and oversized documents before synchronization.
-func ReadText(file string, limit int64) (string, error) {
+func ReadText(file string, limit int64) (text string, err error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close LSP document %s: %w", file, closeErr))
+		}
+	}()
 	info, err := f.Stat()
 	if err != nil {
 		return "", err

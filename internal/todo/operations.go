@@ -66,16 +66,29 @@ func findTask(phases []Phase, content string) (int, int) {
 
 var taskID = regexp.MustCompile(`^task-\d+$`)
 
+// taskReferenceError preserves the pinned upstream tool protocol's user-facing text.
+// These messages are not ordinary Go diagnostic strings.
+type taskReferenceError struct {
+	content string
+}
+
+func (e taskReferenceError) Error() string {
+	if e.content == "" {
+		return "Missing task content"
+	}
+	return fmt.Sprintf("Task %q not found. Tasks are referenced by content, not by IDs — pass the task's full text from the previous result.", e.content)
+}
+
 func resolveTask(phases []Phase, content string) (int, int, error) {
 	if content == "" {
-		return -1, -1, fmt.Errorf("Missing task content")
+		return -1, -1, taskReferenceError{}
 	}
 	i, j := findTask(phases, content)
 	if i >= 0 {
 		return i, j, nil
 	}
 	if taskID.MatchString(content) {
-		return -1, -1, fmt.Errorf("Task %q not found. Tasks are referenced by content, not by IDs — pass the task's full text from the previous result.", content)
+		return -1, -1, taskReferenceError{content: content}
 	}
 	hint := ""
 	count := 0
