@@ -1,9 +1,8 @@
-Native OAuth account support against github.com/MichaelKinsy/PiG v0.4.1
-
 diff --git a/ai/auth.go b/ai/auth.go
+index bf2fafe..186b75c 100644
 --- a/ai/auth.go
 +++ b/ai/auth.go
-@@ -152,9 +152,12 @@
+@@ -152,9 +152,12 @@ func (r rawCredential) normalize() Credential {
  
  // AuthStorage is the persistent credential store at <agentDir>/auth.json.
  type AuthStorage struct {
@@ -19,7 +18,7 @@ diff --git a/ai/auth.go b/ai/auth.go
  }
  
  // NewAuthStorage opens the credential store and materializes a missing auth.json as {} with mode 0600. The parent directory uses mode 0700. Existing bytes and permissions remain unchanged; a failed initial load preserves the last valid snapshot. Instances of the first auth path share that snapshot.
-@@ -184,7 +187,11 @@
+@@ -184,7 +187,11 @@ func (a *AuthStorage) load(ctx context.Context) (map[string]Credential, error) {
  	if err != nil {
  		return nil, err
  	}
@@ -32,7 +31,7 @@ diff --git a/ai/auth.go b/ai/auth.go
  }
  
  func cloneAuthCredentials(creds map[string]Credential) map[string]Credential {
-@@ -197,11 +204,21 @@
+@@ -197,11 +204,21 @@ func cloneAuthCredentials(creds map[string]Credential) map[string]Credential {
  
  // credential returns one provider's stored credential from the latest snapshot.
  func (a *AuthStorage) credential(provider string) (Credential, bool, error) {
@@ -54,7 +53,7 @@ diff --git a/ai/auth.go b/ai/auth.go
  	return cloneCredential(cred), ok, nil
  }
  
-@@ -298,6 +315,22 @@
+@@ -298,6 +315,22 @@ func (a *AuthStorage) GetAuthStatus(provider string) AuthStatus {
  // concurrent pi instances refreshing the same OAuth token don't clobber
  // each other.
  func (a *AuthStorage) Set(provider string, cred Credential) error {
@@ -77,7 +76,7 @@ diff --git a/ai/auth.go b/ai/auth.go
  	a.mu.Lock()
  	defer a.mu.Unlock()
  	return a.withFileLock(context.Background(), false, func(lock *pilock.Lock) error {
-@@ -314,6 +347,17 @@
+@@ -314,6 +347,17 @@ func (a *AuthStorage) Set(provider string, cred Credential) error {
  // receives the current credential (zero value if absent) and the boolean
  // indicates whether it existed. Returning an error aborts the write.
  func (a *AuthStorage) Update(provider string, mutate func(cur Credential, exists bool) (Credential, error)) error {
@@ -95,34 +94,34 @@ diff --git a/ai/auth.go b/ai/auth.go
  	a.mu.Lock()
  	defer a.mu.Unlock()
  	return a.withFileLock(context.Background(), false, func(lock *pilock.Lock) error {
-@@ -335,6 +379,10 @@
- func (a *AuthStorage) Delete(ctx context.Context, provider string) error {
+@@ -336,6 +380,10 @@ func (a *AuthStorage) Delete(ctx context.Context, provider string) error {
  	if err := ctx.Err(); err != nil {
  		return context.Cause(ctx)
-+	}
+ 	}
 +	handled, err := a.deleteSelectedOAuth(ctx, provider)
 +	if err != nil || handled {
 +		return err
- 	}
++	}
  	if err := a.mu.LockContext(ctx); err != nil {
  		return err
+ 	}
 diff --git a/ai/auth_store.go b/ai/auth_store.go
+index 62559d6..8ea12d1 100644
 --- a/ai/auth_store.go
 +++ b/ai/auth_store.go
-@@ -155,16 +155,26 @@
+@@ -155,16 +155,26 @@ func authStorageObjectKeys(raw []byte) ([]string, error) {
  // Read implements CredentialStore. Concurrent readers share a reload; canceling one reader leaves the others running. A read without a cancellable context falls back to the last valid snapshot on reload failure.
  func (a *AuthStorage) Read(ctx context.Context, providerID string) (*Credential, error) {
  	if err := ctx.Err(); err != nil {
--		return nil, err
 +		return nil, context.Cause(ctx)
 +	}
 +	selected, handled, err := a.selectedOAuthCredential(ctx, providerID)
 +	if err != nil {
-+		return nil, err
-+	}
+ 		return nil, err
+ 	}
 +	if selected != nil {
 +		return selected, nil
- 	}
++	}
  	credentials, err := a.readCredentialData(ctx)
  	if err != nil {
  		return nil, err
@@ -138,7 +137,7 @@ diff --git a/ai/auth_store.go b/ai/auth_store.go
  	if !ok {
  		return nil, nil
  	}
-@@ -174,16 +184,40 @@
+@@ -174,16 +184,40 @@ func (a *AuthStorage) Read(ctx context.Context, providerID string) (*Credential,
  // List implements CredentialStore in ECMAScript object-key order without resolving configured key values. It shares Read's reload, cancellation, and unsignalled fallback behavior.
  func (a *AuthStorage) List(ctx context.Context) ([]CredentialInfo, error) {
  	if err := ctx.Err(); err != nil {
@@ -150,16 +149,14 @@ diff --git a/ai/auth_store.go b/ai/auth_store.go
  		return nil, err
  	}
  	if err := ctx.Err(); err != nil {
--		return nil, err
--	}
--	return credentials.infos(), nil
 +		return nil, context.Cause(ctx)
 +	}
 +	result := &authStorageData{values: cloneAuthCredentials(credentials.values), order: slices.Clone(credentials.order)}
 +	needed, err := a.nativeOAuthNeeded(ctx, "")
 +	if err != nil {
-+		return nil, err
-+	}
+ 		return nil, err
+ 	}
+-	return credentials.infos(), nil
 +	if !needed {
 +		return result.infos(), nil
 +	}
@@ -183,7 +180,7 @@ diff --git a/ai/auth_store.go b/ai/auth_store.go
  }
  
  // Modify implements CredentialStore under the auth.json file lock. A caller waiting for process-local ownership can cancel without waiting for the active callback.
-@@ -191,12 +225,16 @@
+@@ -191,12 +225,16 @@ func (a *AuthStorage) Modify(ctx context.Context, providerID string, fn func(cur
  	if err := ctx.Err(); err != nil {
  		return nil, context.Cause(ctx)
  	}
@@ -202,9 +199,10 @@ diff --git a/ai/auth_store.go b/ai/auth_store.go
  		ctx := lock.Context()
  		if ctx.Err() != nil {
 diff --git a/ai/models_runtime_auth.go b/ai/models_runtime_auth.go
+index c9777de..55a2eef 100644
 --- a/ai/models_runtime_auth.go
 +++ b/ai/models_runtime_auth.go
-@@ -356,7 +356,13 @@
+@@ -356,7 +356,13 @@ func (m *Models) LoginProvider(ctx context.Context, provider *ModelsProvider, au
  	started := make(chan struct{})
  	mutation := make(chan error, 1)
  	m.operations.Go(func() {
@@ -221,6 +219,7 @@ diff --git a/ai/models_runtime_auth.go b/ai/models_runtime_auth.go
  	select {
 diff --git a/ai/oauth_accounts.go b/ai/oauth_accounts.go
 new file mode 100644
+index 0000000..496e326
 --- /dev/null
 +++ b/ai/oauth_accounts.go
 @@ -0,0 +1,623 @@
@@ -849,6 +848,7 @@ new file mode 100644
 +}
 diff --git a/ai/oauth_accounts_lock_test.go b/ai/oauth_accounts_lock_test.go
 new file mode 100644
+index 0000000..0b666fe
 --- /dev/null
 +++ b/ai/oauth_accounts_lock_test.go
 @@ -0,0 +1,258 @@
@@ -1112,6 +1112,7 @@ new file mode 100644
 +}
 diff --git a/ai/oauth_accounts_test.go b/ai/oauth_accounts_test.go
 new file mode 100644
+index 0000000..fc800ed
 --- /dev/null
 +++ b/ai/oauth_accounts_test.go
 @@ -0,0 +1,437 @@
@@ -1553,9 +1554,10 @@ new file mode 100644
 +	}
 +}
 diff --git a/ai/oauth_registry_lock_upstream_test.go b/ai/oauth_registry_lock_upstream_test.go
+index 5c64e4e..27d89d6 100644
 --- a/ai/oauth_registry_lock_upstream_test.go
 +++ b/ai/oauth_registry_lock_upstream_test.go
-@@ -177,9 +177,11 @@
+@@ -177,9 +177,11 @@ func TestRegistryOAuthRefreshCancelledDuringTheRefreshPersistsTheCredentialUpstr
  	if calls != 1 {
  		t.Fatalf("refreshes = %d, want 1", calls)
  	}
@@ -1571,9 +1573,10 @@ diff --git a/ai/oauth_registry_lock_upstream_test.go b/ai/oauth_registry_lock_up
  }
  
 diff --git a/ai/runtime_credentials.go b/ai/runtime_credentials.go
+index e7538ff..1b1ad8b 100644
 --- a/ai/runtime_credentials.go
 +++ b/ai/runtime_credentials.go
-@@ -133,3 +133,12 @@
+@@ -133,3 +133,12 @@ func (c *RuntimeCredentials) Delete(ctx context.Context, providerID string) erro
  	c.RemoveRuntimeAPIKey(providerID)
  	return nil
  }
@@ -1587,9 +1590,10 @@ diff --git a/ai/runtime_credentials.go b/ai/runtime_credentials.go
 +	return StoreLoginCredential(ctx, c.store, provider, credential)
 +}
 diff --git a/cmd/pig/auth_commands.go b/cmd/pig/auth_commands.go
+index f9e07e4..8dc0467 100644
 --- a/cmd/pig/auth_commands.go
 +++ b/cmd/pig/auth_commands.go
-@@ -127,8 +127,8 @@
+@@ -127,8 +127,8 @@ func runLoginCommand(args []string) int {
  			}
  			var credential ai.Credential
  			if credential, err = ai.CredentialFromOAuth(cred); err == nil {
@@ -1600,7 +1604,7 @@ diff --git a/cmd/pig/auth_commands.go b/cmd/pig/auth_commands.go
  			}
  		}
  		if err != nil {
-@@ -236,7 +236,7 @@
+@@ -236,7 +236,7 @@ func printLoginCommandHelp(cmd loginCommand) {
  	case authLogin:
  		fmt.Print("Usage:\n  pig login [provider] [--no-input]\n  pig login --list [--json]\n\nLogin to an OAuth provider or list registered auth targets.\n\nExamples:\n  pig login\n  pig login github-copilot\n  pig login --list --json\n")
  	case authLogout:
@@ -1610,9 +1614,10 @@ diff --git a/cmd/pig/auth_commands.go b/cmd/pig/auth_commands.go
  }
  
 diff --git a/coding/extension/host/subprocess/host_calls.go b/coding/extension/host/subprocess/host_calls.go
+index d985b6e..407fcc6 100644
 --- a/coding/extension/host/subprocess/host_calls.go
 +++ b/coding/extension/host/subprocess/host_calls.go
-@@ -39,7 +39,7 @@
+@@ -39,7 +39,7 @@ func startsAsync(method string) bool {
  		// The public call remains synchronous in its SDK. A reverse factory/provider callback can reenter the host, so release its call lane at callback initiation.
  		return true
  	case "ui.select", "ui.confirm", "ui.input", "ui.editor", CallUICustom,
@@ -1622,9 +1627,10 @@ diff --git a/coding/extension/host/subprocess/host_calls.go b/coding/extension/h
  		CallOAuthOnPrompt, CallOAuthOnSelect, CallOAuthOnManualCodeInput:
  		return true
 diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/host/subprocess/ui_bridge.go
+index 0306b97..19d1bfc 100644
 --- a/coding/extension/host/subprocess/ui_bridge.go
 +++ b/coding/extension/host/subprocess/ui_bridge.go
-@@ -317,7 +317,10 @@
+@@ -317,7 +317,10 @@ type HostCallbacks struct {
  
  	// GetProviderAuth resolves request auth for a provider, or nil when it has
  	// none. upstream: model-registry.ts getProviderAuth(provider)
@@ -1636,7 +1642,7 @@ diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/ho
  
  	// GetAvailableOfType lists the models of one type whose provider has working credentials; provider "" means every provider.
  	// upstream: model-registry.ts getAvailableOfType(type, provider?)
-@@ -1058,6 +1061,12 @@
+@@ -1058,6 +1061,12 @@ func (b *UIBridge) SetHostAction(key string, fn any) {
  		b.actions.GetModelRegistryState = fn.(func() map[string]any)
  	case "getProviderAuth":
  		b.actions.GetProviderAuth = fn.(func(context.Context, string) (map[string]any, error))
@@ -1649,7 +1655,7 @@ diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/ho
  	case "getAvailableOfType":
  		b.actions.GetAvailableOfType = fn.(func(context.Context, string, string) ([]map[string]any, error))
  	case "classify":
-@@ -1333,6 +1342,8 @@
+@@ -1333,6 +1342,8 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
  		return b.handleGetModelRegistryState()
  	case "getProviderAuth":
  		return b.handleGetProviderAuth(ctx, actions, call.Args)
@@ -1658,7 +1664,7 @@ diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/ho
  	case "getAvailableOfType":
  		return b.handleGetAvailableOfType(ctx, actions, call.Args)
  	case "classify":
-@@ -3333,6 +3344,48 @@
+@@ -3333,6 +3344,48 @@ func (b *UIBridge) handleGetProviderAuth(ctx context.Context, actions *HostCallb
  	return &CallResultPayload{Result: result}, nil
  }
  
@@ -1708,13 +1714,13 @@ diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/ho
  func (b *UIBridge) handleGetAvailableOfType(ctx context.Context, actions *HostCallbacks, args json.RawMessage) (*CallResultPayload, error) {
  	var p struct {
 diff --git a/docs/additive-features.md b/docs/additive-features.md
+index f0af004..f6a432a 100644
 --- a/docs/additive-features.md
 +++ b/docs/additive-features.md
-@@ -13,6 +13,42 @@
- If an upstream behavior changes such that one of these additive features starts
+@@ -14,6 +14,42 @@ If an upstream behavior changes such that one of these additive features starts
  *conflicting* with upstream, promote it to `docs/parity/DIVERGENCES.md` with a numbered D
  entry and a SCRUTINIZED tag.
-+
+ 
 +## Native OAuth account support (bundled-host patch)
 +
 +The bundled host stores native OAuth accounts in `<agentDir>/oauth-accounts.json`.
@@ -1750,13 +1756,46 @@ diff --git a/docs/additive-features.md b/docs/additive-features.md
 +Enumeration does not refresh credentials.
 +`OAuthAccountAuth` returns `type`, `access`, `expires`, and `accountId`.
 +Never log, display, or persist this credential result.
- 
++
  ## Repository release maintenance
  
+ `make set-version VERSION=x.y.z` is repository-only release tooling, not an additive Stock PiG runtime API. It synchronizes the PiG pin, Standard development version, and changelog heading while preserving Go dependency pins and checksums. The explicit `--release-modules` option prepares local module requirements and publication checksums on an unpublished release branch. The nested tags must be published before that candidate reaches `main`; `make module-publication` verifies required public tags and downloaded checksums without workspace or SDK-cache assistance. The command preserves Unreleased entries unless `--move-unreleased` is selected, supports a read-only `--dry-run`, and permits explicit renaming of an unpublished candidate with `--rename-current`. See `docs/project/RELEASING.md`. This required release substrate does not select product behavior and adds no numbered runtime divergence. Pi's corresponding repository automation is `scripts/sync-versions.js` and `scripts/release.mjs`; the Go module publication mechanism is Go-specific.
+diff --git a/internal/codingagent/extension_oauth_login_menu_test.go b/internal/codingagent/extension_oauth_login_menu_test.go
+new file mode 100644
+index 0000000..a64c241
+--- /dev/null
++++ b/internal/codingagent/extension_oauth_login_menu_test.go
+@@ -0,0 +1,25 @@
++package codingagent
++
++import (
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/coding/extension"
++)
++
++func TestExtensionOAuthAccountRemainsInLoginMenu(t *testing.T) {
++	flow := &initiationCaptureOAuthProvider{}
++	ai.RegisterOAuthProvider(flow.ID(), flow)
++	t.Cleanup(func() { ai.UnregisterOAuthProvider(flow.ID()) })
++	registry := NewModelRegistry(t.TempDir())
++	if err := registry.RegisterProvider(flow.ID(), extension.ProviderConfig{BaseURL: "https://example.test", OAuth: &extension.ProviderOAuth{Name: flow.Name()}}); err != nil {
++		t.Fatal(err)
++	}
++	mode := NewInteractiveMode(InteractiveOptions{AgentDir: t.TempDir(), ModelRegistry: registry})
++	for _, option := range mode.getLoginProviderOptions(false) {
++		if option.ID == flow.ID() && option.AuthType == "oauth" {
++			return
++		}
++	}
++	t.Fatal("registered extension OAuth flow missing from account login options")
++}
 diff --git a/internal/codingagent/interactive_api_key_login.go b/internal/codingagent/interactive_api_key_login.go
+index d472c3c..f3e5fd1 100644
 --- a/internal/codingagent/interactive_api_key_login.go
 +++ b/internal/codingagent/interactive_api_key_login.go
-@@ -96,7 +96,7 @@
+@@ -96,7 +96,7 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
  				if registry != nil {
  					credentials = registryCredentials{registry}
  				}
@@ -1766,9 +1805,10 @@ diff --git a/internal/codingagent/interactive_api_key_login.go b/internal/coding
  			if err == nil && registry != nil {
  				registry.Refresh()
 diff --git a/internal/codingagent/interactive_auth.go b/internal/codingagent/interactive_auth.go
+index 2f5e214..2ced269 100644
 --- a/internal/codingagent/interactive_auth.go
 +++ b/internal/codingagent/interactive_auth.go
-@@ -355,7 +355,7 @@
+@@ -355,7 +355,7 @@ func (m *InteractiveMode) runLoginRegisteredOAuth(loginCtx context.Context, prov
  		OnSelectContext: selectMethod,
  	}
  
@@ -1777,7 +1817,7 @@ diff --git a/internal/codingagent/interactive_auth.go b/internal/codingagent/int
  	var failed atomic.Bool
  	go func() {
  		defer loginCancel()
-@@ -638,7 +638,11 @@
+@@ -638,7 +638,11 @@ func (m *InteractiveMode) runOAuthLogout(ctx context.Context, provider string) e
  	}
  
  	deleted := false
@@ -1790,7 +1830,7 @@ diff --git a/internal/codingagent/interactive_auth.go b/internal/codingagent/int
  		if err := auth.Delete(ctx, provider); err != nil {
  			return fmt.Errorf("logout: %w", err)
  		}
-@@ -806,10 +810,10 @@
+@@ -806,10 +810,10 @@ var openBrowser = func(url string) error {
  // terminal, and a genuine ToolExecutionEnd arriving later still overwrites the
  // frozen placeholder with the real result via SetResult.
  
@@ -1805,9 +1845,10 @@ diff --git a/internal/codingagent/interactive_auth.go b/internal/codingagent/int
  
  // loginDeviceID is the installation's device ID, which Pi passes to every login (interactive-mode.ts:6297) and Sign in
 diff --git a/internal/codingagent/interactive_commands.go b/internal/codingagent/interactive_commands.go
+index 033f5f8..ab37ca6 100644
 --- a/internal/codingagent/interactive_commands.go
 +++ b/internal/codingagent/interactive_commands.go
-@@ -1122,7 +1122,13 @@
+@@ -1122,7 +1122,13 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
  		ProbeOAuthCodex:        m.probeOAuthCodex,
  		LoginProviders:         func() []tui.OAuthProvider { return m.getLoginProviderOptions() },
  		LogoutProviders:        m.getLogoutProviderOptions,
@@ -1823,9 +1864,10 @@ diff --git a/internal/codingagent/interactive_commands.go b/internal/codingagent
  			sel := tui.NewOAuthSelector(mode, providers, initialSearch)
  			_, ok := m.runEditorSlotOAuthSelector(sel)
 diff --git a/internal/codingagent/interactive_extensions.go b/internal/codingagent/interactive_extensions.go
+index 14af992..1138b31 100644
 --- a/internal/codingagent/interactive_extensions.go
 +++ b/internal/codingagent/interactive_extensions.go
-@@ -1623,6 +1623,15 @@
+@@ -1623,6 +1623,15 @@ func WireModelOperations(bridge ModelOperationBridge, bindings ModelOperationBin
  		}
  		return AuthResultJSON(result), nil
  	})
@@ -1841,10 +1883,31 @@ diff --git a/internal/codingagent/interactive_extensions.go b/internal/codingage
  	bridge.SetHostAction("refreshModelRegistry", func(ctx context.Context, allowNetwork *bool, providers []string, force *bool) (map[string]any, error) {
  		errors := map[string]string{}
  		if bindings.Registry == nil {
+diff --git a/internal/codingagent/interactive_login.go b/internal/codingagent/interactive_login.go
+index 23fdc55..36ad1a3 100644
+--- a/internal/codingagent/interactive_login.go
++++ b/internal/codingagent/interactive_login.go
+@@ -15,7 +15,14 @@ import (
+ 	"github.com/MichaelKinsy/PiG/tui"
+ )
+ 
+-func (m *InteractiveMode) providerAuth(id string) ai.ProviderAuth {
++func (m *InteractiveMode) providerAuth(id string) (result ai.ProviderAuth) {
++	defer func() {
++		// Legacy subprocess OAuth flows are registered separately from the
++		// model registry's provider composition. Preserve their login method.
++		if result.OAuth == nil {
++			result.OAuth, _ = ai.OAuthProviderAuth(id)
++		}
++	}()
+ 	if m.opts.Llama != nil && m.opts.Llama.Provider().ID == id {
+ 		return ai.ProviderAuth{APIKey: llamaAPIKeyAuth(m.opts.Llama.Provider())}
+ 	}
 diff --git a/internal/codingagent/llama_extension_command_test.go b/internal/codingagent/llama_extension_command_test.go
+index 6300ba6..b18aee8 100644
 --- a/internal/codingagent/llama_extension_command_test.go
 +++ b/internal/codingagent/llama_extension_command_test.go
-@@ -37,21 +37,6 @@
+@@ -37,21 +37,6 @@ func popupNames(t *testing.T, m *InteractiveMode) []string {
  	return names
  }
  
@@ -1866,7 +1929,7 @@ diff --git a/internal/codingagent/llama_extension_command_test.go b/internal/cod
  // With the built-in llama.cpp extension loaded, /llama comes from the runner's commands, after the built-ins and prompt templates
  // (interactive-mode.ts:739-775), and before a later built-in extension's /mcp.
  func TestSlashPopupListsLlamaAmongExtensionCommandsInLoadOrder(t *testing.T) {
-@@ -61,11 +46,8 @@
+@@ -61,11 +46,8 @@ func TestSlashPopupListsLlamaAmongExtensionCommandsInLoadOrder(t *testing.T) {
  	m.newRunner = inproc.NewRunner([]extension.Extension{llamaExtension(), mcp}, m.opts.AgentDir)
  	t.Cleanup(func() { m.newRunner.Invalidate("") })
  	names := popupNames(t, m)
@@ -1881,20 +1944,22 @@ diff --git a/internal/codingagent/llama_extension_command_test.go b/internal/cod
  }
  
 diff --git a/internal/codingagent/native_model_runtime.go b/internal/codingagent/native_model_runtime.go
+index 2811db3..f426411 100644
 --- a/internal/codingagent/native_model_runtime.go
 +++ b/internal/codingagent/native_model_runtime.go
-@@ -41,6 +41,9 @@
- }
+@@ -42,6 +42,9 @@ func (store registryCredentials) Modify(ctx context.Context, id string, fn func(
  func (store registryCredentials) Delete(ctx context.Context, id string) error {
  	return store.current().Delete(ctx, id)
-+}
+ }
 +func (store registryCredentials) StoreLoginCredential(ctx context.Context, id string, credential ai.Credential) error {
 +	return ai.StoreLoginCredential(ctx, store.current(), id, credential)
- }
++}
  
  // NativeModels returns the provider-owned collection sharing this registry's credentials and ModelsStore.
+ func (r *ModelRegistry) NativeModels() *ai.Models {
 diff --git a/internal/codingagent/oauth_accounts.go b/internal/codingagent/oauth_accounts.go
 new file mode 100644
+index 0000000..f0f3cf1
 --- /dev/null
 +++ b/internal/codingagent/oauth_accounts.go
 @@ -0,0 +1,137 @@
@@ -2037,6 +2102,7 @@ new file mode 100644
 +}
 diff --git a/internal/codingagent/oauth_accounts_test.go b/internal/codingagent/oauth_accounts_test.go
 new file mode 100644
+index 0000000..2f6becd
 --- /dev/null
 +++ b/internal/codingagent/oauth_accounts_test.go
 @@ -0,0 +1,187 @@
@@ -2228,9 +2294,10 @@ new file mode 100644
 +	}
 +}
 diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash_commands.go
+index 0ef03ed..4591e81 100644
 --- a/internal/codingagent/slash_commands.go
 +++ b/internal/codingagent/slash_commands.go
-@@ -11,6 +11,7 @@
+@@ -11,6 +11,7 @@ import (
  	"sync"
  	"time"
  
@@ -2238,7 +2305,7 @@ diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash
  	"github.com/MichaelKinsy/PiG/coding/extension"
  	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
  	"github.com/MichaelKinsy/PiG/tui"
-@@ -345,7 +346,9 @@
+@@ -345,7 +346,9 @@ type SlashContext struct {
  	// Logout removes stored credentials for the given provider.
  	// Mirrors upstream showOAuthSelector logout branch (interactive-mode.ts:4299).
  	// May be nil in headless/test contexts; handlers must guard.
@@ -2249,7 +2316,7 @@ diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash
  
  	// ExtRunner is the extension runner for emitting events from slash commands.
  	// May be nil in headless/test contexts; handlers must guard.
-@@ -582,7 +585,8 @@
+@@ -582,7 +585,8 @@ func defaultBuiltins() []BuiltinSlashCommand {
  		{Name: "clone", Description: "Duplicate the current session at the current position", Handler: cloneHandler},
  		{Name: "trust", Description: "Save project trust decision for future sessions", Handler: trustHandler},
  		{Name: "login", Description: "Configure provider authentication", ArgumentHint: "<provider>", Handler: loginHandler},
@@ -2260,9 +2327,10 @@ diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash
  		{Name: "compact", Description: "Manually compact the session context", Handler: compactHandler},
  		{Name: "resume", Description: "Resume a different session", Handler: resumeHandler},
 diff --git a/tui/oauth_selector.go b/tui/oauth_selector.go
+index b740f69..40e5091 100644
 --- a/tui/oauth_selector.go
 +++ b/tui/oauth_selector.go
-@@ -193,6 +193,8 @@
+@@ -193,6 +193,8 @@ func (s *OAuthSelector) Render(width int) []string {
  	title := "Select provider to configure:"
  	if s.mode == "logout" {
  		title = "Select provider to logout:"

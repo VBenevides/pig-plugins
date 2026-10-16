@@ -130,13 +130,13 @@ It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.
 
-`patches/pig/0004-mid-prompt-skill-autocomplete.patch` and `0017-input-draft-commands-and-skill-previews.patch` let you type `/` after prompt text to complete a command or skill.
+`patches/pig/0003-chat-input-and-previews-host.patch` lets you type `/` after prompt text to complete a command or skill.
 Skill matching supports the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting a mid-text completion inserts the token without submitting.
 On Enter, a registered command runs from its slash through the cursor. Text before the command and after the cursor stays in the input box, including compact paste contents. Place the cursor immediately after the command's arguments to keep later prose. `/clear` discards only the input, `/exit` closes the session, `/send` submits the remaining draft as steering input, and `/send queue` submits it as a follow-up. During compaction, sends queue with the selected delivery mode.
 Submitting a prompt with `/skill:name` tokens still adds each known skill's full block once, before the unchanged text.
-`patches/pig/0006-scrollable-extension-dialogs.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows. PageUp and PageDown scroll the rest, and a status row shows the visible range.
+`patches/pig/0004-extension-dialogs-host.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows, or fewer when needed to fit the terminal. PageUp and PageDown scroll the rest, and a status row shows the visible range.
 
-`patches/pig/0007-dialog-page-keys.patch` lets an open dialog receive PageUp and PageDown before the full-screen chat viewport, which used to consume them.
+The same dialog patch lets an open dialog receive PageUp and PageDown before the full-screen chat viewport, which used to consume them.
 Select `openai-codex/gpt-6.1-sol` with `/model`; `/usage` shows the actual active
 model plus every native OAuth account, with labels, selection markers, and
 individual quota windows. A failed account does not hide successful neighbors.
@@ -154,9 +154,9 @@ are covered independently.
 
 ### Tool output previews
 
-`patches/pig/0016-persist-tool-expansion.patch` defaults tool output to collapsed previews of at most 10 output rows. Ctrl+O expands or collapses tools and saves the preference as `toolsExpanded` in the global `settings.json`. New and resumed sessions restore that preference; full tool results remain available to the model and in session history. Headers, expansion hints, and image previews are separate from the output-row limit.
+`patches/pig/0003-chat-input-and-previews-host.patch` defaults tool output to collapsed previews of at most 10 output rows. Ctrl+O expands or collapses tools and saves the preference as `toolsExpanded` in the global `settings.json`. New and resumed sessions restore that preference; full tool results remain available to the model and in session history. Headers, expansion hints, and image previews are separate from the output-row limit.
 
-Skill invocation previews use the same 10-output-row limit, including wrapped lines. `patches/pig/0018-collapse-live-skill-messages.patch` applies this to live and resumed messages, including multiple skills in one prompt. Ctrl+O or a click reveals the complete skill; only the display is collapsed, not the content sent to the model. Skills follow the saved `toolsExpanded` preference, which defaults to collapsed.
+Skill invocation previews use the same 10-output-row limit, including wrapped lines. The same patch applies this to live and resumed messages, including multiple skills in one prompt. Ctrl+O or a click reveals the complete skill; only the display is collapsed, not the content sent to the model. Skills follow the saved `toolsExpanded` preference, which defaults to collapsed.
 
 Saving does not block the input loop. Rapid toggles preserve the latest choice, shutdown waits for pending saves, and save failures show an error.
 
@@ -283,7 +283,7 @@ Tests that start `pig` skip when it is not on `PATH`.
 Copies (no symlinks) the tracked repository, including every extension and `prompts/`, to `~/.pig/pig-plugins`.
 Copies `prompts/agent/SYSTEM.md`, `prompts/agent/APPEND_SYSTEM.md` and `prompts/agent/AGENTS.md` into `~/.pig/agent/`; an existing different file is first saved as `<file>.pig-plugins-backup-<timestamp>`.
 Copies `config/agent/keybindings.json` to `~/.pig/agent/keybindings.json` only when that file is absent (it maps `ctrl+z` to undo and frees it from suspend, and binds `ctrl+a` to select all in the prompt editor with `home` left as line start); an existing file is never overwritten, and the installer prints a notice when it differs. PiG has no redo action, so `ctrl+r` still renames sessions.
-Select all comes from `patches/pig/0021-editor-select-all.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
+Select all comes from `patches/pig/0009-editor-select-all-host.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
 Builds the fused executable at `~/.pig/bin/pig-plugins-native`, installs the launcher at `~/.pig/bin/pig-plugins`, and symlinks the launcher as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
@@ -447,7 +447,7 @@ Redirects, substitutions, executable hooks, wrappers, and mixed read/write comma
 `rg` with `RIPGREP_CONFIG_PATH` set also retains scoring because its config can supply executable hooks.
 Hard-block rules still take precedence.
 
-The confirmation shows the `Command:` first, then the `Risk Description:`, then `Affected items:` with one `- type: name - effect` entry per known target, so a long analysis scrolls below the command. Long dialogs scroll with the page keys when the host carries patches 0006-0008 (`patches/pig`); a stock host shows them unscrolled. Simple commands
+The confirmation shows the `Command:` first, then the `Risk Description:`, then `Affected items:` with one `- type: name - effect` entry per known target, so a long analysis scrolls below the command. Long dialogs scroll with the page keys when the host carries `patches/pig/0004-extension-dialogs-host.patch`; a stock host shows them unscrolled. Simple commands
 name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
 Implicit targets, shell expressions, compound commands and unsupported options show an unknown scope instead of
 guessing. For an unknown-scope confirmation, the current session model receives only the command and working
@@ -752,7 +752,7 @@ The extension checks when an agent run has settled, and starts the same compacti
 ## Closing menus
 
 Every menu this repository draws closes with both `Esc` and `q`: the `/todos` viewer, the auto-models dashboard and pickers, and the `ask_user_question` questionnaire (also `Ctrl+C`). Where `q` is a letter it stays a letter: the auto-models pickers that have a search box, the questionnaire's typed-answer row, and its note editor. There `Esc` is the only key, and the hint line names `q` only where it works.
-Select and confirm dialogs the host draws (the Smart Approve question, the `/pi-curator` and footer settings) close with `q` as well as `Esc` and `Ctrl+C` when the host is built with `patches/pig/0020-selector-q-cancel.patch`, which `scripts/dev_build.sh` applies. Those dialogs have no text input, so `q` is never a typed letter there. The hint line is unchanged, because a host test pins the upstream wording. Host lists that do have a search box, such as the model selector, keep `Esc` only. A stock host without the patch closes these dialogs with `Esc` and `Ctrl+C`. This repository does not change your keybindings.
+Select and confirm dialogs the host draws (the Smart Approve question, the `/pi-curator` and footer settings) close with `q` as well as `Esc` and `Ctrl+C` when the host is built with `patches/pig/0004-extension-dialogs-host.patch`, which `scripts/dev_build.sh` applies. Those dialogs have no text input, so `q` is never a typed letter there. The hint line is unchanged, because a host test pins the upstream wording. Host lists that do have a search box, such as the model selector, keep `Esc` only. A stock host without the patch closes these dialogs with `Esc` and `Ctrl+C`. This repository does not change your keybindings.
 
 ## ask-mode
 

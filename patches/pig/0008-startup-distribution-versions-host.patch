@@ -1,4 +1,4 @@
-diff --git b/internal/codingagent/distribution_versions_test.go b/internal/codingagent/distribution_versions_test.go
+diff --git a/internal/codingagent/distribution_versions_test.go b/internal/codingagent/distribution_versions_test.go
 new file mode 100644
 index 0000000..42bf54f
 --- /dev/null
