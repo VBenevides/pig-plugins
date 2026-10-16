@@ -16,6 +16,7 @@ func Extension() *sdk.Extension {
 	var mu sync.Mutex
 	phases := []tasks.Phase{}
 	var restoreErr error
+	var unsubscribeWidth func()
 	restore := func(ctx sdk.Context, _ map[string]any) (any, error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -28,6 +29,23 @@ func Extension() *sdk.Extension {
 		phases, warnings = tasks.Restore(branch)
 		for _, warning := range warnings {
 			ctx.Notify(warning, "warn")
+		}
+		if unsubscribeWidth != nil {
+			unsubscribeWidth()
+			unsubscribeWidth = nil
+		}
+		if ctx.HasUI() && ctx.Mode() == "tui" {
+			unsubscribeWidth, err = ctx.OnWidthChange(func(resized sdk.Context, width int) {
+				mu.Lock()
+				lines := widgetLines(phases, width)
+				defer mu.Unlock()
+				if err := resized.SetWidget("todo-sidebar", lines); err != nil {
+					resized.Notify("refresh todo layout: "+err.Error(), "warn")
+				}
+			})
+			if err != nil {
+				return nil, fmt.Errorf("subscribe todo layout resize: %w", err)
+			}
 		}
 		return nil, syncWidget(ctx, phases)
 	}

@@ -32,6 +32,25 @@ derive from Oh My Pi commit `9fd6e97113f5ed3a847e66d346970efdf8afcad9` (v17.0.5)
 Copyright (c) 2025 Mario Zechner; Copyright (c) 2025-2026 Can Bölük.
 The old Diego Petrucci notice below is retained for historical fixtures used to test migration.
 
+## Cursor account usage
+
+`internal/automodels/cursor_usage.go` adapts Cursor dashboard usage interpretation from
+[Oh My Pi revision 3a335e71c3c9382a92be209f90b8b52a1f7c640d](https://github.com/can1357/oh-my-pi/blob/3a335e71c3c9382a92be209f90b8b52a1f7c640d/packages/ai/src/usage/cursor.ts).
+Its MIT license, including Mario Zechner, Can Bölük and Stencil Labs, Inc. copyrights,
+is preserved in `internal/automodels/CURSOR_LICENSE`. This license does not grant
+access rights to Cursor's service; see `docs/cursor-direct-protocol.md`.
+
+## Cursor direct provider
+
+`internal/cursordirect/` is a Go adaptation of Oh My Pi's Cursor provider, catalog
+wire layouts, conversation history, blob exchange and external-client tool handoff
+at revision `3a335e71c3c9382a92be209f90b8b52a1f7c640d`. Sources include
+`packages/ai/src/providers/cursor.ts`, `cursor/proto/agent.proto`,
+`cursor-external-tool-handoff.md`, `packages/catalog/src/discovery/cursor.ts`,
+`cursor-models.proto` and `packages/catalog/src/wire/cursor.ts`.
+The upstream MIT copyright and license are retained in `internal/cursordirect/LICENSE`.
+This implementation is a subset, not a claim of full parity or Cursor service authorization.
+
 ## Native image-preview port
 
 `extensions/pi-image-view/` ports `pi-image-view@0.4.0`, the alchemistklk fork of RielJ/pi-image-preview, to Go.

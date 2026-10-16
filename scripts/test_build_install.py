@@ -199,5 +199,25 @@ printf '#!/bin/sh\\nprintf "%%s" "$PIG_VERSION" > "$TOOL_LOG"\\n' > "$2"
         self.assertNotIn("build -v", Path(self.env["TOOL_LOG"]).read_text())
 
 
+class PatchInventoryTest(unittest.TestCase):
+    def patch_references(self, script):
+        text = (ROOT / "scripts" / script).read_text()
+        return [line.split('patches/pig/', 1)[1].split('"', 1)[0]
+                for line in text.splitlines() if ' apply ' in line and 'patches/pig/' in line]
+
+    def test_every_patch_is_used_and_numbered_consecutively(self):
+        patches = sorted(path.name for path in (ROOT / "patches/pig").glob("*.patch"))
+        references = self.patch_references("dev_build.sh")
+        self.assertEqual(len(references), len(set(references)))
+        self.assertEqual(set(patches), set(references))
+        self.assertEqual([int(name.split("-", 1)[0]) for name in patches],
+                         list(range(1, len(patches) + 1)))
+
+    def test_development_and_build_use_the_same_sdk_patches(self):
+        build_sdk = [name for name in self.patch_references("dev_build.sh")
+                     if name.endswith("-sdk.patch")]
+        self.assertEqual(build_sdk, self.patch_references("gowork.sh"))
+
+
 if __name__ == "__main__":
     unittest.main()

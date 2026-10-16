@@ -2,6 +2,35 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.1.2] - 2026-10-16
+
+### Features
+
+- Added `/goal set <objective>`, `/goal check` and `/goal clear`: the agent keeps working until the goal is reached or everything left is blocked, ends it through a `goal_finish` tool, and stops on abort, model error, or three runs without tool calls. `/skill:name` tokens in the objective expand automatically, the goal persists in the session, and the footer shows `GOAL` while it runs.
+- Added slash-command namespaces, line-start commands after prose (`//command` to send literally), and separate `/send-steer` and `/send-queue` draft-send commands.
+- Added a width-aware two-column TODO widget (72 columns and wider) that keeps closed tasks and follows terminal resizes, and numbered `TODO-X.md` archives in the `todo-planner` skill.
+- Added a native Cursor provider that needs no Cursor CLI. It is the default; an explicit `cursor-beta.json` or `PIG_CURSOR_BETA_CONFIG` still selects the CLI beta, and `PIG_CURSOR_TRANSPORT` picks h2 or SSE. Documented in `docs/cursor-direct.md` and `docs/cursor-direct-protocol.md`.
+- Added Cursor account meters (Cursor Models, Other Models, on-demand pools) to `/usage`, fetched with each native OAuth account.
+- Added `0013-diagnostic-routing-host.patch` and a fused TUI regression (`scripts/test_fused_diagnostics.py`) that keep diagnostics out of the editor draft, cursor, queued input and model history.
+
+### Bugfixes
+
+- Vetoed generation replay and automatic recovery for Cursor and other replay-prohibited providers, added Cursor backpressure handling, and fixed a compaction summary stream drain.
+- ASK mode now admits only exact reviewed tool names (`lsp_*`, `code_*`, `memory_*` no longer match by prefix) and denies every shell call.
+- Extension diagnostics use `Notify` only, so they no longer enter model history or render over the input.
+- Auto-models coalesces repeated credential warnings and keeps the recovery allowance across successful replies and tool continuations.
+- Better-footer Git counts disable fsmonitor, skip repositories with clean/process conversion filters, and use a fresh temporary index so stale cached stat data cannot hide edits.
+
+### Other
+
+- Consolidated the patch stack into topic-based patches `0001`-`0013`, removed two unused Node patches, and added `PatchInventoryTest` to check the layout; verified byte-for-byte equivalent source against pinned PiG `0.4.1`.
+
+### Breaking Changes
+
+- `/send` is now `/send-steer` and `/send queue` is now `/send-queue`.
+- The direct Cursor provider is the default; configure `cursor-beta.json` or `PIG_CURSOR_BETA_CONFIG` to keep the CLI beta.
+- ASK mode rejects every bash call and tools outside the reviewed list; switch to ACT or use the dedicated read and search tools.
+
 ## [0.1.1] - 2026-10-15
 
 ### Features

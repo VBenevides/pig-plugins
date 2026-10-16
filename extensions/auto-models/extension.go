@@ -51,6 +51,7 @@ type extension struct {
 	stop              context.CancelFunc
 	refresh           chan refreshRequest
 	done              chan struct{}
+	warnings          map[[32]byte]warningState
 }
 
 func Extension() *sdk.Extension {
@@ -59,8 +60,11 @@ func Extension() *sdk.Extension {
 	fused := ok && info.Main.Path == "github.com/MichaelKinsy/PiG"
 	x := newExtension(quota.Store{}, quota.Client{}, fused && !quota.HasExplicitModelFlag(os.Args[1:]))
 	e := sdk.New(Name)
-	e.RegisterCommand("usage", sdk.CommandOptions{Description: "Show Claude / Codex quota usage", Handler: x.usage})
+	e.RegisterCommand("usage", sdk.CommandOptions{Description: "Show Claude / Codex quota usage and Cursor account meters", Handler: x.usage})
 	e.RegisterCommand("auto-model", sdk.CommandOptions{Description: "Configure primary and fallback models", Handler: x.configure})
+	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, data map[string]any) (any, error) {
+		return x.taskInput(data, ctx.IsIdle)
+	})
 	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
 		ctx.SetWorkingVisible(true)
 		if x.loadErr != nil {
@@ -143,13 +147,20 @@ func newExtension(store quota.Store, client quota.Client, enabled bool) *extensi
 	return x
 }
 
-func (x *extension) report(ctx sdk.Context, err error) {
-	if quota.IsTransient(err) {
-		log.Printf("auto-models: %v", err)
+func (x *extension) report(ctx interface{ Notify(string, string) }, err error) {
+	if err == nil {
 		return
 	}
-	if !notice.Show(ctx, "auto-models: "+clean(err.Error()), "warning") {
-		log.Printf("auto-models: %v", err)
+	message := "auto-models: " + clean(err.Error())
+	allowed, repeats := x.admitWarning(message, time.Now())
+	if !allowed {
+		return
+	}
+	if repeats > 0 {
+		message += fmt.Sprintf(" (%d repeated warnings coalesced)", repeats)
+	}
+	if !notice.Show(ctx, message, "warning") {
+		log.Print(message)
 	}
 }
 func clean(value string) string {
@@ -407,7 +418,7 @@ func (x *extension) fallbackOnLimit(ctx sdk.Context, provider string, left time.
 }
 
 func (x *extension) switchOnLimit(ctx modelSwitcher, provider string) error {
-	if !x.autoEnabled || provider != ctx.ModelProvider() {
+	if !x.autoEnabled || provider == "cursor" || provider != ctx.ModelProvider() {
 		return nil
 	}
 	primary, fallback := x.slots()
@@ -543,9 +554,19 @@ func (x *extension) messageEnd(ctx sdk.Context, data map[string]any) (any, error
 	text, _ := message["errorMessage"].(string)
 	if message["stopReason"] != "error" && text == "" {
 		x.mu.Lock()
-		x.retryUsed = false
+		// A tool turn or successful continuation consumes, never replenishes,
+		// the allowance belonging to the root user task.
 		x.retryPending = false
 		x.mu.Unlock()
+	}
+	if message["replayProhibited"] == true || message["provider"] == "cursor" {
+		x.mu.Lock()
+		x.retryPending = false
+		if message["stopReason"] == "error" || text != "" {
+			x.retryUsed = true
+		}
+		x.mu.Unlock()
+		return nil, nil
 	}
 	if !quota.RateLimitError(text) {
 		return nil, nil

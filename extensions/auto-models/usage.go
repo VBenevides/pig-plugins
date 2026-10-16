@@ -73,6 +73,7 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 		}
 		var claude *quota.ClaudeUsage
 		var codex *quota.CodexUsage
+		var cursor *quota.CursorUsage
 		fetchErr := authErr
 		if authErr == nil && validOAuth(entry, now) {
 			switch account.Provider {
@@ -80,6 +81,8 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 				claude, fetchErr = x.client.FetchClaude(run, entry)
 			case "openai-codex":
 				codex, fetchErr = x.client.FetchCodex(run, entry)
+			case "cursor":
+				cursor, fetchErr = x.client.FetchCursor(run, entry)
 			}
 		}
 		if err := run.Err(); err != nil {
@@ -132,6 +135,8 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 		case claude != nil && len(claude.Limits) > 0:
 			lines = append(lines, quota.FormatClaudeUsageLines(claude.Limits, now)...)
 			lines = append(lines, "  ⏰ Real-time")
+		case cursor != nil:
+			lines = append(lines, quota.FormatCursorUsageLines(cursor)...)
 		case account.Provider == "openai":
 			lines = append(lines, "  📈 Quota unavailable: direct OpenAI login has no numeric subscription balance; Codex quota is separate (/login openai-codex)")
 		case info != nil && !quota.IsStale(info, now):

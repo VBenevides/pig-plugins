@@ -1,0 +1,269 @@
+diff --git a/context.go b/context.go
+index d22db17..1dc29c0 100644
+--- a/context.go
++++ b/context.go
+@@ -1158,6 +1158,7 @@ type ModelEventStream struct {
+ 	mu        sync.Mutex
+ 	delivery  sync.Mutex
+ 	queue     []map[string]any
++	drained   chan struct{}
+ 	changed   chan struct{}
+ 	done      chan struct{}
+ 	terminal  bool
+@@ -1230,6 +1231,10 @@ func (s *ModelEventStream) Events(ctx context.Context) <-chan map[string]any {
+ 					s.mu.Lock()
+ 					s.queue[0] = nil
+ 					s.queue = s.queue[1:]
++					if s.drained != nil {
++						close(s.drained)
++						s.drained = nil
++					}
+ 					if len(s.queue) == 0 {
+ 						s.queue = nil
+ 					}
+diff --git a/generation_replay_test.go b/generation_replay_test.go
+new file mode 100644
+index 0000000..a14e9e9
+--- /dev/null
++++ b/generation_replay_test.go
+@@ -0,0 +1,30 @@
++package sdk
++
++import (
++	"encoding/json"
++	"testing"
++)
++
++func TestProviderGenerationReplayDeclaration(t *testing.T) {
++	stream := func(map[string]any, map[string]any, ProviderStreamOptions) (*ModelEventStream, error) {
++		return nil, nil
++	}
++	for _, prohibited := range []bool{false, true} {
++		provider := &Provider{ID: "synthetic", ReplayProhibited: prohibited, GetModels: func() ([]map[string]any, error) { return nil, nil }, Stream: stream, StreamSimple: stream, Auth: ProviderAuth{APIKey: &APIKeyAuth{Resolve: func(APIKeyAuthInput) (*AuthResult, error) { return nil, nil }}}}
++		decl, err := providerDeclaration(provider, "key")
++		if err != nil {
++			t.Fatal(err)
++		}
++		data, err := json.Marshal(decl)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var restored providerObjectDeclaration
++		if err = json.Unmarshal(data, &restored); err != nil {
++			t.Fatal(err)
++		}
++		if restored.ReplayProhibited != prohibited {
++			t.Fatalf("lost declaration: %s", data)
++		}
++	}
++}
+diff --git a/provider.go b/provider.go
+index fab68a8..eabccb3 100644
+--- a/provider.go
++++ b/provider.go
+@@ -10,19 +10,21 @@ import (
+ 
+ // Provider is Pi's callable provider object. The ModelRegistry resolves credentials and normalizes transcripts separately from these methods.
+ type Provider struct {
+-	handle         string
+-	ID             string
+-	Name           string
+-	BaseURL        *string
+-	Headers        map[string]string
+-	Auth           ProviderAuth
+-	GetModels      func() ([]map[string]any, error)
+-	FilterModels   func([]map[string]any, map[string]any) ([]map[string]any, error)
+-	RefreshModels  func(RefreshModelsContext) error
+-	Stream         ProviderStreamFunc
+-	StreamSimple   ProviderStreamFunc
+-	FetchDeferred  ProviderStreamFunc
+-	CancelDeferred func(map[string]any, map[string]any, ProviderStreamOptions) error
++	handle  string
++	ID      string
++	Name    string
++	BaseURL *string
++	// ReplayProhibited vetoes automatic host generation replay, including summaries.
++	ReplayProhibited bool
++	Headers          map[string]string
++	Auth             ProviderAuth
++	GetModels        func() ([]map[string]any, error)
++	FilterModels     func([]map[string]any, map[string]any) ([]map[string]any, error)
++	RefreshModels    func(RefreshModelsContext) error
++	Stream           ProviderStreamFunc
++	StreamSimple     ProviderStreamFunc
++	FetchDeferred    ProviderStreamFunc
++	CancelDeferred   func(map[string]any, map[string]any, ProviderStreamOptions) error
+ 	// GenerateImages and Classify are the provider's image and classifier operations. The models they serve come from GetModels.
+ 	GenerateImages ProviderImagesFunc
+ 	Classify       ProviderClassifyFunc
+@@ -103,17 +105,18 @@ type providerObjectAuth struct {
+ 	OAuth  *providerObjectAuthMethod `json:"oauth,omitempty"`
+ }
+ type providerObjectDeclaration struct {
+-	lease   *providerLease
+-	ID      string               `json:"id"`
+-	Key     string               `json:"key"`
+-	Handle  string               `json:"handle,omitempty"`
+-	Name    string               `json:"name"`
+-	BaseURL *string              `json:"baseUrl,omitempty"`
+-	Headers *map[string]string   `json:"headers,omitempty"`
+-	Auth    providerObjectAuth   `json:"auth"`
+-	Models  []map[string]any     `json:"models"`
+-	Methods []string             `json:"methods"`
+-	OAuth   *providerOAuthConfig `json:"oauth,omitempty"`
++	lease            *providerLease
++	ID               string               `json:"id"`
++	Key              string               `json:"key"`
++	Handle           string               `json:"handle,omitempty"`
++	Name             string               `json:"name"`
++	BaseURL          *string              `json:"baseUrl,omitempty"`
++	ReplayProhibited bool                 `json:"replayProhibited,omitempty"`
++	Headers          *map[string]string   `json:"headers,omitempty"`
++	Auth             providerObjectAuth   `json:"auth"`
++	Models           []map[string]any     `json:"models"`
++	Methods          []string             `json:"methods"`
++	OAuth            *providerOAuthConfig `json:"oauth,omitempty"`
+ }
+ 
+ func providerDeclaration(provider *Provider, key string) (providerObjectDeclaration, error) {
+@@ -124,6 +127,7 @@ func providerDeclaration(provider *Provider, key string) (providerObjectDeclarat
+ 		return providerObjectDeclaration{}, errors.New("Provider requires getModels, stream and streamSimple")
+ 	}
+ 	decl := providerObjectDeclaration{ID: provider.ID, Key: key, Name: provider.Name, BaseURL: provider.BaseURL, Methods: []string{"getModels", "stream", "streamSimple"}}
++	decl.ReplayProhibited = provider.ReplayProhibited
+ 	if provider.Headers != nil {
+ 		decl.Headers = &provider.Headers
+ 	}
+diff --git a/provider_backpressure.go b/provider_backpressure.go
+new file mode 100644
+index 0000000..56103a8
+--- /dev/null
++++ b/provider_backpressure.go
+@@ -0,0 +1,37 @@
++package sdk
++
++import "context"
++
++// PushWithBackpressure queues one event, waiting for any preceding event to
++// leave the SDK queue. Use one serialized producer per stream; do not mix this
++// with concurrent Push calls. Events must be immutable and caller-size-bounded.
++// Cancellation never queues the event; callers still own terminal reporting.
++func (s *ModelEventStream) PushWithBackpressure(ctx context.Context, event map[string]any) error {
++	for {
++		if err := ctx.Err(); err != nil {
++			return err
++		}
++		s.mu.Lock()
++		if s.terminal {
++			s.mu.Unlock()
++			return nil
++		}
++		if len(s.queue) == 0 {
++			s.mu.Unlock()
++			s.push(event)
++			return nil
++		}
++		if s.drained == nil {
++			s.drained = make(chan struct{})
++		}
++		drained, done := s.drained, s.done
++		s.mu.Unlock()
++		select {
++		case <-ctx.Done():
++			return ctx.Err()
++		case <-done:
++			return nil
++		case <-drained:
++		}
++	}
++}
+diff --git a/provider_backpressure_test.go b/provider_backpressure_test.go
+new file mode 100644
+index 0000000..9bc1184
+--- /dev/null
++++ b/provider_backpressure_test.go
+@@ -0,0 +1,71 @@
++package sdk
++
++import (
++	"context"
++	"errors"
++	"testing"
++	"time"
++)
++
++func TestProviderBackpressureCancellationAndOrder(t *testing.T) {
++	s := CreateAssistantMessageEventStream()
++	ctx, cancel := context.WithCancel(t.Context())
++	defer cancel()
++	if err := s.PushWithBackpressure(ctx, map[string]any{"type": "start"}); err != nil {
++		t.Fatal(err)
++	}
++	waiting := make(chan error, 1)
++	go func() {
++		waiting <- s.PushWithBackpressure(ctx, map[string]any{"type": "text_delta", "delta": "second"})
++	}()
++	select {
++	case err := <-waiting:
++		t.Fatalf("producer escaped unread event: %v", err)
++	case <-time.After(20 * time.Millisecond):
++	}
++	cancel()
++	if err := <-waiting; !errors.Is(err, context.Canceled) {
++		t.Fatalf("cancel=%v", err)
++	}
++	s.mu.Lock()
++	queued := len(s.queue)
++	s.mu.Unlock()
++	if queued != 1 {
++		t.Fatalf("queued=%d", queued)
++	}
++	s.Push(map[string]any{"type": "done", "message": map[string]any{"ok": true}})
++	events := s.Events(t.Context())
++	if first := <-events; first["type"] != "start" {
++		t.Fatalf("first=%v", first)
++	}
++	if last := <-events; last["type"] != "done" {
++		t.Fatalf("last=%v", last)
++	}
++	if _, open := <-events; open {
++		t.Fatal("stream did not close")
++	}
++}
++
++func TestProviderBackpressureResumesOnDrain(t *testing.T) {
++	s := CreateAssistantMessageEventStream()
++	if err := s.PushWithBackpressure(t.Context(), map[string]any{"type": "start"}); err != nil {
++		t.Fatal(err)
++	}
++	done := make(chan error, 1)
++	go func() {
++		done <- s.PushWithBackpressure(t.Context(), map[string]any{"type": "done", "message": map[string]any{"ok": true}})
++	}()
++	events := s.Events(t.Context())
++	if (<-events)["type"] != "start" {
++		t.Fatal("order")
++	}
++	if err := <-done; err != nil {
++		t.Fatal(err)
++	}
++	if (<-events)["type"] != "done" {
++		t.Fatal("terminal lost")
++	}
++	if s.Result()["ok"] != true {
++		t.Fatal("result lost")
++	}
++}
+diff --git a/provider_proxy.go b/provider_proxy.go
+index 344fa0d..61e7f22 100644
+--- a/provider_proxy.go
++++ b/provider_proxy.go
+@@ -189,7 +189,7 @@ func newProviderProxy(ctx Context, decl providerObjectDeclaration) (*Provider, e
+ 	}
+ 	runtime.AddCleanup(lease, releaseProviderLease, *lease)
+ 	decl.lease = lease
+-	p := &Provider{ID: decl.ID, Name: decl.Name, BaseURL: decl.BaseURL, handle: decl.Handle}
++	p := &Provider{ID: decl.ID, Name: decl.Name, BaseURL: decl.BaseURL, handle: decl.Handle, ReplayProhibited: decl.ReplayProhibited}
+ 	if decl.Headers != nil {
+ 		p.Headers = *decl.Headers
+ 	}

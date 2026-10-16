@@ -1,0 +1,38 @@
+diff --git a/conditional_editor.go b/conditional_editor.go
+new file mode 100644
+index 0000000..0ef153a
+--- /dev/null
++++ b/conditional_editor.go
+@@ -0,0 +1,8 @@
++package sdk
++
++// CompareAndSetEditorText atomically replaces expanded draft text if it still
++// matches expected. A false result means newer typing/submission won the race.
++// Hosts without this additive capability return an error, never an unsafe write.
++func (c Context) CompareAndSetEditorText(expected, text string) (bool, error) {
++	return hostRequired[bool](c, "ui.compareAndSetEditorText", map[string]string{"expected": expected, "text": text}, "applied")
++}
+diff --git a/image_preview.go b/image_preview.go
+new file mode 100644
+index 0000000..e60d421
+--- /dev/null
++++ b/image_preview.go
+@@ -0,0 +1,18 @@
++package sdk
++
++// RenderImage prepares bounded PNG preview rows using the host's configured
++// graphics protocol. supported is false on terminals without image graphics.
++func (c Context) RenderImage(data string, width, height int) ([]string, bool, error) {
++	frame, err := hostRequired[struct {
++		Lines     []string `json:"lines"`
++		Supported bool     `json:"supported"`
++	}](c, "ui.renderImage", map[string]any{"data": data, "width": width, "height": height}, "frame")
++	return frame.Lines, frame.Supported, err
++}
++
++// SetPreviewWidget publishes a width-tagged graphics frame without string-list
++// wrapping or the ten-line truncation used for ordinary text widgets.
++func (c Context) SetPreviewWidget(key string, lines []string, width int) error {
++	result, err := c.callHost("ui.setPreviewWidget", map[string]any{"key": key, "lines": lines, "width": width})
++	return callResultError(result, err)
++}

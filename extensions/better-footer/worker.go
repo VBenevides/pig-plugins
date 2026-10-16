@@ -2,6 +2,7 @@ package betterfooter
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
@@ -142,7 +143,7 @@ func (x *extension) worker() {
 				x.state.Branch = branch
 				if ok {
 					x.state.Git = changes
-				} else if err == nil {
+				} else if err == nil || errors.Is(err, bf.ErrPassiveGitCountsUnavailable) {
 					x.state.Git = bf.GitChanges{}
 				}
 			}

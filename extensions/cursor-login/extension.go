@@ -16,10 +16,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/cursordirect"
 )
 
 const (
@@ -85,8 +87,21 @@ func Extension() *sdk.Extension {
 		e.OnSessionStart(func(_ sdk.Context, _ map[string]any) (any, error) {
 			return nil, err
 		})
+		e.RegisterProvider(Provider, config) // Keep login available; do not silently choose another transport.
+		return e
 	}
-	e.RegisterProvider(Provider, config)
+	if config["api"] == "cursor-cli-beta" {
+		e.RegisterProvider(Provider, config)
+	} else {
+		transport, err := cursordirect.NewWithTransport(os.Getenv("PIG_CURSOR_TRANSPORT"))
+		if err == nil {
+			err = e.RegisterNativeProvider(directProvider(c, transport))
+		}
+		if err != nil {
+			e.OnSessionStart(func(_ sdk.Context, _ map[string]any) (any, error) { return nil, err })
+			e.RegisterProvider(Provider, config)
+		}
+	}
 	return e
 }
 
@@ -189,15 +204,64 @@ func (c *client) refresh(ctx context.Context, creds sdk.OAuthCredentials) (sdk.O
 	return credentialsFrom(tokenResponse{AccessToken: refreshed.AccessToken, RefreshToken: refreshed.RefreshToken}, creds.Refresh)
 }
 
-func (c *client) do(req *http.Request) (int, []byte, error) {
-	req.Header.Set("Accept", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return 0, nil, err
+// requestFailure keeps the original cause available to errors.Is/As without
+// printing URLs, PKCE verifiers, credentials, or untrusted response payloads.
+type requestFailure struct {
+	operation string
+	cause     error
+}
+
+func (e *requestFailure) Error() string { return "cursor HTTP: " + e.operation }
+func (e *requestFailure) Unwrap() error { return e.cause }
+
+func (c *client) do(req *http.Request) (status int, body []byte, resultErr error) {
+	base, err := url.Parse(c.apiBaseURL)
+	if err != nil || req == nil || req.URL == nil || base.Host == "" ||
+		req.URL.Scheme != base.Scheme || req.URL.Host != base.Host || req.URL.User != nil || req.URL.Fragment != "" ||
+		(req.URL.Path != "/auth/poll" && req.URL.Path != "/oauth/token") {
+		return 0, nil, errors.New("cursor HTTP: request origin or path rejected")
 	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
-	return resp.StatusCode, body, err
+	if err := req.Context().Err(); err != nil {
+		return 0, nil, &requestFailure{"request cancelled", err}
+	}
+	ctx, cancel := context.WithTimeout(req.Context(), requestTimeout)
+	defer cancel()
+	req = req.Clone(ctx)
+	req.Header.Set("Accept", "application/json")
+	httpClient := http.Client{}
+	if c.http != nil {
+		httpClient = *c.http
+	}
+	if httpClient.Timeout <= 0 || httpClient.Timeout > requestTimeout {
+		httpClient.Timeout = requestTimeout
+	}
+	redirectErr := errors.New("redirect rejected")
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return redirectErr }
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		operation := "request failed"
+		if errors.Is(err, redirectErr) {
+			operation = "redirect rejected"
+		}
+		return 0, nil, &requestFailure{operation, err}
+	}
+	if resp.Body == nil {
+		return 0, nil, errors.New("cursor HTTP: response body missing")
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			resultErr = errors.Join(resultErr, &requestFailure{"response close failed", err})
+			body = nil
+		}
+	}()
+	body, err = io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil {
+		return 0, nil, &requestFailure{"response read failed", err}
+	}
+	if len(body) > maxResponseBytes {
+		return 0, nil, errors.New("cursor HTTP: response exceeds 1 MiB")
+	}
+	return resp.StatusCode, body, nil
 }
 
 // credentialsFrom builds credentials, keeping fallbackRefresh when the response rotates no refresh token.
