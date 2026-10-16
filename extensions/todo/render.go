@@ -298,9 +298,8 @@ func syncWidget(ctx sdk.Context, phases []tasks.Phase) error {
 	if !ctx.HasUI() {
 		return nil
 	}
-	// PiG hosts string-array widgets above the editor, including wrapping,
-	// resize handling, and the same ten-row cap as Pi. nil clears the widget.
-	if err := ctx.SetWidget("todo-sidebar", tasks.WidgetLines(phases)); err != nil {
+	// Render at the actual pane width; resize callbacks refresh this layout.
+	if err := ctx.SetWidget("todo-sidebar", widgetLines(phases, ctx.Width())); err != nil {
 		return fmt.Errorf("refresh todo widget: %w", err)
 	}
 	return nil

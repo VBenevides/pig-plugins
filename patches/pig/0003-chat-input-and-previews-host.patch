@@ -1,3 +1,182 @@
+diff --git a/internal/codingagent/autocomplete_command_order_test.go b/internal/codingagent/autocomplete_command_order_test.go
+index 5bfb4a9..f03a1e2 100644
+--- a/internal/codingagent/autocomplete_command_order_test.go
++++ b/internal/codingagent/autocomplete_command_order_test.go
+@@ -8,8 +8,8 @@ import (
+ 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
+ )
+ 
+-// Pi's createBaseAutocompleteProvider puts extension commands before skills (interactive-mode.ts:747-776). Fuzzy filtering strips skill: and preserves insertion order for equal scores (autocomplete.ts:335-341).
+-func TestExtensionCommandPrecedesSameNameSkillAutocomplete(t *testing.T) {
++// Line-start / lists both same-name resources; prose distinguishes / and //.
++func TestExtensionCommandAndSkillAutocompleteNamespaces(t *testing.T) {
+ 	mode, _ := newCustomEditorDispatchMode(t)
+ 	mode.opts.AgentDir = t.TempDir()
+ 	mode.opts.Skills = []*SkillDef{{Name: "btw", Description: "Side-question skill"}}
+@@ -21,23 +21,33 @@ func TestExtensionCommandPrecedesSameNameSkillAutocomplete(t *testing.T) {
+ 		},
+ 	}}, mode.opts.AgentDir)
+ 	provider := mode.buildAutocompleteProvider()
+-	suggestions := provider.GetSuggestions([]string{"/btw"}, 0, len("/btw"))
+-	if suggestions == nil || len(suggestions.Items) != 2 {
+-		t.Fatalf("suggestions = %#v, want the explicitly registered command and skill", suggestions)
+-	}
+-	for i, want := range []string{"btw", "skill:btw"} {
+-		if got := suggestions.Items[i].Value; got != want {
+-			t.Errorf("suggestion %d = %q, want %q", i, got, want)
++	for _, tc := range []struct {
++		text string
++		want []string
++	}{
++		{"/btw", []string{"btw", "skill:btw"}},
++		{"//btw", []string{"btw"}},
++		{"draft /btw", []string{"skill:btw"}},
++		{"draft //btw", []string{"btw"}},
++	} {
++		suggestions := provider.GetSuggestions([]string{tc.text}, 0, len(tc.text))
++		if suggestions == nil || len(suggestions.Items) != len(tc.want) {
++			t.Fatalf("%q suggestions = %#v, want %v", tc.text, suggestions, tc.want)
++		}
++		for i, want := range tc.want {
++			if suggestions.Items[i].Value != want {
++				t.Errorf("%q item %d = %q, want %q", tc.text, i, suggestions.Items[i].Value, want)
++			}
+ 		}
+ 	}
+ 	mode.editor.SetAutocomplete(provider)
+-	for _, key := range []string{"/", "b", "t", "w", "\t"} {
++	for _, key := range []string{"/", "/", "b", "t", "w", "\t"} {
+ 		if err := mode.dispatchKey(t.Context(), key); err != nil {
+ 			t.Fatal(err)
+ 		}
+ 	}
+-	if got := mode.editor.Text(); got != "/btw " {
+-		t.Fatalf("Tab accepted %q, want the extension command /btw", got)
++	if got := mode.editor.Text(); got != "//btw " {
++		t.Fatalf("Tab accepted %q, want the extension command //btw", got)
+ 	}
+ }
+ 
+diff --git a/internal/codingagent/autocomplete_source_tag_test.go b/internal/codingagent/autocomplete_source_tag_test.go
+index f213a2e..b9d3ddd 100644
+--- a/internal/codingagent/autocomplete_source_tag_test.go
++++ b/internal/codingagent/autocomplete_source_tag_test.go
+@@ -85,10 +85,10 @@ func TestAutocompleteProviderTagsResourceCommands(t *testing.T) {
+ 		return suggestions.Items[0].Description
+ 	}
+ 	for prefix, want := range map[string]string{
+-		"/tmpl":     "[u] Template desc",
+-		"/skill:sk": "[p:npm:pkg@1] Skill desc",
+-		"/tagged":   "[p] Tagged desc",
+-		"/untagged": "Built-in desc",
++		"//tmpl":     "[u] Template desc",
++		"/skill:sk":  "[p:npm:pkg@1] Skill desc",
++		"//tagged":   "[p] Tagged desc",
++		"//untagged": "Built-in desc",
+ 	} {
+ 		if got := described(prefix); got != want {
+ 			t.Errorf("%s description = %q, want %q", prefix, got, want)
+@@ -109,7 +109,7 @@ func TestAutocompleteProviderTagsLoadedPromptTemplatesByPath(t *testing.T) {
+ 		{Name: "extratmpl", Description: "Extra template", FilePath: extra, Scope: "extra"},
+ 	}
+ 	provider := mode.buildAutocompleteProvider()
+-	for prefix, want := range map[string]string{"/usertmpl": "[u] User template", "/extratmpl": "[t] Extra template"} {
++	for prefix, want := range map[string]string{"//usertmpl": "[u] User template", "//extratmpl": "[t] Extra template"} {
+ 		suggestions := provider.GetSuggestions([]string{prefix}, 0, len(prefix))
+ 		if suggestions == nil || len(suggestions.Items) == 0 {
+ 			t.Fatalf("no suggestions for %q", prefix)
+diff --git a/internal/codingagent/chat_command_line.go b/internal/codingagent/chat_command_line.go
+new file mode 100644
+index 0000000..58490c4
+--- /dev/null
++++ b/internal/codingagent/chat_command_line.go
+@@ -0,0 +1,16 @@
++package codingagent
++
++import "strings"
++
++// chatCommandLine normalizes a command at the start of submitted input or an
++// extracted editor line. Mid-line command recognition belongs to the editor.
++func chatCommandLine(line string) string {
++	line = strings.TrimSpace(line)
++	if strings.HasPrefix(line, "//") {
++		line = line[1:]
++	}
++	if !strings.HasPrefix(line, "/") || strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/skill:") {
++		return ""
++	}
++	return line
++}
+diff --git a/internal/codingagent/chat_commands_test.go b/internal/codingagent/chat_commands_test.go
+new file mode 100644
+index 0000000..4460685
+--- /dev/null
++++ b/internal/codingagent/chat_commands_test.go
+@@ -0,0 +1,42 @@
++package codingagent
++
++import (
++	"context"
++	"testing"
++)
++
++func TestChatCommandsRequireDoubleSlashAfterText(t *testing.T) {
++	q := newInputQueueMode(t)
++	defer q.stop()
++	defer q.backgroundCancel()
++	q.isCompacting = true
++	calls := 0
++	q.slashRegistry.Register(BuiltinSlashCommand{Name: "example", Handler: func(sc *SlashContext) error {
++		calls++
++		if sc.Args != "argument" {
++			t.Fatalf("args = %q", sc.Args)
++		}
++		return nil
++	}})
++	for _, text := range []string{"explain /example argument", "//unknown", "//skill:example"} {
++		q.editor.SetText(text)
++		if q.handleInlineEditorCommand(context.Background()) {
++			t.Fatalf("executed literal %q", text)
++		}
++		q.handleSubmit(context.Background(), text)
++		if calls != 0 {
++			t.Fatalf("dispatched %q", text)
++		}
++	}
++	if len(q.compactionQueue) != 3 {
++		t.Fatalf("queue = %+v", q.compactionQueue)
++	}
++	q.handleSubmit(context.Background(), "//example argument")
++	if calls != 1 || len(q.compactionQueue) != 3 {
++		t.Fatalf("calls=%d queue=%+v", calls, q.compactionQueue)
++	}
++	q.editor.SetText("draft //example argument")
++	if !q.handleInlineEditorCommand(context.Background()) || calls != 2 || q.editor.Text() != "draft " {
++		t.Fatal("inline command failed")
++	}
++}
+diff --git a/internal/codingagent/command_argument_completions_test.go b/internal/codingagent/command_argument_completions_test.go
+index c4bac33..cc4023d 100644
+--- a/internal/codingagent/command_argument_completions_test.go
++++ b/internal/codingagent/command_argument_completions_test.go
+@@ -34,7 +34,7 @@ func TestExtensionCommandArgumentCompletionAcceptsWithoutSubmitting(t *testing.T
+ 		CommandOrder: []string{"mcp"},
+ 	}}, "")
+ 	ctx, cancel := context.WithCancel(t.Context())
+-	input := []string{"/", "m", "c", "p", " "}
++	input := []string{"/", "/", "m", "c", "p", " "}
+ 	tasks := make(chan func(), len(input)+1)
+ 	m.editor.SetAsyncApply(func(fn func()) {
+ 		select {
+@@ -64,7 +64,7 @@ func TestExtensionCommandArgumentCompletionAcceptsWithoutSubmitting(t *testing.T
+ 	if err := m.dispatchKey(context.Background(), "\r"); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if got := m.editor.Text(); got != "/mcp reconnect" {
++	if got := m.editor.Text(); got != "//mcp reconnect" {
+ 		t.Fatalf("editor after Enter = %q, want the accepted argument left in the editor", got)
+ 	}
+ }
 diff --git a/internal/codingagent/interactive.go b/internal/codingagent/interactive.go
 index 8d25144..ab306bb 100644
 --- a/internal/codingagent/interactive.go
@@ -80,19 +259,23 @@ index c2dc070..9528256 100644
  	block := tui.NewUserMessageBlock(text)
  	block.SetOutputPad(m.outputPad)
 diff --git a/internal/codingagent/interactive_commands.go b/internal/codingagent/interactive_commands.go
-index ab37ca6..ee83586 100644
+index ab37ca6..85fb684 100644
 --- a/internal/codingagent/interactive_commands.go
 +++ b/internal/codingagent/interactive_commands.go
-@@ -19,7 +19,7 @@ import (
+@@ -19,7 +19,11 @@ import (
  	"github.com/MichaelKinsy/PiG/tui/widthx"
  )
  
 -func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string) {
 +func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string, afterDispatch ...func()) {
++	line = strings.TrimSpace(line)
++	if strings.HasPrefix(line, "//") {
++		line = line[1:] // Registry and keyboard shortcuts keep their internal /cmd contract.
++	}
  	sc := m.buildSlashContext(ctx)
  	// Mirror any extension-registered commands into the registry just
  	// before dispatch so a freshly loaded command resolves.
-@@ -28,14 +28,20 @@ func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string) {
+@@ -28,14 +32,20 @@ func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string) {
  	if canonical, ok := m.slashRegistry.Resolve(name); ok && canonical == "model" && args != "" {
  		m.findExactModelMatch(ctx, args, func(spec string, found bool) {
  			sc.ResolveModel = func(string) (string, bool) { return spec, found }
@@ -116,7 +299,7 @@ index ab37ca6..ee83586 100644
  	extCtx := m.extCtx
  	if err := m.slashRegistry.Dispatch(sc, line, extCtx); err != nil {
  		if errors.Is(err, ErrInteractiveCrashed) {
-@@ -48,7 +54,9 @@ func (m *InteractiveMode) dispatchSlashContext(sc *SlashContext, line string) {
+@@ -48,7 +58,9 @@ func (m *InteractiveMode) dispatchSlashContext(sc *SlashContext, line string) {
  		}
  		m.showError(err.Error())
  	}
@@ -127,7 +310,16 @@ index ab37ca6..ee83586 100644
  }
  
  // writeDebugLog dumps the current frame and message history to a debug log
-@@ -226,6 +234,8 @@ func resolveModelFromItems(input string, items []tui.ModelSelectorItem) (string,
+@@ -156,7 +168,7 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
+ 	fdPath := tools.LookupToolPath("fd", filepath.Join(m.opts.AgentDir, "bin"))
+ 
+ 	cwd, _ := os.Getwd()
+-	prov := tui.NewCombinedProvider(cmds, cwd, fdPath)
++	prov := tui.NewChatAutocompleteProvider(cmds, cwd, fdPath)
+ 	// Defer the fd subprocess off the keystroke path (parity with upstream's
+ 	// async getFuzzyFileSuggestions); only meaningful when fd is present.
+ 	prov.SetAsyncFileSearch(true)
+@@ -226,6 +238,8 @@ func resolveModelFromItems(input string, items []tui.ModelSelectorItem) (string,
  func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
  	var sc *SlashContext
  	sc = &SlashContext{
@@ -138,16 +330,15 @@ index ab37ca6..ee83586 100644
  		AppendBlock: func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 1, nil)) },
 diff --git a/internal/codingagent/interactive_draft_commands.go b/internal/codingagent/interactive_draft_commands.go
 new file mode 100644
-index 0000000..44478b9
+index 0000000..1e34e4a
 --- /dev/null
 +++ b/internal/codingagent/interactive_draft_commands.go
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,87 @@
 +package codingagent
 +
 +import (
 +	"context"
 +	"fmt"
-+	"strings"
 +	"time"
 +
 +	"github.com/MichaelKinsy/PiG/coding/extension"
@@ -165,16 +356,21 @@ index 0000000..44478b9
 +	return nil
 +}
 +
-+func sendEditorHandler(sc *SlashContext) error {
-+	args := strings.ToLower(strings.TrimSpace(sc.Args))
-+	if args != "" && args != "queue" {
-+		return fmt.Errorf("usage: /send [queue]")
++func sendEditorHandler(queue bool) SlashHandler {
++	name := "//send-steer"
++	if queue {
++		name = "//send-queue"
 +	}
-+	if sc.SendEditor == nil {
-+		return fmt.Errorf("/send requires an interactive editor")
++	return func(sc *SlashContext) error {
++		if sc.Args != "" {
++			return fmt.Errorf("usage: %s", name)
++		}
++		if sc.SendEditor == nil {
++			return fmt.Errorf("%s requires an interactive editor", name)
++		}
++		sc.SendEditor(queue)
++		return nil
 +	}
-+	sc.SendEditor(args == "queue")
-+	return nil
 +}
 +
 +// handleInlineEditorCommand runs local commands before the editor submit path
@@ -188,9 +384,9 @@ index 0000000..44478b9
 +	if !ok {
 +		return false
 +	}
-+	name, _ := parseSlashLine(command)
++	name, _ := parseSlashLine(chatCommandLine(command))
 +	canonical, _ := m.slashRegistry.Resolve(name)
-+	if canonical == "clear" || canonical == "send" || canonical == "quit" {
++	if canonical == "clear" || canonical == "send-queue" || canonical == "send-steer" || canonical == "quit" {
 +		m.dispatchSlash(ctx, command)
 +	} else {
 +		m.dispatchSlash(ctx, command, m.editor.RestoreDraftIfCleared())
@@ -206,7 +402,7 @@ index 0000000..44478b9
 +	m.editor.AddToHistory(text)
 +	m.editor.Clear()
 +	if !queue {
-+		// Send as prompt text, not another command: /send must not execute a
++		// Send as prompt text, not another command: //send-steer must not execute a
 +		// second slash token left in the draft.
 +		if m.isCompacting {
 +			m.compactionQueue = append(m.compactionQueue, compactionQueuedMessage{text: text, mode: compactionQueueSteer})
@@ -227,15 +423,19 @@ index 0000000..44478b9
 +}
 diff --git a/internal/codingagent/interactive_draft_commands_test.go b/internal/codingagent/interactive_draft_commands_test.go
 new file mode 100644
-index 0000000..56c9192
+index 0000000..5125f68
 --- /dev/null
 +++ b/internal/codingagent/interactive_draft_commands_test.go
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,183 @@
 +package codingagent
 +
 +import (
 +	"context"
 +	"testing"
++	"time"
++
++	"github.com/MichaelKinsy/PiG/agent"
++	"github.com/MichaelKinsy/PiG/ai"
 +
 +	"github.com/MichaelKinsy/PiG/tui"
 +)
@@ -244,7 +444,7 @@ index 0000000..56c9192
 +	for _, idle := range []bool{true, false} {
 +		q := newInputQueueMode(t)
 +		q.isIdle = idle
-+		q.editor.SetText("explain this /mode ask")
++		q.editor.SetText("explain this //mode ask")
 +		q.editor.OnSubmit = func(string) { t.Fatal("local command submitted the draft") }
 +		calls := 0
 +		q.slashRegistry.Register(BuiltinSlashCommand{Name: "mode", Handler: func(sc *SlashContext) error {
@@ -271,7 +471,7 @@ index 0000000..56c9192
 +	defer q.stop()
 +	defer q.backgroundCancel()
 +	q.chatContainer.Add(tui.NewText("conversation remains"))
-+	q.editor.SetText("discard this /clear")
++	q.editor.SetText("discard this //clear")
 +	if !q.handleInlineEditorCommand(context.Background()) {
 +		t.Fatal("clear not handled")
 +	}
@@ -285,8 +485,8 @@ index 0000000..56c9192
 +		command string
 +		mode    compactionQueueMode
 +	}{
-+		{"/send", compactionQueueSteer},
-+		{"/send queue", compactionQueueFollowUp},
++		{"//send-steer", compactionQueueSteer},
++		{"//send-queue", compactionQueueFollowUp},
 +	} {
 +		t.Run(tc.command, func(t *testing.T) {
 +			q := newInputQueueMode(t)
@@ -311,15 +511,103 @@ index 0000000..56c9192
 +	q := newInputQueueMode(t)
 +	defer q.stop()
 +	defer q.backgroundCancel()
-+	q.editor.SetText("keep this /send invalid")
++	q.editor.SetText("keep this //send-steer invalid")
 +	if !q.handleInlineEditorCommand(context.Background()) || q.editor.Text() != "keep this " {
 +		t.Fatal("invalid send lost draft")
 +	}
-+	for _, line := range []string{"/clear invalid", "/send invalid"} {
++	for _, line := range []string{"/clear invalid", "/send-steer invalid", "/send-queue invalid"} {
 +		sc := q.buildSlashContext(context.Background())
 +		if err := q.slashRegistry.Dispatch(sc, line, nil); err == nil {
 +			t.Fatalf("%q accepted invalid arguments", line)
 +		}
++	}
++}
++
++func TestSendCommandsRejectOldSyntaxAndEmptyDrafts(t *testing.T) {
++	q := newInputQueueMode(t)
++	defer q.stop()
++	defer q.backgroundCancel()
++	for _, text := range []string{"draft //send queue", "draft //send steer", "draft /send-queue", "draft /send-steer"} {
++		q.editor.SetText(text)
++		if q.handleInlineEditorCommand(context.Background()) || q.editor.Text() != text {
++			t.Fatalf("obsolete or literal command executed: %q", text)
++		}
++	}
++	if _, ok := q.slashRegistry.Resolve("send"); ok {
++		t.Fatal("old send command registered")
++	}
++	for _, idle := range []bool{true, false} {
++		q.isIdle = idle
++		for _, name := range []string{"send-queue", "send-steer"} {
++			q.editor.Clear()
++			q.handleSubmit(context.Background(), "//"+name)
++			if q.editor.Text() != "" || len(q.compactionQueue) != 0 {
++				t.Fatal("empty draft queued")
++			}
++			if err := q.slashRegistry.Dispatch(&SlashContext{}, "/"+name, nil); err == nil {
++				t.Fatal("missing editor accepted")
++			}
++		}
++	}
++}
++
++func TestSendCommandsWhileStreaming(t *testing.T) {
++	m, ctx, _ := newStreamingRoutingMode(t)
++	onLoop(m, ctx, func() {
++		for _, name := range []string{"send-steer", "send-queue"} {
++			m.editor.SetText("draft " + name + " //" + name)
++			if !m.handleInlineEditorCommand(ctx) || m.editor.Text() != "" {
++				t.Errorf("%s did not send draft", name)
++			}
++		}
++		steering, followUps := m.agent.PendingMessages()
++		if len(steering) != 1 || extractAgentMessageText(steering[0]) != "draft send-steer" || len(followUps) != 1 || extractAgentMessageText(followUps[0]) != "draft send-queue" {
++			t.Errorf("steering=%v followUps=%v", steering, followUps)
++		}
++	})
++}
++
++func TestSendCommandsWhileIdle(t *testing.T) {
++	for _, name := range []string{"send-steer", "send-queue"} {
++		t.Run(name, func(t *testing.T) {
++			q := newInputQueueMode(t)
++			defer q.stop()
++			defer q.backgroundCancel()
++			provider := captureStreamOptionsProvider{seen: make(chan capturedStreamRequest, 2)}
++			model := &ai.Model{ID: "capture", Provider: provider}
++			q.opts.Model = model
++			q.agent = agent.NewAgent(agent.AgentOptions{Model: model})
++			q.isIdle = true
++			loopDone := make(chan struct{})
++			go q.drainLoop(q.runCtx, loopDone)
++			defer func() { q.stop(); <-loopDone }()
++			onLoop(q.InteractiveMode, q.runCtx, func() {
++				q.editor.SetText("idle draft //" + name)
++				if !q.handleInlineEditorCommand(q.runCtx) || q.editor.Text() != "" {
++					t.Error("idle draft not sent")
++				}
++			})
++			select {
++			case request := <-provider.seen:
++				if got := lastUserMessageText(t, request.Messages); got != "idle draft" {
++					t.Fatalf("prompt=%q", got)
++				}
++			case <-time.After(5 * time.Second):
++				t.Fatal("idle send did not start a turn")
++			}
++			deadline := time.Now().Add(5 * time.Second)
++			for q.turnActive.Load() && time.Now().Before(deadline) {
++				time.Sleep(time.Millisecond)
++			}
++			if q.turnActive.Load() {
++				t.Fatal("idle turn did not settle")
++			}
++			select {
++			case <-provider.seen:
++				t.Fatal("draft sent twice")
++			default:
++			}
++		})
 +	}
 +}
 diff --git a/internal/codingagent/interactive_editor.go b/internal/codingagent/interactive_editor.go
@@ -347,8 +635,21 @@ index 8475be9..25a4938 100644
  				m.tuiInst.RequestRender()
  			}
  			// A queued steering/follow-up message that just got injected as a
+diff --git a/internal/codingagent/interactive_hotkeys.go b/internal/codingagent/interactive_hotkeys.go
+index 99edeee..5c8f338 100644
+--- a/internal/codingagent/interactive_hotkeys.go
++++ b/internal/codingagent/interactive_hotkeys.go
+@@ -58,7 +58,7 @@ func hotkeysMarkdown() string {
+ 	row("Queue follow-up message", "app.message.followUp")
+ 	row("Restore queued messages", "app.message.dequeue")
+ 	row("Paste files on macOS, images, or text from clipboard", "app.clipboard.pasteImage")
+-	b.WriteString("| `/` | Slash commands |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n")
++	b.WriteString("| `/` at line start | Commands, prompt templates and skills |\n| `/` after text | Skills only |\n| `//` | Commands and prompt templates |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n")
+ 	return strings.TrimSpace(b.String())
+ }
+ 
 diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
-index e39065e..8a56061 100644
+index e39065e..d52e300 100644
 --- a/internal/codingagent/interactive_input.go
 +++ b/internal/codingagent/interactive_input.go
 @@ -784,6 +784,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
@@ -379,7 +680,7 @@ index e39065e..8a56061 100644
  	}
 -	expanded, ok, err := ExpandSkillCommand(prompt, m.opts.Skills)
 +	expand := ExpandSkillCommand
-+	if !strings.HasPrefix(prompt, "/") {
++	if !strings.HasPrefix(prompt, "/skill:") {
 +		// pig additive: `/skill:name` tokens inside prompt text expand too.
 +		expand = ExpandInlineSkillCommands
 +	}
@@ -387,8 +688,79 @@ index e39065e..8a56061 100644
  	if err != nil && m.newRunner != nil {
  		m.newRunner.EmitError(err)
  	}
+@@ -966,10 +979,11 @@ func (m *InteractiveMode) syncExtensionSlashCommands() {
+ // unresolved slashes are not resolvable here: they expand into model prompts
+ // and stay queued during compaction.
+ func (m *InteractiveMode) resolvableSlashCommand(prompt string) bool {
+-	if !strings.HasPrefix(prompt, "/") {
++	line := chatCommandLine(prompt)
++	if line == "" {
+ 		return false
+ 	}
+-	name, _ := parseSlashLine(prompt)
++	name, _ := parseSlashLine(line)
+ 	m.syncExtensionSlashCommands()
+ 	_, ok := m.slashRegistry.Resolve(name)
+ 	return ok
+@@ -1080,10 +1094,11 @@ func (m *InteractiveMode) runStreaming() bool {
+ // isExtensionCommand reports whether text invokes an extension-registered
+ // command. Mirrors upstream InteractiveMode.isExtensionCommand.
+ func (m *InteractiveMode) isExtensionCommand(text string) bool {
+-	if !strings.HasPrefix(text, "/") || m.newRunner == nil {
++	line := chatCommandLine(text)
++	if line == "" || m.newRunner == nil {
+ 		return false
+ 	}
+-	name, _ := parseSlashLine(text)
++	name, _ := parseSlashLine(line)
+ 	for _, command := range m.newRunner.Commands() {
+ 		if strings.TrimPrefix(command.InvocationName, "/") == name {
+ 			return true
+diff --git a/internal/codingagent/interactive_input_preflight.go b/internal/codingagent/interactive_input_preflight.go
+index 7d257d5..2784c83 100644
+--- a/internal/codingagent/interactive_input_preflight.go
++++ b/internal/codingagent/interactive_input_preflight.go
+@@ -169,8 +169,10 @@ func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inpu
+ 			if expanded, ok := m.expandSkillCommand(text); ok {
+ 				text = expanded
+ 			}
+-			if expanded, ok := ExpandPromptTemplate(text, m.promptTemplates); ok {
+-				text = expanded
++			if line := chatCommandLine(text); line != "" {
++				if expanded, ok := ExpandPromptTemplate(line, m.promptTemplates); ok {
++					text = expanded
++				}
+ 			}
+ 		}
+ 		// Upstream rechecks streaming after the input await (agent-session.ts
+diff --git a/internal/codingagent/interactive_prompt_routing_test.go b/internal/codingagent/interactive_prompt_routing_test.go
+index 53e1ccb..2552b4d 100644
+--- a/internal/codingagent/interactive_prompt_routing_test.go
++++ b/internal/codingagent/interactive_prompt_routing_test.go
+@@ -75,7 +75,7 @@ func TestInteractiveSlashTextWhileStreamingSteers(t *testing.T) {
+ 	onLoop(m, ctx, func() {
+ 		m.editor.SetText("/not-a-command also check X")
+ 		_ = m.dispatchKey(ctx, "\r")
+-		m.editor.SetText("/review the tests")
++		m.editor.SetText("//review the tests")
+ 		_ = m.dispatchKey(ctx, "\r")
+ 	})
+ 	time.Sleep(200 * time.Millisecond)
+diff --git a/internal/codingagent/interactive_test.go b/internal/codingagent/interactive_test.go
+index dfb894d..29eccf1 100644
+--- a/internal/codingagent/interactive_test.go
++++ b/internal/codingagent/interactive_test.go
+@@ -1179,7 +1179,7 @@ func TestInteractiveMode_CompactionLetsLocalSlashCommandsThrough(t *testing.T) {
+ 	}
+ 
+ 	// A resolvable local command runs now and is not queued.
+-	m.handleSubmit(ctx, "/pingtest")
++	m.handleSubmit(ctx, "//pingtest")
+ 	if !ran {
+ 		t.Error("a resolvable slash command must dispatch during compaction, not queue")
+ 	}
 diff --git a/internal/codingagent/interactive_transcript.go b/internal/codingagent/interactive_transcript.go
-index dbdb2e4..13e46a4 100644
+index dbdb2e4..87b18f1 100644
 --- a/internal/codingagent/interactive_transcript.go
 +++ b/internal/codingagent/interactive_transcript.go
 @@ -231,28 +231,7 @@ func (m *InteractiveMode) renderSessionEntryList(entries []SessionEntry, trim bo
@@ -421,6 +793,139 @@ index dbdb2e4..13e46a4 100644
  			}
  
  		case msg.Assistant != nil:
+@@ -528,7 +507,7 @@ func (m *InteractiveMode) flushCompactionQueue(ctx context.Context, startTurn bo
+ 
+ 	firstIdx := -1
+ 	for i, msg := range queued {
+-		if !strings.HasPrefix(msg.text, "/") {
++		if !m.resolvableSlashCommand(msg.text) {
+ 			firstIdx = i
+ 			break
+ 		}
+@@ -554,7 +533,7 @@ func (m *InteractiveMode) flushCompactionQueue(ctx context.Context, startTurn bo
+ 	// still dispatch immediately. A message that finds the run already
+ 	// settled starts the next turn instead of waiting in a drained queue.
+ 	for _, msg := range queued[firstIdx+1:] {
+-		if strings.HasPrefix(msg.text, "/") {
++		if m.resolvableSlashCommand(msg.text) {
+ 			m.handleSubmitWithImages(ctx, msg.text, msg.images)
+ 			continue
+ 		}
+diff --git a/internal/codingagent/line_start_commands_test.go b/internal/codingagent/line_start_commands_test.go
+new file mode 100644
+index 0000000..4cfedb3
+--- /dev/null
++++ b/internal/codingagent/line_start_commands_test.go
+@@ -0,0 +1,109 @@
++package codingagent
++
++import (
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/coding/extension"
++	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
++)
++
++func TestChatLineStartCommands(t *testing.T) {
++	q := newInputQueueMode(t)
++	defer q.stop()
++	defer q.backgroundCancel()
++	q.isCompacting = true
++	calls := 0
++	q.slashRegistry.Register(BuiltinSlashCommand{Name: "example", Handler: func(sc *SlashContext) error {
++		calls++
++		if sc.Args != "argument" {
++			t.Errorf("args=%q", sc.Args)
++		}
++		return nil
++	}})
++	for _, text := range []string{"/example argument", " \t/example argument", "//example argument"} {
++		prevCalls := calls
++		q.handleSubmit(t.Context(), text)
++		if calls != prevCalls+1 || len(q.compactionQueue) != 0 {
++			t.Fatalf("%q calls=%d queue=%v", text, calls, q.compactionQueue)
++		}
++	}
++	for _, text := range []string{"before /example argument", "/skill:example", "//skill:example"} {
++		q.editor.SetText(text)
++		if q.handleInlineEditorCommand(t.Context()) || q.editor.Text() != text {
++			t.Fatalf("executed %q", text)
++		}
++	}
++	q.editor.SetText("earlier prose\n  /example argument")
++	if !q.handleInlineEditorCommand(t.Context()) || calls != 4 || q.editor.Text() != "earlier prose\n  " {
++		t.Fatalf("later line calls=%d draft=%q", calls, q.editor.Text())
++	}
++}
++
++func TestChatLineStartTemplateExpansion(t *testing.T) {
++	m, ctx, _ := newStreamingRoutingMode(t)
++	m.promptTemplates = []PromptTemplate{{Name: "review", Content: "Review: $ARGUMENTS"}}
++	onLoop(m, ctx, func() {
++		for _, text := range []string{"/review first", "//review second", "explain /review third"} {
++			m.promptUserInput(ctx, text, nil, false, "user", true)
++		}
++		steering, _ := m.agent.PendingMessages()
++		if len(steering) != 3 {
++			t.Errorf("steering=%v", steering)
++			return
++		}
++		for i, want := range []string{"Review: first", "Review: second", "explain /review third"} {
++			if got := extractAgentMessageText(steering[i]); got != want {
++				t.Errorf("message %d=%q want %q", i, got, want)
++			}
++		}
++	})
++}
++
++func TestChatLineStartSendCommands(t *testing.T) {
++	for _, tc := range []struct {
++		name string
++		mode compactionQueueMode
++	}{
++		{"send-steer", compactionQueueSteer},
++		{"send-queue", compactionQueueFollowUp},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			q := newInputQueueMode(t)
++			defer q.stop()
++			defer q.backgroundCancel()
++			q.isCompacting = true
++			q.editor.SetText("draft\n/" + tc.name)
++			if !q.handleInlineEditorCommand(t.Context()) || q.editor.Text() != "" || len(q.compactionQueue) != 1 {
++				t.Fatalf("draft=%q queue=%v", q.editor.Text(), q.compactionQueue)
++			}
++			if got := q.compactionQueue[0]; got.text != "draft" || got.mode != tc.mode {
++				t.Fatalf("queued=%v", got)
++			}
++		})
++	}
++}
++
++func TestChatLineStartExtensionRecognition(t *testing.T) {
++	q := newInputQueueMode(t)
++	defer q.stop()
++	defer q.backgroundCancel()
++	q.newRunner = inproc.NewRunner([]extension.Extension{{Name: "test", Commands: map[string]extension.RegisteredCommand{
++		"example": {Name: "example"},
++	}}}, t.TempDir())
++	for _, tc := range []struct {
++		text string
++		want bool
++	}{
++		{"/example", true},
++		{"  /example argument", true},
++		{"//example", true},
++		{"before /example", false},
++		{"/skill:example", false},
++		{"//skill:example", false},
++		{"///example", false},
++	} {
++		if got := q.isExtensionCommand(tc.text); got != tc.want {
++			t.Errorf("%q = %v, want %v", tc.text, got, tc.want)
++		}
++	}
++}
 diff --git a/internal/codingagent/settings.go b/internal/codingagent/settings.go
 index cb2b00a..3970c74 100644
 --- a/internal/codingagent/settings.go
@@ -647,7 +1152,7 @@ index d480d19..9a1e18c 100644
  //
  //	/^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/
 diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash_commands.go
-index 4591e81..1bb1b06 100644
+index 4591e81..5d8aaea 100644
 --- a/internal/codingagent/slash_commands.go
 +++ b/internal/codingagent/slash_commands.go
 @@ -45,8 +45,7 @@ const (
@@ -669,19 +1174,20 @@ index 4591e81..1bb1b06 100644
  	Reset       func() // /new: keep transcript visible but reset agent messages
  	// NewSession creates a fresh session file and resets agent state.
  	// Mirrors upstream runtimeHost.newSession(). May be nil in test contexts.
-@@ -591,7 +592,9 @@ func defaultBuiltins() []BuiltinSlashCommand {
+@@ -591,7 +592,10 @@ func defaultBuiltins() []BuiltinSlashCommand {
  		{Name: "compact", Description: "Manually compact the session context", Handler: compactHandler},
  		{Name: "resume", Description: "Resume a different session", Handler: resumeHandler},
  		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", Handler: reloadHandler},
 -		{Name: "quit", Description: "Quit " + AppName, Handler: quitHandler},
 +		{Name: "quit", Aliases: []string{"exit"}, Description: "Quit " + AppName, Handler: quitHandler},
 +		{Name: "clear", Description: "Discard the current input draft", Handler: clearEditorHandler},
-+		{Name: "send", Description: "Send the current draft (steer, or /send queue)", ArgumentHint: "[queue]", Handler: sendEditorHandler},
++		{Name: "send-queue", Description: "Send the current draft as a follow-up", Handler: sendEditorHandler(true)},
++		{Name: "send-steer", Description: "Send the current draft as steering input", Handler: sendEditorHandler(false)},
  		// Hidden: dispatchable but absent from /help and autocomplete, matching
  		// upstream (handled inline in the submit handler, not in the canonical
  		// slash-commands.js completion list). /debug writes a debug log; it is
 diff --git a/internal/codingagent/slash_commands_test.go b/internal/codingagent/slash_commands_test.go
-index f64a193..bf3811e 100644
+index f64a193..0372942 100644
 --- a/internal/codingagent/slash_commands_test.go
 +++ b/internal/codingagent/slash_commands_test.go
 @@ -73,7 +73,7 @@ func TestSlashRegistryBuiltinsSeeded(t *testing.T) {
@@ -733,14 +1239,14 @@ index f64a193..bf3811e 100644
  		names[c.Name] = true
  	}
 -	for _, want := range []string{"quit", "model", "scoped-models", "copy", "session", "hotkeys", "new", "settings", "export", "import", "login", "logout"} {
-+	for _, want := range []string{"quit", "model", "scoped-models", "copy", "session", "hotkeys", "new", "settings", "export", "import", "login", "logout", "clear", "send"} {
++	for _, want := range []string{"quit", "model", "scoped-models", "copy", "session", "hotkeys", "new", "settings", "export", "import", "login", "logout", "clear", "send-queue", "send-steer"} {
  		if !names[want] {
  			t.Errorf("BuiltinSlashCommands missing %q", want)
  		}
  	}
  	// Verify removed commands are NOT present.
 -	for _, removed := range []string{"clear", "agent", "agents", "tools", "cost", "save", "help", "models"} {
-+	for _, removed := range []string{"agent", "agents", "tools", "cost", "save", "help", "models"} {
++	for _, removed := range []string{"agent", "agents", "tools", "cost", "save", "help", "models", "send"} {
  		if names[removed] {
  			t.Errorf("BuiltinSlashCommands should NOT contain removed command %q", removed)
  		}
@@ -751,7 +1257,7 @@ index f64a193..bf3811e 100644
 -		"copy", "name", "session", "changelog", "hotkeys", "fork", "clone", "trust", "login", "logout",
 -		"new", "compact", "resume", "reload", "quit",
 +		"copy", "name", "session", "changelog", "hotkeys", "fork", "clone", "trust", "login", "accounts", "logout",
-+		"new", "compact", "resume", "reload", "quit", "clear", "send",
++		"new", "compact", "resume", "reload", "quit", "clear", "send-queue", "send-steer",
  	}
  	var got []string
  	for _, cmd := range BuiltinSlashCommands() {
@@ -950,6 +1456,216 @@ index 9a7462e..58e457f 100644
  	})
  	m.renderSessionEntryList([]SessionEntry{entry}, false)
  	if got := strings.Join(m.chatContainer.Render(120), "\n"); !strings.Contains(got, "[skill]") || strings.Contains(got, "SKILL_BODY_MARKER") {
+diff --git a/tui/autocomplete.go b/tui/autocomplete.go
+index 5ff4a6e..08eb5b2 100644
+--- a/tui/autocomplete.go
++++ b/tui/autocomplete.go
+@@ -74,7 +74,8 @@ type ForcefulAutocompleteProvider interface {
+ 
+ // SlashOnlyProvider serves command names and their immediate or awaited argument completions. It does not perform path or attachment completion.
+ type SlashOnlyProvider struct {
+-	Commands []SlashCommand
++	Commands  []SlashCommand
++	chatInput bool // Keep the reusable upstream provider contract outside chat input.
+ }
+ 
+ // NewSlashOnlyProvider constructs a provider over the given command list.
+@@ -106,9 +107,16 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+ 		return nil
+ 	}
+ 
++	commandPrefix := "/"
++	if strings.HasPrefix(before, "//") {
++		commandPrefix = "//"
++	}
+ 	if !strings.Contains(before, " ") {
+ 		// `/partial`: name completion.
+-		prefix := before[1:] // strip leading "/"
++		prefix := before[len(commandPrefix):]
++		if p.chatInput && strings.Contains(prefix, "/") {
++			return nil
++		}
+ 		type item struct {
+ 			cmd  SlashCommand
+ 			text string
+@@ -116,7 +124,9 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+ 		}
+ 		all := make([]item, 0, len(p.Commands))
+ 		for i, c := range p.Commands {
+-			all = append(all, item{cmd: c, text: c.Name, idx: i})
++			if !p.chatInput || commandPrefix == "/" || !strings.HasPrefix(c.Name, skillCommandPrefix) {
++				all = append(all, item{cmd: c, text: c.Name, idx: i})
++			}
+ 		}
+ 		// Upstream autocomplete.ts matches skill commands by their bare name
+ 		// first, then by their full skill: name, so `/skill` lists skills whose
+@@ -159,7 +169,10 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+ 	}
+ 
+ 	// `/<cmd> <args>`: argument completion path.
+-	name, argText, _ := slashArgumentPrefix(before)
++	name, argText, ok := p.slashArgumentPrefix(before)
++	if !ok {
++		return nil
++	}
+ 	for _, c := range p.Commands {
+ 		if c.Name != name {
+ 			continue
+@@ -177,7 +190,7 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+ }
+ 
+ // slashArgumentPrefix splits `/<cmd> <args>` after leading whitespace into the command name and argument text.
+-func slashArgumentPrefix(before string) (string, string, bool) {
++func (p *SlashOnlyProvider) slashArgumentPrefix(before string) (string, string, bool) {
+ 	before = widthx.JSTrimStart(before)
+ 	if !strings.HasPrefix(before, "/") {
+ 		return "", "", false
+@@ -186,7 +199,15 @@ func slashArgumentPrefix(before string) (string, string, bool) {
+ 	if space < 0 {
+ 		return "", "", false
+ 	}
+-	return before[1:space], before[space+1:], true
++	prefix := "/"
++	if strings.HasPrefix(before, "//") {
++		prefix = "//"
++	}
++	name := before[len(prefix):space]
++	if p.chatInput && prefix == "//" && strings.HasPrefix(name, skillCommandPrefix) {
++		return "", "", false
++	}
++	return name, before[space+1:], true
+ }
+ 
+ // SuggestionTask captures a Promise-returning command callback without invoking it on the input loop.
+@@ -194,7 +215,7 @@ func (p *SlashOnlyProvider) SuggestionTask(lines []string, line, col int, _ bool
+ 	if line < 0 || line >= len(lines) || col < 0 {
+ 		return "", nil, false
+ 	}
+-	name, prefix, ok := slashArgumentPrefix(lines[line][:min(col, len(lines[line]))])
++	name, prefix, ok := p.slashArgumentPrefix(lines[line][:min(col, len(lines[line]))])
+ 	if !ok {
+ 		return "", nil, false
+ 	}
+@@ -241,13 +262,17 @@ func (p *SlashOnlyProvider) ApplyCompletion(lines []string, cursorLine, cursorCo
+ 	// Slash-name completion: `prefix` starts with `/` and contains no
+ 	// further `/` (i.e. it's `/foo` not `/foo/bar`), and the text
+ 	// before the prefix is empty/whitespace (line start).
+-	isSlashName := strings.HasPrefix(prefix, "/") &&
+-		!strings.Contains(prefix[1:], "/") &&
++	commandPrefix := "/"
++	if strings.HasPrefix(prefix, "//") {
++		commandPrefix = "//"
++	}
++	isSlashName := strings.HasPrefix(prefix, commandPrefix) &&
++		!strings.Contains(prefix[len(commandPrefix):], "/") &&
+ 		widthx.JSTrim(beforePrefix) == ""
+ 	if isSlashName {
+-		newLine := beforePrefix + "/" + item.Value + " " + afterCursor
++		newLine := beforePrefix + commandPrefix + item.Value + " " + afterCursor
+ 		out[cursorLine] = newLine
+-		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2 // "/" + value + " "
++		return out, cursorLine, len(beforePrefix) + len(commandPrefix) + len(item.Value) + 1
+ 	}
+ 
+ 	// Argument completion: replace prefix with value verbatim.
+diff --git a/tui/chat_autocomplete.go b/tui/chat_autocomplete.go
+new file mode 100644
+index 0000000..51f5f72
+--- /dev/null
++++ b/tui/chat_autocomplete.go
+@@ -0,0 +1,10 @@
++package tui
++
++// NewChatAutocompleteProvider completes everything with / at line start.
++// After prose, / completes skills and // completes commands. Other editors
++// retain the upstream autocomplete API.
++func NewChatAutocompleteProvider(cmds []SlashCommand, baseDir, fdPath string) *CombinedProvider {
++	provider := NewCombinedProvider(cmds, baseDir, fdPath)
++	provider.slash.chatInput = true
++	return provider
++}
+diff --git a/tui/chat_autocomplete_test.go b/tui/chat_autocomplete_test.go
+new file mode 100644
+index 0000000..8338a34
+--- /dev/null
++++ b/tui/chat_autocomplete_test.go
+@@ -0,0 +1,76 @@
++package tui
++
++import (
++	"context"
++	"slices"
++	"strings"
++	"testing"
++)
++
++func TestChatAutocompleteNamespaces(t *testing.T) {
++	p := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
++	for _, text := range []string{"/", "//"} {
++		got := p.GetSuggestionsForce([]string{text}, 0, len(text))
++		if got == nil || len(got.Items) == 0 {
++			t.Fatalf("forced %q lost namespace suggestions", text)
++		}
++		want := []string{"help", "skill:humanizer", "skill:research-last30days", "skill:brainstorm"}
++		if text == "//" {
++			want = []string{"help"}
++		}
++		if gotValues := suggestionValues(got); !slices.Equal(gotValues, want) {
++			t.Fatalf("forced %q = %v, want %v", text, gotValues, want)
++		}
++	}
++	for _, text := range []string{"//skill:", "///", "draft /hel"} {
++		if got := p.GetSuggestions([]string{text}, 0, len(text)); got != nil {
++			for _, item := range got.Items {
++				if p.slash.hasCommand(item.Value) {
++					t.Fatalf("%q offered command %q", text, item.Value)
++				}
++			}
++		}
++	}
++	for _, text := range []string{"//hel", "/hel", " /hum", "first\n//hel", "first\n /hel"} {
++		lines := strings.Split(text, "\n")
++		row := len(lines) - 1
++		col := len(lines[row])
++		got := p.GetSuggestions(lines, row, col)
++		if got == nil || len(got.Items) != 1 {
++			t.Fatalf("%q suggestions=%+v", text, got)
++		}
++		out, _, cursor := p.ApplyCompletion(lines, row, col, got.Items[0], got.Prefix)
++		want := "//help "
++		switch text {
++		case "/hel":
++			want = "/help "
++		case " /hum":
++			want = " /skill:humanizer "
++		case "first\n /hel":
++			want = " /help "
++		}
++		if out[row] != want || cursor != len(want) {
++			t.Fatalf("%q completion=%q cursor=%d", text, out[row], cursor)
++		}
++	}
++}
++
++func TestChatCommandArgumentCompletions(t *testing.T) {
++	calls := 0
++	p := NewChatAutocompleteProvider([]SlashCommand{{Name: "model", GetArgumentCompletions: func(string) []AutocompleteItem { calls++; return []AutocompleteItem{{Value: "test"}} }, AwaitArgumentCompletions: func(string) ([]AutocompleteItem, error) { calls++; return []AutocompleteItem{{Value: "test"}}, nil }}}, t.TempDir(), "")
++	for _, text := range []string{"/model ", "//model "} {
++		if got := p.GetSuggestions([]string{text}, 0, len(text)); got == nil {
++			t.Fatalf("%q missing argument completion", text)
++		}
++		_, task, ok := p.SuggestionTask([]string{text}, 0, len(text), false)
++		if !ok {
++			t.Fatalf("%q missing async completion", text)
++		}
++		if _, err := task(context.Background()); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if calls != 4 {
++		t.Fatalf("calls=%d", calls)
++	}
++}
 diff --git a/tui/collapsible_message_upstream_test.go b/tui/collapsible_message_upstream_test.go
 index 4d043c1..92c0ff9 100644
 --- a/tui/collapsible_message_upstream_test.go
@@ -973,7 +1689,7 @@ index 4d043c1..92c0ff9 100644
  	for _, tc := range cases {
  		t.Run(tc.name, func(t *testing.T) {
 diff --git a/tui/editor.go b/tui/editor.go
-index e52a6fa..24c54c2 100644
+index e52a6fa..1b52313 100644
 --- a/tui/editor.go
 +++ b/tui/editor.go
 @@ -1123,7 +1123,7 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
@@ -990,12 +1706,12 @@ index e52a6fa..24c54c2 100644
  	line := e.lines[e.cursor[0]]
  	before := jsstring.Slice(line, 0, e.cursor[1])
 -	if e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/") {
-+	if (e.cursor[0] == 0 && strings.HasPrefix(widthx.JSTrim(before), "/")) || e.midPromptSlashContext() {
++	if strings.HasPrefix(widthx.JSTrim(before), "/") || e.midPromptSlashContext() {
  		return true
  	}
  	previousBoundary := true
 diff --git a/tui/editor_async_provider.go b/tui/editor_async_provider.go
-index 3887e4b..1cdf9a0 100644
+index 3887e4b..4a91a32 100644
 --- a/tui/editor_async_provider.go
 +++ b/tui/editor_async_provider.go
 @@ -81,6 +81,7 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
@@ -1015,17 +1731,19 @@ index 3887e4b..1cdf9a0 100644
  			}
  		}, nil
  	})
-@@ -156,7 +157,7 @@ func (e *Editor) naturalAsyncAutocomplete() (bool, bool) {
+@@ -155,8 +156,8 @@ const autocompleteTokenWrappers = "([{<`"
+ func (e *Editor) naturalAsyncAutocomplete() (bool, bool) {
  	before := jsstring.Slice(e.lines[e.cursor[0]], 0, e.cursor[1])
  	triggered := autocompleteTriggered(before, e.asyncAutocomplete.TriggerCharacters)
- 	slash := e.cursor[0] == 0 && strings.HasPrefix(strings.TrimLeftFunc(before, widthx.IsJSSpace), "/")
+-	slash := e.cursor[0] == 0 && strings.HasPrefix(strings.TrimLeftFunc(before, widthx.IsJSSpace), "/")
 -	return triggered || slash || e.AutocompleteOpen(), triggered
++	slash := strings.HasPrefix(strings.TrimLeftFunc(before, widthx.IsJSSpace), "/")
 +	return triggered || slash || e.midPromptSlashContext() || e.AutocompleteOpen(), triggered
  }
  
  func (e *Editor) requestAsyncAutocomplete(force, explicit bool) {
 diff --git a/tui/file_autocomplete.go b/tui/file_autocomplete.go
-index 884ea19..eb114b1 100644
+index 884ea19..0067dcc 100644
 --- a/tui/file_autocomplete.go
 +++ b/tui/file_autocomplete.go
 @@ -113,8 +113,17 @@ func (p *CombinedProvider) getSuggestions(lines []string, cursorLine, cursorCol
@@ -1043,27 +1761,33 @@ index 884ea19..eb114b1 100644
 +
  	// Slash-command branch, after leading whitespace (autocomplete.ts:338-339).
 -	if !force && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
-+	if !force && !midPromptSlash && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
++	if (!force || p.slash.chatInput) && !midPromptSlash && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
  		return p.slash.GetSuggestions(lines, cursorLine, cursorCol)
  	}
  
-@@ -190,6 +199,10 @@ func (p *CombinedProvider) ApplyCompletion(lines []string, cursorLine, cursorCol
+@@ -190,9 +199,13 @@ func (p *CombinedProvider) ApplyCompletion(lines []string, cursorLine, cursorCol
  		afterCursor = afterCursor[1:]
  	}
  	out := slices.Clone(lines)
-+	if strings.HasPrefix(prefix, "/") && p.slash.hasCommand(item.Value) && proseBefore(lines, cursorLine, len(beforePrefix)) {
-+		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
-+		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
+-	if strings.HasPrefix(prefix, "/") && widthx.JSTrim(beforePrefix) == "" && !strings.Contains(prefix[1:], "/") {
+-		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
+-		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
++	commandPrefix := "/"
++	if strings.HasPrefix(prefix, "//") {
++		commandPrefix = "//"
 +	}
- 	if strings.HasPrefix(prefix, "/") && widthx.JSTrim(beforePrefix) == "" && !strings.Contains(prefix[1:], "/") {
- 		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
- 		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
++	if strings.HasPrefix(prefix, "/") && p.slash.hasCommand(item.Value) && !strings.Contains(prefix[len(commandPrefix):], "/") {
++		out[cursorLine] = beforePrefix + commandPrefix + item.Value + " " + afterCursor
++		return out, cursorLine, len(beforePrefix) + len(commandPrefix) + len(item.Value) + 1
+ 	}
+ 	isDirectory := strings.HasSuffix(item.Label, "/")
+ 	suffix := ""
 diff --git a/tui/inline_command.go b/tui/inline_command.go
 new file mode 100644
-index 0000000..480adbe
+index 0000000..ed36ee3
 --- /dev/null
 +++ b/tui/inline_command.go
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,82 @@
 +package tui
 +
 +import (
@@ -1091,6 +1815,9 @@ index 0000000..480adbe
 +			break
 +		}
 +		end = slash
++		if !strings.HasPrefix(before[slash:], "//") && widthx.JSTrim(before[:slash]) != "" {
++			continue
++		}
 +		if slash > 0 {
 +			r, _ := utf8.DecodeLastRuneInString(before[:slash])
 +			if !widthx.IsJSSpace(r) {
@@ -1099,7 +1826,9 @@ index 0000000..480adbe
 +		}
 +		command := strings.TrimSpace(before[slash:])
 +		fields := strings.Fields(command)
-+		if len(fields) == 0 || !known(strings.TrimPrefix(fields[0], "/")) {
++		name := strings.TrimPrefix(fields[0], "/")
++		name = strings.TrimPrefix(name, "/")
++		if strings.HasPrefix(name, "skill:") || !known(name) {
 +			continue
 +		}
 +		// Leading commands with no surrounding draft retain the normal submit path.
@@ -1143,10 +1872,10 @@ index 0000000..480adbe
 +}
 diff --git a/tui/input_demands_test.go b/tui/input_demands_test.go
 new file mode 100644
-index 0000000..ede3b75
+index 0000000..83a382d
 --- /dev/null
 +++ b/tui/input_demands_test.go
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,126 @@
 +package tui
 +
 +import (
@@ -1162,11 +1891,14 @@ index 0000000..ede3b75
 +		text, before, command, want string
 +		row                         int
 +	}{
-+		{"fix it /mode ask", "fix it /mode ask", "/mode ask", "fix it ", 0},
-+		{"fix /mode ask then explain", "fix /mode ask", "/mode ask", "fix  then explain", 0},
-+		{"🧠 explain /model openai/gpt-6.1 then continue", "🧠 explain /model openai/gpt-6.1", "/model openai/gpt-6.1", "🧠 explain  then continue", 0},
++		{"fix it //mode ask", "fix it //mode ask", "//mode ask", "fix it ", 0},
++		{"fix //mode ask then explain", "fix //mode ask", "//mode ask", "fix  then explain", 0},
++		{"🧠 explain //model openai/gpt-6.1 then continue", "🧠 explain //model openai/gpt-6.1", "//model openai/gpt-6.1", "🧠 explain  then continue", 0},
++		{"first line\n//mode act\nlast line", "//mode act", "//mode act", "first line\n\nlast line", 1},
++		{"//mode ask suffix", "//mode ask", "//mode ask", " suffix", 0},
 +		{"first line\n/mode act\nlast line", "/mode act", "/mode act", "first line\n\nlast line", 1},
 +		{"/mode ask suffix", "/mode ask", "/mode ask", " suffix", 0},
++		{"  /mode ask suffix", "  /mode ask", "/mode ask", "   suffix", 0},
 +	} {
 +		t.Run(tc.text, func(t *testing.T) {
 +			e := NewEditor()
@@ -1184,7 +1916,7 @@ index 0000000..ede3b75
 +}
 +
 +func TestInlineCommandsLeavePathsSkillsAndLeadingCommandsAlone(t *testing.T) {
-+	for _, text := range []string{"/mode ask", "read /tmp/file", "use path/mode", "use /skill:demo", "use /unknown", "use `/mode`"} {
++	for _, text := range []string{"//mode ask", "/mode ask", "example /mode ask", "read /tmp/file", "use path/mode", "use /skill:demo", "use //skill:demo", "use //unknown", "use `//mode`", "use ///mode"} {
 +		e := NewEditor()
 +		e.SetText(text)
 +		if command, ok := e.TakeInlineCommand(func(name string) bool { return name == "mode" }); ok || e.Text() != text {
@@ -1197,7 +1929,7 @@ index 0000000..ede3b75
 +	e := NewEditor()
 +	pasted := strings.Repeat("pasted line\n", 15)
 +	e.HandleInput("\x1b[200~" + pasted + "\x1b[201~")
-+	e.InsertTextAtCursor(" /mode ask")
++	e.InsertTextAtCursor(" //mode ask")
 +	original := e.Text()
 +	if _, ok := e.TakeInlineCommand(func(name string) bool { return name == "mode" }); !ok {
 +		t.Fatal("command not found")
@@ -1212,14 +1944,14 @@ index 0000000..ede3b75
 +}
 +
 +func TestMidPromptCommandCompletionPreservesSuffix(t *testing.T) {
-+	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
-+	lines := []string{"fix it /hel later"}
-+	got := provider.GetSuggestions(lines, 0, len("fix it /hel"))
++	provider := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
++	lines := []string{"fix it //hel later"}
++	got := provider.GetSuggestions(lines, 0, len("fix it //hel"))
 +	if got == nil || len(got.Items) != 1 {
 +		t.Fatalf("suggestions = %+v", got)
 +	}
-+	out, _, col := provider.ApplyCompletion(lines, 0, len("fix it /hel"), got.Items[0], got.Prefix)
-+	if out[0] != "fix it /help  later" || col != len("fix it /help ") || acceptSubmits(lines, 0, len("fix it /hel"), got.Prefix) {
++	out, _, col := provider.ApplyCompletion(lines, 0, len("fix it //hel"), got.Items[0], got.Prefix)
++	if out[0] != "fix it //help  later" || col != len("fix it //help ") || acceptSubmits(lines, 0, len("fix it //hel"), got.Prefix) {
 +		t.Fatalf("completion = %q, col=%d", out, col)
 +	}
 +}
@@ -1327,13 +2059,13 @@ index 7a63c6e..07c9a90 100644
  }
 diff --git a/tui/skill_slash_autocomplete.go b/tui/skill_slash_autocomplete.go
 new file mode 100644
-index 0000000..ae89fb2
+index 0000000..2161b44
 --- /dev/null
 +++ b/tui/skill_slash_autocomplete.go
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,129 @@
 +package tui
 +
-+// Mid-prompt slash autocomplete lists commands and skills after whitespace.
++// At line start / completes everything. After prose, / is skills and // commands.
 +// Unknown tokens still fall through to path completion.
 +
 +import (
@@ -1351,6 +2083,9 @@ index 0000000..ae89fb2
 +	slash := strings.LastIndexByte(text, '/')
 +	if slash < 0 || strings.IndexFunc(text[slash+1:], widthx.IsJSSpace) >= 0 {
 +		return 0, false
++	}
++	if slash > 0 && text[slash-1] == '/' {
++		slash--
 +	}
 +	if slash > 0 {
 +		if r, _ := utf8.DecodeLastRuneInString(text[:slash]); !widthx.IsJSSpace(r) {
@@ -1377,14 +2112,14 @@ index 0000000..ae89fb2
 +}
 +
 +// midPromptSlashToken returns the text after the slash when the cursor (byte column) is inside a slash token that
-+// follows prompt text, on this line or on an earlier one.
++// follows prompt text on the same line.
 +func midPromptSlashToken(lines []string, row, col int) (string, bool) {
 +	if row < 0 || row >= len(lines) {
 +		return "", false
 +	}
 +	before := lines[row][:min(col, len(lines[row]))]
 +	slash, ok := trailingSlashToken(before)
-+	if !ok || !proseBefore(lines, row, slash) {
++	if !ok || widthx.JSTrim(before[:slash]) == "" {
 +		return "", false
 +	}
 +	return before[slash+1:], true
@@ -1417,7 +2152,9 @@ index 0000000..ae89fb2
 +func (p *SlashOnlyProvider) midPromptSkillSuggestions(token string) *AutocompleteSuggestions {
 +	var matched []SlashCommand
 +	for _, c := range p.Commands {
-+		if midPromptSkillMatches(token, c.Name) || (!strings.HasPrefix(c.Name, skillCommandPrefix) && strings.HasPrefix(strings.ToLower(c.Name), strings.ToLower(token))) {
++		isCommand := strings.HasPrefix(token, "/")
++		legacyCommand := !p.chatInput && !strings.HasPrefix(c.Name, skillCommandPrefix) && strings.HasPrefix(strings.ToLower(c.Name), strings.ToLower(token))
++		if legacyCommand || (!isCommand && midPromptSkillMatches(token, c.Name)) || (isCommand && !strings.HasPrefix(c.Name, skillCommandPrefix) && strings.HasPrefix(strings.ToLower(c.Name), strings.ToLower(token[1:]))) {
 +			matched = append(matched, c)
 +		}
 +	}
@@ -1449,8 +2186,7 @@ index 0000000..ae89fb2
 +	return false
 +}
 +
-+// midPromptSlashContext reports whether the cursor sits in a slash token after prompt text, which opens the popup
-+// without a trigger character.
++// midPromptSlashContext opens slash completion after text on the same line.
 +func (e *Editor) midPromptSlashContext() bool {
 +	lines, row, col := e.autocompleteView()
 +	_, ok := midPromptSlashToken(lines, row, col)
@@ -1458,10 +2194,10 @@ index 0000000..ae89fb2
 +}
 diff --git a/tui/skill_slash_autocomplete_test.go b/tui/skill_slash_autocomplete_test.go
 new file mode 100644
-index 0000000..cfa0c6e
+index 0000000..8a80106
 --- /dev/null
 +++ b/tui/skill_slash_autocomplete_test.go
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,142 @@
 +package tui
 +
 +import (
@@ -1489,8 +2225,8 @@ index 0000000..cfa0c6e
 +	return values
 +}
 +
-+func TestMidPromptSlashListsCommandsAndSkills(t *testing.T) {
-+	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
++func TestMidPromptSlashSeparatesCommandsAndSkills(t *testing.T) {
++	provider := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
 +	tests := []struct {
 +		name   string
 +		lines  []string
@@ -1499,11 +2235,16 @@ index 0000000..cfa0c6e
 +		want   []string
 +		prefix string
 +	}{
-+		{"bare slash lists commands and skills", []string{"fix it /"}, 0, 8, []string{"help", "skill:humanizer", "skill:research-last30days", "skill:brainstorm"}, "/"},
++		{"bare slash lists only skills", []string{"fix it /"}, 0, 8, []string{"skill:humanizer", "skill:research-last30days", "skill:brainstorm"}, "/"},
++		{"double slash lists only commands", []string{"fix it //"}, 0, 9, []string{"help"}, "//"},
++		{"leading slash lists everything", []string{"/"}, 0, 1, []string{"help", "skill:humanizer", "skill:research-last30days", "skill:brainstorm"}, "/"},
++		{"later line starts fresh", []string{"earlier prose", "/"}, 1, 1, []string{"help", "skill:humanizer", "skill:research-last30days", "skill:brainstorm"}, "/"},
++		{"later line command", []string{"earlier prose", "  /hel"}, 1, 6, []string{"help"}, "/hel"},
++		{"leading double slash lists only commands", []string{"//"}, 0, 2, []string{"help"}, "//"},
 +		{"bare name prefix", []string{"fix it /hum"}, 0, 11, []string{"skill:humanizer"}, "/hum"},
 +		{"hyphen segment prefix", []string{"fix it /last"}, 0, 12, []string{"skill:research-last30days"}, "/last"},
 +		{"skill namespace query", []string{"fix it /skill:br"}, 0, 16, []string{"skill:brainstorm"}, "/skill:br"},
-+		{"commands are offered", []string{"fix it /hel"}, 0, 11, []string{"help"}, "/hel"},
++		{"commands require double slash", []string{"fix it //hel"}, 0, 12, []string{"help"}, "//hel"},
 +		{"later line after prompt text", []string{"first line", "/hum"}, 1, 4, []string{"skill:humanizer"}, "/hum"},
 +	}
 +	for _, tt := range tests {
@@ -1520,7 +2261,7 @@ index 0000000..cfa0c6e
 +}
 +
 +func TestMidPromptSlashLeavesPathsAndLeadingCommands(t *testing.T) {
-+	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
++	provider := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
 +	if got := provider.GetSuggestions([]string{"see /tmp/x"}, 0, 10); got != nil {
 +		for _, item := range got.Items {
 +			if len(item.Value) >= 6 && item.Value[:6] == "skill:" {
@@ -1528,14 +2269,14 @@ index 0000000..cfa0c6e
 +			}
 +		}
 +	}
-+	got := provider.GetSuggestions([]string{"/hel"}, 0, 4)
++	got := provider.GetSuggestions([]string{"//hel"}, 0, 5)
 +	if want := []string{"help"}; !slices.Equal(suggestionValues(got), want) {
 +		t.Errorf("leading command values = %v, want %v", suggestionValues(got), want)
 +	}
 +}
 +
 +func TestMidPromptSkillCompletionInsertsTokenWithoutSubmit(t *testing.T) {
-+	provider := NewCombinedProvider(skillTestCommands(), t.TempDir(), "")
++	provider := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
 +	lines := []string{"fix it /hum later"}
 +	got := provider.GetSuggestions([]string{"fix it /hum"}, 0, 11)
 +	if got == nil {
@@ -1555,7 +2296,7 @@ index 0000000..cfa0c6e
 +
 +func TestEditorOpensSkillPopupMidText(t *testing.T) {
 +	editor := NewEditor()
-+	editor.SetAutocomplete(NewCombinedProvider(skillTestCommands(), t.TempDir(), ""))
++	editor.SetAutocomplete(NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), ""))
 +	for _, r := range "fix it /hum" {
 +		editor.HandleInput(string(r))
 +	}
@@ -1567,6 +2308,36 @@ index 0000000..cfa0c6e
 +	}
 +	if got, want := editor.Text(), "fix it /skill:humanizer "; got != want {
 +		t.Errorf("text = %q, want %q", got, want)
++	}
++}
++
++func TestEditorOpensLineStartCommandPopup(t *testing.T) {
++	editor := NewEditor()
++	editor.SetAutocomplete(NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), ""))
++	editor.SetText("earlier prose\n  ")
++	for _, key := range "/hel" {
++		editor.HandleInput(string(key))
++	}
++	if !editor.AutocompleteOpen() {
++		t.Fatal("line-start command popup did not open")
++	}
++	if editor.AutocompleteAccept() {
++		t.Fatal("accepting later-line completion submitted the whole draft")
++	}
++	if got := editor.Text(); got != "earlier prose\n  /help " {
++		t.Fatalf("draft=%q", got)
++	}
++}
++
++func TestEditorLineStartArgumentContext(t *testing.T) {
++	editor := NewEditor()
++	editor.asyncAutocomplete = &AsyncAutocompleteProvider{}
++	editor.SetText("earlier prose\n  /model argument")
++	if !editor.naturalAutocompleteContext() {
++		t.Fatal("later-line argument context lost")
++	}
++	if active, _ := editor.naturalAsyncAutocomplete(); !active {
++		t.Fatal("later-line async argument context lost")
 +	}
 +}
 diff --git a/tui/tool_execution.go b/tui/tool_execution.go

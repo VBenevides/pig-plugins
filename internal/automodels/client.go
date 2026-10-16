@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 )
@@ -32,7 +33,7 @@ func IsTransient(err error) bool {
 	return errors.As(err, &transient) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// Client only calls the two fixed production OAuth usage endpoints. HTTP allows
+// Client only calls fixed production OAuth usage endpoints. HTTP allows
 // deterministic transports; timeout and redirect protection cannot be disabled.
 type Client struct{ HTTP *http.Client }
 
@@ -74,7 +75,7 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 	request.Header.Set("Accept", "application/json")
 	if provider == "Claude" {
 		request.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	} else {
+	} else if provider == "Codex" {
 		accountID := entry.AccountID
 		if accountID == "" {
 			accountID = extractCodexAccountID(entry.Access)
@@ -83,6 +84,14 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 			request.Header.Set("chatgpt-account-id", accountID)
 		}
 		request.Header.Set("originator", "pi")
+	}
+	if provider == "Cursor" {
+		userID, err := cursorUserID(entry.Access)
+		if err != nil {
+			return err
+		}
+		request.Header.Del("Authorization")
+		request.AddCookie(&http.Cookie{Name: "WorkosCursorSessionToken", Value: neturl.QueryEscape(userID + "::" + entry.Access)})
 	}
 	client := http.Client{}
 	if c.HTTP != nil {

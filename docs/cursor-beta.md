@@ -1,5 +1,8 @@
 # Cursor models beta
 
+This page describes the legacy CLI adapter, not the default [CLI-free direct provider](cursor-direct.md).
+An explicit beta configuration keeps this adapter selected; no automatic migration or fallback occurs.
+
 This is an **opt-in, text-only beta**, not a verified Cursor model API integration.
 No Cursor account or live inference was available during development. Account
 entitlements, credential compatibility and current CLI behavior still require a
@@ -49,9 +52,9 @@ The numbers above are **example local metadata**, not asserted Cursor limits.
 Set limits appropriate to the selected model. The CLI controls generation and
 may apply its own output limits; this adapter cannot enforce an exact token
 budget. Model entries are manually configured, not discovered or entitlement
-checked. No models are added when this file is absent. Invalid configuration
-produces a session-start error and leaves account login available. Restart after
-changing the file.
+checked. When this file is absent, the default direct provider performs account-scoped discovery.
+Invalid configuration produces a session-start error and leaves account login available without
+silently selecting a different transport. Restart after changing the file.
 
 Rebuild with `./scripts/dev_build.sh`, then run:
 
@@ -60,7 +63,7 @@ Rebuild with `./scripts/dev_build.sh`, then run:
 ```
 
 Log into Cursor through `/login` first. Configured names include “Cursor beta,
-text only”. Delete the configuration file to return to login-only behavior.
+text only”. Move the configuration file aside and unset its environment override to use the direct provider.
 
 ## Safety and limitations
 
@@ -75,8 +78,9 @@ text only”. Delete the configuration file to return to login-only behavior.
   These are CLI-level restrictions, **not an OS security sandbox**; use only a
   trusted CLI. Actual enforcement must be verified against your CLI version.
 - Unexpected CLI tool events are errors, not PiG tool requests. This check cannot
-  undo an operation performed by a faulty or incompatible CLI. Full coding-agent
-  integration that retains PiG approval controls remains blocked/unimplemented.
+  undo an operation performed by a faulty or incompatible CLI. PiG-controlled
+  MCP tool proposals are implemented separately in the direct provider, not in
+  this CLI beta; Cursor-native exec remains unsupported in the direct provider.
 - Output is buffered until the CLI reports success and exits successfully.
   There is no incremental display, automatic retry, account fallback, or remote
   session resume. Partial/truncated/malformed output never becomes success.

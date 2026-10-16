@@ -96,6 +96,7 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0007-provider-recovery-host.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0008-startup-distribution-versions-host.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0009-editor-select-all-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0011-cursor-provider-host.patch" >&2
 echo "dev_build: [4/6] preparing patched SDK" >&2
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
 sdk_ref="$sdk_module@v$compatible_version"
@@ -107,6 +108,7 @@ chmod -R u+w "$stage/sdk"
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0002-native-oauth-accounts-sdk.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0006-image-view-sdk.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0010-ordered-compact-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0012-cursor-provider-sdk.patch" >&2
 (
     cd "$stage/source"
     rm -f go.work go.work.sum

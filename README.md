@@ -83,10 +83,11 @@ Validation with `make check` does not enable these extensions in the default con
 
 ### auto-models
 
-Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude and Codex quota windows) and `/auto-model` (primary and fallback model, with thinking level).
+Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude/Codex quota windows and Cursor account meters) and `/auto-model` (primary and fallback model, with thinking level).
 In a TUI, `/usage` opens a scrollable dashboard (`q`, `esc` or ctrl-c closes; `j`/`k`, arrows and page keys scroll). Other modes print a notification.
 The footer quota badge shows the active provider only. The `openai-codex` provider, and `openai` when its token carries a ChatGPT account id, use the ChatGPT quota endpoint.
 An `openai` API-audience OAuth token is rejected by that endpoint (401), so it is not queried; its quota appears only from response headers after use.
+Cursor account meters are fetched on demand from its dashboard using each native OAuth account; no Cursor CLI is needed for `/usage`. Separate Cursor Models, Other Models and on-demand pools are displayed when reported, with explicit reset/fetch times. Missing amounts are unknown. These balances do not establish model entitlement and do not drive automatic account/model switching. This integration is verified with synthetic fixtures only; account-specific dashboard compatibility remains unverified. See [the protocol review](docs/cursor-direct-protocol.md).
 `/auto-model` offers only the session's scoped models (`--models` or `enabledModels`). With no scope it offers every authenticated model.
 Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. The patched native host stores OAuth accounts in `oauth-accounts.json` and lazily migrates existing singleton OAuth logins from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
@@ -130,9 +131,9 @@ It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.
 
-`patches/pig/0003-chat-input-and-previews-host.patch` lets you type `/` after prompt text to complete a command or skill.
+In the bundled chat input, `/` at the start of any line (after optional whitespace) completes commands, prompt templates and skills. After other text on the same line, `/` completes only skills and non-skill commands require `//`. For example, `/model` works at line start, `explain /model` stays prompt text, and `explain //model` invokes the command. `//` remains available for non-skill commands at line start too. Keyboard shortcuts and programmatic command APIs are unchanged. This is provided by `patches/pig/0003-chat-input-and-previews-host.patch`.
 Skill matching supports the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting a mid-text completion inserts the token without submitting.
-On Enter, a registered command runs from its slash through the cursor. Text before the command and after the cursor stays in the input box, including compact paste contents. Place the cursor immediately after the command's arguments to keep later prose. `/clear` discards only the input, `/exit` closes the session, `/send` submits the remaining draft as steering input, and `/send queue` submits it as a follow-up. During compaction, sends queue with the selected delivery mode.
+On Enter, a registered command runs from its slash token through the cursor: use `/command` at line start or `//command` anywhere a command token may start. Text before the command and after the cursor stays in the input box, including compact paste contents. Place the cursor immediately after the command's arguments to keep later prose. At line start, `/clear` discards only the input, `/exit` closes the session, `/send-steer` submits the remaining draft as steering input, and `/send-queue` submits it as a follow-up. After prose, use `//clear`, `//exit`, `//send-steer` or `//send-queue`. Both send commands take no arguments; the old `/send [queue]` syntax is removed. During compaction, sends queue with the selected delivery mode.
 Submitting a prompt with `/skill:name` tokens still adds each known skill's full block once, before the unchanged text.
 `patches/pig/0004-extension-dialogs-host.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows, or fewer when needed to fit the terminal. PageUp and PageDown scroll the rest, and a status row shows the visible range.
 
@@ -151,6 +152,8 @@ Run `make gowork` to use the patched SDK for development. Host tests requiring
 upstream TypeScript comparison packages cannot run unless those packages are
 installed; targeted native lifecycle, refresh, cancellation and bridge tests
 are covered independently.
+
+Cursor generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. Cursor streams use cancellable backpressure to bound unread events; native compaction drains them before awaiting results. These integration controls require `0011-cursor-provider-host.patch` and `0012-cursor-provider-sdk.patch`, applied by the bundled build.
 
 ### Tool output previews
 
@@ -696,8 +699,10 @@ Legacy duplicate content is preserved; exact-content targeting selects the first
 Use init with unique task text to disambiguate such lists. New sessions start empty.
 
 The live active-phase widget appears **above the editor** through PiG's normal string-array widget
-API (ten-row cap and host-managed wrapping/resizing), not a separate side pane. It hides when all
-tasks are completed or abandoned. A widget failure warns without undoing an already-durable mutation.
+API (ten-row cap), not a separate side pane. At widths of 72 columns or more, pending/in-progress
+tasks and done/closed tasks occupy separate columns; narrower terminals stack the sections.
+Resize callbacks refresh the layout without changing task order or promotion. When all phases
+are closed, the final phase remains visible. A widget failure warns without undoing an already-durable mutation.
 Cards show Roman-numbered phases and themed status markers; collapsed cards summarize untouched
 phases, while expanded cards show every phase. Terminal controls are removed, and cards are capped
 at 1,024 wrapped lines. `/todos` opens the full read-only phased viewer with a done count;
@@ -709,6 +714,10 @@ The extension adds task-management guidance once per effective system prompt.
 The todo policy is stated once, in this guidance: use `todo` only for substantial multi-step work. `SYSTEM.md` no longer repeats it.
 It does not read or write a workspace TODO.md. Markdown conversion helpers are internal library
 functions, not disk import/export commands. Ask mode continues to permit session task notes.
+The separate `todo-planner` skill maintains workspace planning files. During planning updates it
+moves completed items and their evidence into the next numbered `TODO-X.md` archive, verifies
+the archive before removing items, and preserves pending work. It does not archive automatically
+during task execution; see `skills/todo-planner/SKILL.md`.
 
 Tests cover operations, atomic rejection, migration, persistence rollback, active-phase rendering,
 Markdown conversion, and idempotent guidance. Real PiG tests exercise resume, branch/new-session
@@ -780,12 +789,16 @@ Failures are reported. See `extensions/repo-excludes/README.md`.
 
 ## cursor-login
 
-Adds `cursor` to `/login`. It uses Cursor's browser PKCE flow (`cursor.com/loginDeepControl`, then polling
-`api2.cursor.sh/auth/poll`) and refreshes through a `refresh_token` grant at `api2.cursor.sh/oauth/token`. These endpoints are undocumented
-and may change. By default this is login-only. An opt-in **beta version of Cursor** adds manually configured,
-text-only models through the official Cursor CLI; see [Cursor beta setup and limitations](docs/cursor-beta.md).
-The beta requires `--no-tools --thinking off`, buffers output, and has no live account verification. It is not
-a standalone Cursor model API or a production-ready coding-agent integration.
+Adds `cursor` to `/login` using browser PKCE and the native account store. By default, the experimental
+CLI-free provider discovers account models, streams direct Connect/protobuf responses, and hands MCP
+tool proposals to PiG's normal approval loop. No Cursor executable or manual model list is required.
+See [direct-provider setup, limits and manual acceptance](docs/cursor-direct.md). Offline tests use
+synthetic fixtures; live account/server compatibility is **not verified**. Cursor-native exec tools remain unsupported.
+
+An explicit `cursor-beta.json` (or `PIG_CURSOR_BETA_CONFIG`) retains precedence and selects the unchanged,
+text-only CLI beta. Move that configuration aside and restart to try the direct provider. See
+[CLI beta setup](docs/cursor-beta.md). Neither path automatically retries through another transport.
+Both use non-public Cursor contracts that can change; neither is an official standalone model API.
 
 ## user-resources
 
