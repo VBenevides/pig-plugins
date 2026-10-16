@@ -27,6 +27,9 @@ type GitChanges struct {
 
 var errGitOutputTooLarge = errors.New("git output too large")
 
+// ErrPassiveGitCountsUnavailable means conversion would require executable helpers.
+var ErrPassiveGitCountsUnavailable = errors.New("git: passive change counts unavailable with configured conversion filters")
+
 type cappedBuffer struct{ bytes.Buffer }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
@@ -42,6 +45,8 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 func git(ctx context.Context, dir string, env []string, args ...string) (stdout string, code int, ran bool, runErr error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
+	// Passive inspection must never invoke a configured fsmonitor executable.
+	args = append([]string{"-c", "core.fsmonitor=false"}, args...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), append([]string{"GIT_OPTIONAL_LOCKS=0"}, env...)...)
@@ -91,23 +96,28 @@ func ParseGitNumstat(output string) (added, removed int) {
 	return added, removed
 }
 
-// ReadGitChanges counts the working tree's changes against HEAD, including untracked files, without touching the
-// real index: the counts come from a throwaway index (seeded from a copy of the real one so its cached stat data
-// lets git skip unchanged files). ok is false when dir is not a repository or git did not finish; err explains a
-// failure inside a repository, so the caller can keep the previous counts and still report it.
+// ReadGitChanges counts changes against HEAD through a fresh throwaway index.
+// Never copy cached stat data: its new timestamp can hide same-size racy edits.
+// Conversion-filter repositories are explicitly unsupported for passive counts.
+// Other errors let callers retain previous counts while reporting the failure.
 func ReadGitChanges(ctx context.Context, dir string) (changes GitChanges, ok bool, err error) {
-	repo, code, ran, _ := git(ctx, dir, nil, "rev-parse", "--show-toplevel", "--git-path", "index")
+	repo, code, ran, _ := git(ctx, dir, nil, "rev-parse", "--show-toplevel")
 	if !ran || code != 0 {
 		return GitChanges{}, false, nil // not a repository, or git is unavailable
 	}
-	lines := strings.Split(repo, "\n")
-	root := strings.TrimSpace(lines[0])
-	realIndex := ""
-	if len(lines) > 1 {
-		realIndex = strings.TrimSpace(lines[1])
-	}
+	root := strings.TrimSpace(repo)
 	if root == "" {
 		return GitChanges{}, false, nil
+	}
+	// Conversion filters can execute even for intent-to-add and --numstat.
+	// Do not attempt exact converted-content counts in repositories using them.
+	// Query configuration without visiting worktree contents first.
+	filters, filterCode, ran, runErr := git(ctx, root, nil, "config", "--name-only", "--get-regexp", `^filter\..*\.(clean|process)$`)
+	if !ran || (filterCode != 0 && filterCode != 1) {
+		return GitChanges{}, false, fmt.Errorf("git: could not inspect conversion filter configuration: %w", runErr)
+	}
+	if strings.TrimSpace(filters) != "" {
+		return GitChanges{}, false, ErrPassiveGitCountsUnavailable
 	}
 	_, headCode, ran, runErr := git(ctx, root, nil, "rev-parse", "--verify", "--quiet", "HEAD")
 	if !ran {
@@ -127,23 +137,12 @@ func ReadGitChanges(ctx context.Context, dir string) (changes GitChanges, ok boo
 	index := filepath.Join(tmp, "index")
 	env := []string{"GIT_INDEX_FILE=" + index}
 
-	seeded := false
-	if hasHead && realIndex != "" {
-		if !filepath.IsAbs(realIndex) {
-			realIndex = filepath.Join(dir, realIndex)
-		}
-		if data, err := readCapped(realIndex); err == nil && os.WriteFile(index, data, 0o600) == nil {
-			seeded = true
-		}
+	seed := []string{"read-tree", "--empty"}
+	if hasHead {
+		seed = []string{"read-tree", "HEAD"}
 	}
-	if !seeded {
-		seed := []string{"read-tree", "--empty"}
-		if hasHead {
-			seed = []string{"read-tree", "HEAD"}
-		}
-		if _, code, ran, err := git(ctx, root, env, seed...); !ran || code != 0 {
-			return GitChanges{}, false, fmt.Errorf("git: could not seed the temporary index: %w", err)
-		}
+	if _, code, ran, err := git(ctx, root, env, seed...); !ran || code != 0 {
+		return GitChanges{}, false, fmt.Errorf("git: could not seed the temporary index: %w", err)
 	}
 	if _, code, ran, err := git(ctx, root, env, "add", "--intent-to-add", "--all", "--", "."); !ran || code != 0 {
 		return GitChanges{}, false, fmt.Errorf("git: could not add untracked files to the temporary index: %w", err)

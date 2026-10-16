@@ -26,8 +26,8 @@ type TransientError struct{ msg string }
 
 func (e *TransientError) Error() string { return e.msg }
 
-// IsTransient reports whether err is a temporary usage failure. Callers log such errors instead of notifying
-// the user, because the next refresh retries.
+// IsTransient reports whether a usage failure can recover on a later refresh.
+// It does not authorize generation replay or writing over a live TUI.
 func IsTransient(err error) bool {
 	var transient *TransientError
 	return errors.As(err, &transient) || errors.Is(err, context.DeadlineExceeded)

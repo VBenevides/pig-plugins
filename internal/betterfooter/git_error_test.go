@@ -24,7 +24,7 @@ func TestGitChangesPreservesAddFailure(t *testing.T) {
 				add = "exec sleep 10"
 			}
 			// Simulate a repository with no HEAD, then fail only the add operation.
-			script := "#!/bin/sh\ncase \"$1\" in\nrev-parse) if [ \"$2\" = --show-toplevel ]; then pwd; echo .git/index; else exit 1; fi ;;\nread-tree) exit 0 ;;\nadd) " + add + " ;;\nesac\n"
+			script := "#!/bin/sh\nif [ \"$1\" = -c ]; then shift 2; fi\ncase \"$1\" in\nrev-parse) if [ \"$2\" = --show-toplevel ]; then pwd; else exit 1; fi ;;\nconfig) exit 1 ;;\nread-tree) exit 0 ;;\nadd) " + add + " ;;\nesac\n"
 			if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}

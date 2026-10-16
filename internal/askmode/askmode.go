@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -23,22 +22,16 @@ Blocked tool calls are rejected by the host; do not try to work around them.`
 var readOnlyTools = map[string]bool{
 	"read": true, "grep": true, "find": true, "ls": true, "todo": true,
 	"web_search": true, "url_context": true, "ask_user_question": true, "tool_search": true,
+	// These are the reviewed tools shipped by lsp and pi-curator. New names
+	// require policy review, even when discovered under the same namespace.
+	"lsp_diagnostics": true, "lsp_hover": true, "lsp_definition": true,
+	"lsp_references": true, "lsp_symbols": true, "lsp_rename_preview": true,
+	"code_overview": true, "code_search": true,
+	"memory_search": true, "memory_read": true,
 }
 
-var readOnlyPrefixes = []string{"lsp_", "code_", "memory_"}
-
-// ReadOnlyTool reports whether a non-bash, non-write tool is safe in ask mode.
-func ReadOnlyTool(name string) bool {
-	if readOnlyTools[name] {
-		return true
-	}
-	for _, prefix := range readOnlyPrefixes {
-		if strings.HasPrefix(name, prefix) && !strings.Contains(name, "rename_apply") {
-			return true
-		}
-	}
-	return false
-}
+// ReadOnlyTool admits only exact, reviewed names. Discovery never grants rights.
+func ReadOnlyTool(name string) bool { return readOnlyTools[name] }
 
 // WriteTool reports whether the tool writes to a path it receives.
 func WriteTool(name string) bool { return name == "write" || name == "edit" }
@@ -86,78 +79,10 @@ func resolve(path string) (string, error) {
 	}
 }
 
-var (
-	segmentSplit = regexp.MustCompile(`&&|\|\||;|\||\n`)
-	plainCommand = map[string]bool{
-		"ls": true, "cat": true, "head": true, "tail": true, "grep": true, "rg": true, "wc": true, "file": true,
-		"stat": true, "pwd": true, "echo": true, "which": true, "type": true, "date": true, "uname": true,
-		"whoami": true, "tree": true, "du": true, "df": true, "diff": true, "sort": true, "uniq": true,
-		"cut": true, "tr": true, "basename": true, "dirname": true, "realpath": true, "readlink": true,
-		"jq": true, "nl": true, "column": true, "true": true, "false": true, "id": true, "hostname": true,
-	}
-	gitReadOnly = map[string]bool{
-		"status": true, "diff": true, "log": true, "show": true, "blame": true, "ls-files": true,
-		"rev-parse": true, "describe": true, "grep": true, "shortlog": true, "cat-file": true, "ls-tree": true,
-	}
-	findWriters = map[string]bool{"-delete": true, "-exec": true, "-execdir": true, "-ok": true, "-okdir": true, "-fprint": true, "-fprint0": true, "-fprintf": true, "-fls": true}
-)
-
-// ReadOnlyBash reports whether command only reads. It is deliberately conservative: anything it cannot prove
-// read-only is rejected, with a reason.
-func ReadOnlyBash(command string) (bool, string) {
-	if strings.TrimSpace(command) == "" {
-		return false, "empty command"
-	}
-	for _, bad := range []string{">", "`", "$(", "<(", "<<"} {
-		if strings.Contains(command, bad) {
-			return false, fmt.Sprintf("contains %q (redirection or substitution)", bad)
-		}
-	}
-	for _, segment := range segmentSplit.Split(command, -1) {
-		if strings.TrimSpace(segment) == "" {
-			continue
-		}
-		if strings.Contains(segment, "&") {
-			return false, "background execution is not allowed"
-		}
-		if ok, why := readOnlySegment(strings.Fields(segment)); !ok {
-			return false, why
-		}
-	}
-	return true, ""
-}
-
-func readOnlySegment(words []string) (bool, string) {
-	name, args := words[0], words[1:]
-	for _, a := range args {
-		if a == "-o" || strings.HasPrefix(a, "--output") || a == "--pre" || strings.HasPrefix(a, "--pre=") {
-			return false, fmt.Sprintf("%s %s may write or run a program", name, a)
-		}
-	}
-	switch {
-	case name == "find":
-		for _, a := range args {
-			if findWriters[a] {
-				return false, "find " + a + " changes state"
-			}
-		}
-		return true, ""
-	case name == "git":
-		for _, a := range args {
-			if strings.HasPrefix(a, "-") {
-				if a == "-c" || a == "-C" || strings.HasPrefix(a, "--exec-path") {
-					return false, "git " + a + " is not allowed"
-				}
-				continue
-			}
-			if gitReadOnly[a] {
-				return true, ""
-			}
-			return false, "git " + a + " is not read-only"
-		}
-		return false, "git without a read-only subcommand"
-	case plainCommand[name]:
-		return true, ""
-	}
-	return false, fmt.Sprintf("%q is not a known read-only command", name)
+// ReadOnlyBash rejects shell execution in ASK. Command names and argument
+// filtering cannot establish read-only behavior: PATH, configuration, filters,
+// and subprocesses can all introduce side effects. Use dedicated read tools.
+// This policy is not an OS sandbox for trusted extension code.
+func ReadOnlyBash(_ string) (bool, string) {
+	return false, "shell execution cannot be verified read-only; use dedicated read/search tools"
 }

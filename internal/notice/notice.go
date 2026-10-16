@@ -1,31 +1,20 @@
-// Package notice shows extension messages in the chat transcript instead of the transient notification line,
-// which renders in the middle of the text input.
+// Package notice routes display-only extension diagnostics to the host UI.
+// Never use conversation messages for notifications: native custom messages are
+// converted to user messages in the next model request, even with TriggerTurn=false.
 package notice
-
-import (
-	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
-)
-
-const customType = "pig-plugins-notice"
-
-type messenger interface {
-	SendMessage(customType, content string, display bool, opts sdk.SendMessageOptions) error
-}
 
 type notifier interface {
 	Notify(message, level string)
 }
 
-// Show displays text in the transcript without starting a model turn and reports whether it did. If the context
-// cannot send messages, or sending fails, it falls back to Notify so the message is never lost; callers should
-// then also log it. When Show returns true, logging the same text would only add a duplicate line in the terminal.
+// Show dispatches a diagnostic through the host's notification channel, which
+// the pinned native host renders in the transcript without touching the editor
+// or model history. The result reports UI availability, not an acknowledged
+// render (the SDK Notify API returns no error). Callers should log when false.
 func Show(ctx notifier, text, level string) bool {
-	if m, ok := ctx.(messenger); ok {
-		trigger := false
-		if err := m.SendMessage(customType, text, true, sdk.SendMessageOptions{TriggerTurn: &trigger}); err == nil {
-			return true
-		}
+	if ui, ok := ctx.(interface{ HasUI() bool }); ok && !ui.HasUI() {
+		return false
 	}
 	ctx.Notify(text, level)
-	return false
+	return true
 }

@@ -75,7 +75,7 @@ Upstream authors, repositories and licences for the ported extensions are in [TH
 ## Port status
 
 Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
-`web-search`, `ask-user-question`, `todo`, `auto-models`, and `better-footer`.
+`web-search`, `ask-user-question`, `todo`, `auto-models`, `better-footer`, and `goal`.
 Use `pig -e ./extensions/<name>` to load a port for one session.
 Validation with `make check` does not enable these extensions in the default configuration.
 
@@ -93,9 +93,11 @@ Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cach
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
 When a saved cooldown would force startup onto fallback, supported native-account quota is checked first. Confirmed remaining quota clears the cooldown; exhausted, unknown, or failed checks retain it.
 On quota failure, auto-models first tries another native account for the same provider with at least 5% known quota remaining, retaining the model. Only if none is eligible does it try the configured fallback. Account or model recovery shares one continuation budget per interrupted task; explicit `--model` disables both. Background low-quota rotation still waits until the session is idle.
+The recovery allowance survives successful replies and tool continuations; only fresh, explicit idle interactive/RPC input resets it. Repeated background credential warnings are coalesced with bounded history and periodic repeat counts.
 In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.
 Differences from upstream: only OAuth credentials are used, quota requests have a timeout, size limit, and no redirects, and persistence errors are reported, not ignored.
 Native account storage and quota integration received a read-only security review with no material findings.
+Display-only diagnostics use native notifications rather than conversation messages or raw live-TUI logs; headless failures retain sanitized logs. `patches/pig/0013-diagnostic-routing-host.patch` tests draft, cursor, queued-input and model-history isolation.
 
 ### better-footer
 
@@ -106,6 +108,7 @@ Tool-result tokens do not count. `~` marks streamed estimates until reported usa
 arrives; the final `t/s` is held after `agent_end` until the next interaction.
 It also shows session usage, context, cost, cwd, Git branch/change counts, project
 version, model, thinking, and quota.
+Passive Git inspection disables fsmonitor and external diff/textconv helpers. Repositories with clean/process conversion filters omit change counts with a diagnostic rather than execute those helpers. Counts use a fresh temporary index without changing the real index.
 Narrow terminals hide throughput first to keep the model visible.
 Auto-models badges show `🧠 primary` or `⚡ fallback`; the model name appears only
 in the footer's model field.
@@ -767,8 +770,16 @@ Select and confirm dialogs the host draws (the Smart Approve question, the `/pi-
 
 `/mode` toggles between ACT and read-only ASK; `/mode ask`, `/mode act`, and `/mode status` set or show the mode. `/ask` is no longer registered.
 The state is in memory only and resets to ACT when a session starts.
-In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` blocks everything except read-only tools and provably read-only bash (no redirection, substitution or write-capable commands).
+In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` permits only exact reviewed read-only tool names. Unknown tools remain blocked even under `lsp_`, `code_` or `memory_` prefixes. Shell calls are denied because command names and argument filtering cannot prove read-only execution; use dedicated read/search tools or switch to ACT.
 `write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
+
+## goal
+
+`/goal set <objective>` starts one objective and the agent keeps working on it until it is reached or everything left is blocked. The objective can be any text; `/skill:name` tokens anywhere in it expand to the skill's content, as they do in a normal prompt, and an unknown skill name stays plain text.
+`/goal check` shows `Current goal` and `Current status`: `working`, or `finished` with how it ended (`reached`, `blocked`, or `stopped`) and the model's summary. `/goal clear` forgets the goal and stops continuing; a run in progress is not interrupted. `/goal set` replaces an earlier goal.
+While the goal works, the footer shows `GOAL` and the objective is added to the system prompt of every run, so it survives compaction. When a run ends and the goal is not finished, the extension sends a short continuation message. The model ends the goal by calling `goal_finish` with `reached` or `blocked` and a summary; it is told to verify the result first and to keep working on any part that is not blocked.
+The goal also ends as `stopped` when you press Esc, when a model request fails, or when three runs in a row make no tool call and do not finish it.
+The goal is stored in the session, so it survives a restart: a resumed `working` goal continues after your next message. The model reports `reached` itself; there is no independent verifier, so check important results yourself. The goal runs with your normal permissions and approvals, and `goal_finish` is blocked in ASK mode.
 
 ## adhd-output
 

@@ -200,7 +200,7 @@ func TestQuotaFailureKeepsModelWhenOtherExhausted(t *testing.T) {
 func TestSuccessfulMessageCancelsPendingContinuation(t *testing.T) {
 	x := &extension{retryPending: true, retryUsed: true}
 	_, err := x.messageEnd(sdk.Context{}, map[string]any{"message": map[string]any{"role": "assistant", "stopReason": "stop"}})
-	if err != nil || x.retryPending || x.retryUsed {
+	if err != nil || x.retryPending || !x.retryUsed {
 		t.Fatal("successful retry left continuation pending", err)
 	}
 }

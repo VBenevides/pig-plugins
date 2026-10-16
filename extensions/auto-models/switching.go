@@ -3,7 +3,6 @@ package automodels
 import (
 	"context"
 	"fmt"
-	"log"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
@@ -62,9 +61,7 @@ func (x *extension) rotateAccountWithPolicy(ctx accountSwitcher, account sdk.OAu
 		}
 		remaining, err := x.accountRemaining(x.life, ctx, candidate)
 		if err != nil {
-			if !notice.Show(ctx, "auto-models: "+clean(err.Error()), "warning") {
-				log.Printf("auto-models: %v", err)
-			}
+			x.report(ctx, err)
 			continue
 		}
 		if remaining == nil || *remaining < 5 {

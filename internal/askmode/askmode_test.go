@@ -7,18 +7,25 @@ import (
 )
 
 func TestReadOnlyBash(t *testing.T) {
-	ok := []string{"ls -la", "git status && git diff HEAD", "cat a | grep x | wc -l", "find . -name '*.go'", "rg foo src"}
-	bad := []string{"rm -rf x", "echo hi > f", "ls; touch x", "cat a >> b", "find . -delete", "find . -exec rm {} +",
-		"git commit -m x", "git -C /tmp status", "sort -o out in", "echo $(rm x)", "ls &", "sed -i s/a/b/ f", "git diff --output=x", "", "ls\nrm x"}
-	for _, c := range ok {
-		if got, why := ReadOnlyBash(c); !got {
-			t.Errorf("%q rejected: %s", c, why)
+	// Even apparently harmless commands can resolve through an untrusted PATH,
+	// Git configuration, or executable helpers. Dedicated reads remain allowed.
+	commands := []string{
+		"ls -la", "git status && git diff HEAD", "cat a | grep x | wc -l", "find . -name '*.go'", "rg foo src",
+		"rm -rf x", "echo hi > f", "ls; touch x", "cat a >> b", "find . -delete", "find . -exec rm {} +",
+		"git commit -m x", "git -C /tmp status", "sort -o out in", "echo $(rm x)", "ls &", "sed -i s/a/b/ f", "git diff --output=x", "", "ls\nrm x",
+		"sort -oout in", "sort --compress-program=helper in", "git diff --ext-diff", "git diff --textconv",
+		"git status --porcelain", "rg --hostname-bin helper x", "find . -fprintf out x",
+		"sort -roout in", "sort --output=out in", "uniq in out", "file -C", "diff --to-file=out a",
+		"rg --pre=helper x", "rg --hostname-bin=helper x", "git -c core.pager=helper log", "PATH=/tmp ls",
+		"ls >out", "echo $(touch out)", "sort '-oout' in", "sort -\\oout in",
+	}
+	for _, command := range commands {
+		if got, why := ReadOnlyBash(command); got || why == "" {
+			t.Errorf("%q: accepted=%v reason=%q", command, got, why)
 		}
 	}
-	for _, c := range bad {
-		if got, _ := ReadOnlyBash(c); got {
-			t.Errorf("%q accepted", c)
-		}
+	if !ReadOnlyTool("read") || !ReadOnlyTool("grep") {
+		t.Fatal("dedicated read/search tools must remain available")
 	}
 }
 

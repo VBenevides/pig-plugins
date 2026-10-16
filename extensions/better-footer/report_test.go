@@ -32,8 +32,15 @@ func TestReportSanitizesMaliciousPathErrors(t *testing.T) {
 			x := &extension{}
 			x.report(host, &os.PathError{Op: "open", Path: "/project/" + command + "package.json", Err: os.ErrPermission})
 			want := "better-footer: open /project/package.json: permission denied"
-			if got := output.String(); !strings.Contains(got, want) || strings.Contains(got, command) || strings.Contains(got, "secret") {
-				t.Fatalf("unsafe or missing log for %q: %q", command, got)
+			got := output.String()
+			if strings.Contains(got, command) || strings.Contains(got, "secret") {
+				t.Fatalf("unsafe log for %q: %q", command, got)
+			}
+			if hasUI && got != "" {
+				t.Fatalf("duplicate terminal log alongside UI notification: %q", got)
+			}
+			if !hasUI && !strings.Contains(got, want) {
+				t.Fatalf("missing headless log: %q", got)
 			}
 			if hasUI {
 				if len(host.messages) != 1 || host.messages[0] != want || host.levels[0] != "warning" {
