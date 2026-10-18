@@ -57,6 +57,19 @@ This implementation is a subset, not a claim of full parity or Cursor service au
 Its MIT licence is retained in `extensions/pi-image-view/LICENSE`. The pinned TypeScript reference source and
 upstream archive integrity metadata are retained in `testfixtures/image-view/upstream/`; they are not bundled.
 
+## Native readmap-inspired tooling
+
+`extensions/command-output/`, `internal/rtk/`, `extensions/ast-search/` and
+`internal/astsearch/` are independently implemented Go features inspired by
+[pi-hashline-readmap 0.16.1](https://github.com/coctostan/pi-hashline-readmap/tree/9cf713553b9624db9f0e8d87501f9549709b557b)
+(Maxwell Newman, MIT). They are not a full port and do not incorporate its
+TypeScript implementation or mapping runtime.
+
+AST-pattern search optionally invokes [ast-grep](https://github.com/ast-grep/ast-grep)
+0.42.x as a separately installed executable. No ast-grep binary or parser
+grammar is redistributed by this repository. Its CLI contracts were checked
+against the 0.42.2 source and native executable.
+
 ## Prompt material
 
 The ADHD output rules draw on [i-have-adhd](https://github.com/ayghri/i-have-adhd) (MIT). Its notice is in
