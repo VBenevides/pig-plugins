@@ -2,6 +2,20 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.1.3] - 2026-10-18
+
+### Features
+
+- Added bundled, opt-in command-output reduction for Go test progress, Go test JSON and `go build -v`. Enable **Reduce command output** in `/settings`; changes persist and apply without restarting. Diagnostics remain visible, failed host results stay untouched, and commands, exit status and structured values are unchanged.
+- Added private, bounded raw-output captures linked from reduced results, with oldest-first eviction and lifecycle cleanup. Recovery failures retain the original host output and show a warning; captures cannot restore bytes already truncated by the host. `PI_RTK_BYPASS=1` bypasses reduction.
+- Added bundled, read-only `ast_search` using ast-grep, available through tool discovery and in ASK mode. Searches return bounded snippets and source locations, honor existing source discovery, isolate repository configuration, and never grant edit authority or support rewrites.
+- The installer now reuses ast-grep on `PATH` or downloads an official native release with SHA-256 verification for Linux glibc and macOS on amd64/arm64. Dependency failures stop installation before builds and prompt updates; existing versions are not replaced or upgraded.
+
+### Other
+
+- Added regression coverage for discovery/read/edit authority, output recovery and reducers, live settings, dependency installation failures, and bundled tool workflows.
+- Documented structural search, reduction settings, raw-capture limits and third-party attribution; clarified that discovery output and reduced command output do not authorize edits.
+
 ## [0.1.2] - 2026-10-16
 
 ### Features
