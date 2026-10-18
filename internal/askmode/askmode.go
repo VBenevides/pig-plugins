@@ -22,11 +22,11 @@ Blocked tool calls are rejected by the host; do not try to work around them.`
 var readOnlyTools = map[string]bool{
 	"read": true, "grep": true, "find": true, "ls": true, "todo": true,
 	"web_search": true, "url_context": true, "ask_user_question": true, "tool_search": true,
-	// These are the reviewed tools shipped by lsp and pi-curator. New names
+	// These are reviewed tools shipped by lsp, ast-search, and pi-curator. New names
 	// require policy review, even when discovered under the same namespace.
 	"lsp_diagnostics": true, "lsp_hover": true, "lsp_definition": true,
 	"lsp_references": true, "lsp_symbols": true, "lsp_rename_preview": true,
-	"code_overview": true, "code_search": true,
+	"code_overview": true, "code_search": true, "ast_search": true,
 	"memory_search": true, "memory_read": true,
 }
 

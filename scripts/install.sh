@@ -60,7 +60,7 @@ fail_with_log() {
 }
 
 # 1. Ensure PiG is installed at the release declared in COMPATIBILITY.json.
-echo "install: [1/6] checking PiG installation" >&2
+echo "install: [1/7] checking PiG installation" >&2
 if [ "${PIG_PLUGINS_UPDATE:-0}" = 1 ] || ! command -v pig >/dev/null 2>&1; then
     command -v curl >/dev/null 2>&1 || { echo "install: curl is required to install pig" >&2; exit 1; }
     upstream_installer=$(mktemp "${TMPDIR:-/tmp}/pig-install.XXXXXX")
@@ -79,12 +79,25 @@ if [ "${PIG_PLUGINS_UPDATE:-0}" = 1 ] || ! command -v pig >/dev/null 2>&1; then
     command -v pig >/dev/null 2>&1 || { echo "install: pig installation failed" >&2; exit 1; }
 fi
 
-# 2. Build the fused executable. Prompts and skills are installed only after this succeeds.
-echo "install: [2/6] building executable" >&2
+# 2. Reuse any ast-grep version, or install a verified official native release.
+echo "install: [2/7] checking ast-grep installation" >&2
+PATH="$PATH:$pig_home/bin"
+export PATH
+if command -v ast-grep >/dev/null 2>&1; then
+    echo "install: using existing ast-grep on PATH" >&2
+else
+    (cd "$root" && GOWORK=off go run ./cmd/install-ast-grep "$pig_home/bin") || {
+        echo "install: ast-grep installation failed; install it on PATH and retry" >&2
+        exit 1
+    }
+fi
+
+# 3. Build the fused executable. Prompts and skills follow a successful build.
+echo "install: [3/7] building executable" >&2
 binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins-native") || { echo "install: build failed (see diagnostics above)" >&2; exit 1; }
 
-# 3. Copy tracked files to a staging directory, then swap it in.
-echo "install: [3/6] copying repository files" >&2
+# 4. Copy tracked files to a staging directory, then swap it in.
+echo "install: [4/7] copying repository files" >&2
 stage=$(mktemp -d "$pig_home/.pig-plugins-stage.XXXXXX")
 trap 'rm -rf "$stage"; rm -f "$log"' 0
 git -C "$root" ls-files -z | tar -C "$root" --null -T - -cf - | tar -C "$stage" -xf -
@@ -99,8 +112,8 @@ mv -- "$stage" "$dest"
 rm -rf -- "$dest.old"
 chmod 755 "$dest"
 
-# 4. Copy the prompts into the agent directory.
-echo "install: [4/6] installing agent prompts" >&2
+# 5. Copy the prompts into the agent directory.
+echo "install: [5/7] installing agent prompts" >&2
 stamp=$(date +%s)
 for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
     target="$agent_dir/$f"
@@ -124,8 +137,8 @@ if [ -f "$keys_source" ]; then
     fi
 fi
 
-# 5. Copy the skills into the agent directory.
-echo "install: [5/6] installing skills" >&2
+# 6. Copy the skills into the agent directory.
+echo "install: [6/7] installing skills" >&2
 for skill in "$dest"/skills/*/; do
     [ -f "$skill/SKILL.md" ] || continue
     name=$(basename -- "$skill")
@@ -148,8 +161,8 @@ chmod 755 "$pig_home/bin/pig-plugins.tmp.$$"
 mv -- "$pig_home/bin/pig-plugins.tmp.$$" "$pig_home/bin/pig-plugins"
 binary="$pig_home/bin/pig-plugins"
 
-# 6. Link the executable into the user bin directory so `pig-plugins` is on PATH.
-echo "install: [6/6] linking executable" >&2
+# 7. Link the executable into the user bin directory so `pig-plugins` is on PATH.
+echo "install: [7/7] linking executable" >&2
 link_dir=${PIG_PLUGINS_LINK_DIR:-"$HOME/.local/bin"}
 link="$link_dir/pig-plugins"
 mkdir -p -- "$link_dir"

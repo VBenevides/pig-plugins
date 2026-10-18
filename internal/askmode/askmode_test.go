@@ -56,7 +56,7 @@ func TestInAgentWork(t *testing.T) {
 }
 
 func TestReadOnlyTool(t *testing.T) {
-	for name, want := range map[string]bool{"read": true, "lsp_hover": true, "memory_search": true, "write": false, "edit": false, "bash": false, "mcp_deploy": false} {
+	for name, want := range map[string]bool{"read": true, "lsp_hover": true, "memory_search": true, "ast_search": true, "ast_search_rewrite": false, "write": false, "edit": false, "bash": false, "mcp_deploy": false} {
 		if ReadOnlyTool(name) != want {
 			t.Errorf("%s: want %v", name, want)
 		}

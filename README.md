@@ -9,6 +9,10 @@ curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts
 Requires `git`, `go`, and `curl`. If `pig` is not on `PATH`, the script first installs
 the PiG version declared in `COMPATIBILITY.json` (currently `0.4.1`; override with
 `PIG_VERSION`) into `~/.local/bin`.
+The installer also provides `ast-grep`. It preserves any existing version on `PATH`.
+If none exists, it downloads the latest official native release into `~/.pig/bin`.
+It verifies the archive against GitHub's SHA-256 asset digest before installation.
+No npm, Node.js, Cargo, or system package manager is required.
 The script clones the repository into a temporary directory and builds the fused executable at `~/.pig/bin/pig-plugins-native`.
 The `~/.pig/bin/pig-plugins` launcher starts it and supports `--update`.
 Only after that build succeeds does it copy the plugins, prompts and skills into `~/.pig` and remove the clone. Details are under
@@ -75,7 +79,8 @@ Upstream authors, repositories and licences for the ported extensions are in [TH
 ## Port status
 
 Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
-`web-search`, `ask-user-question`, `todo`, `auto-models`, `better-footer`, and `goal`.
+`web-search`, `ask-user-question`, `todo`, `auto-models`, `better-footer`, `goal`,
+`command-output`, and `ast-search`.
 Use `pig -e ./extensions/<name>` to load a port for one session.
 Validation with `make check` does not enable these extensions in the default configuration.
 
@@ -293,6 +298,11 @@ Select all comes from `patches/pig/0009-editor-select-all-host.patch`, which `sc
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
 Builds the fused executable at `~/.pig/bin/pig-plugins-native`, installs the launcher at `~/.pig/bin/pig-plugins`, and symlinks the launcher as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
+The launcher adds `~/.pig/bin` to its dependency search path after existing `PATH` entries.
+Automatic `ast-grep` installation supports Linux with glibc and macOS on amd64 and arm64.
+On other platforms, install `ast-grep` on `PATH` before running the installer.
+A dependency download or verification failure stops installation before the build and prompt updates.
+Reinstallation reuses an existing dependency. It does not upgrade or replace it.
 
 ### Build a bundled development binary
 
@@ -421,6 +431,83 @@ storage hardware failure. Identical writes and no-op edits do not publish or syn
 Edits allow at most 256 operations and 100,000 replacement lines per request, with at most 16 MiB of replacement
 text. Final files must fit 100,000 lines and 16 MiB including BOM and line terminators. Oversized results are
 rejected before serialization or temporary-file creation. These limits are enforced by runtime validation.
+
+## Native command output and AST search
+
+These Go-native features borrow ideas from [pi-hashline-readmap](https://github.com/coctostan/pi-hashline-readmap),
+without replacing the existing hashline engine or adding parser-backed maps.
+Both extensions are included in `piglet.yaml`; standalone loading works with
+`pig -e ./extensions/command-output -e ./extensions/ast-search`.
+
+### Command-aware reducers
+
+Compression is opt-in: open `/settings` and set **Reduce command output** to
+`true` (default: `false`). Changes apply to subsequent Bash results without a
+restart and are saved as `"reduceCommandOutput": true` in global `settings.json`.
+Trusted project settings can override the global value. `PI_RTK` is no longer
+used. The settings row requires the bundled host patch
+`0014-command-output-settings-host.patch`; rebuild the bundle to get it.
+The standalone extension also requires that patched host to expose the setting.
+It post-processes the original Bash result;
+it does not rewrite the approved command, execute it again, or alter exit/error
+status or native structured script values. Failed host results remain uncompressed.
+The initial reducers handle verbose Go test progress, Go test JSON envelopes,
+and `go build -v` package progress. Diagnostic payloads and unrecognized lines
+are retained. Complex shell commands, pipelines, and quoted commands are not reduced.
+A result is compressed only if the complete presentation, including its recovery
+notice, is smaller and fits 50 KiB. This changes model-facing output, unlike
+collapsed TUI previews, which only change display.
+
+Prefix one simple command with `PI_RTK_BYPASS=1` to bypass reduction, or set that
+variable in the agent's environment to bypass all reductions. Bypass restores
+normal host output, not unbounded output. No external `rtk` executable is needed.
+
+Before compression, the captured raw text is saved in a private temporary
+directory (0700) with files mode 0600. The notice links to that capture; it cannot
+recover bytes the host already truncated. Captures are limited to 2 MiB each,
+32 files and 16 MiB retained per instance, evicting oldest first. They are removed
+on session start, tree navigation and shutdown; inspect them before then.
+Cleanup failures are reported and retried on later lifecycle events. Abrupt
+process termination can leave the private temporary directory behind.
+Recovery/reducer failures retain the host output and show a warning; oversized
+diagnostics are not silently discarded to meet a compression target.
+
+Reducer settings and bypass tests run with `go test -race ./extensions/command-output ./internal/rtk`.
+To include the native-host execution test, set `PIG_COMMAND_OUTPUT_SMOKE_BINARY`
+to a host or bundle built with the settings patch.
+
+### Read-only AST-pattern search
+
+Installation provides the [ast-grep executable](https://ast-grep.github.io/guide/quick-start.html#installation).
+For standalone extensions or development binaries, put `ast-grep` on `PATH` yourself.
+All versions are accepted without a version probe. CLI option and JSON output errors remain visible.
+Validated with 0.42.2, 0.44.1, and an installer-downloaded 0.51.0.
+No Node.js, npm, or parser runtime is added to this project's dependencies.
+Do not substitute Linux's unrelated `sg` command.
+Missing ast-grep or an unsupported CLI contract produces an error when search is called.
+It does not prevent startup or affect read/edit.
+
+```text
+ast_search({ pattern: "println($A)", lang: "go", path: "internal", limit: 50 })
+```
+
+`ast_search` is deferred when tool discovery is available, and directly active
+otherwise. It is also available in ASK mode. It returns discovery-only snippets
+and 1-based source locations (exclusive end); call `read` for fresh edit anchors,
+version tokens and displayed-source authority before editing. Search never
+grants edit authority and exposes no rewrite/update flags. Existing read/edit/write
+formats, filesystem safeguards, image numbering and heuristic outlines are unchanged.
+
+Search uses the existing `code_search` source-file discovery (including its source
+extension set and Git-ignore/fallback behavior), at most 3000 files, 16 per CLI
+batch and two CLI threads. Files over 1 MiB are skipped with a count and bounded
+warning list. A 15-second request timeout, 1 MiB stdout/16 KiB stderr capture caps,
+200-match ceiling, 1024-byte snippet previews, and a 50 KiB serialized response
+budget bound work and output. Truncation is explicit; narrow the path or pattern.
+CLI calls use argv-safe arguments and an isolated configuration, so repository
+`sgconfig.yml` custom-language libraries are not loaded. AST parsing is used
+only for search, not file maps. External filesystem changes can still race
+file discovery/inspection; this is not a filesystem sandbox.
 
 ## LANCET model runtime
 

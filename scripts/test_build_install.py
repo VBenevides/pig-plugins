@@ -50,6 +50,7 @@ class BuildScriptsTest(unittest.TestCase):
             self.env.pop(name, None)
         self.tool("pig", 'echo "pig 0.4.1"\n')
         self.tool("node", "exit 0\n")
+        self.tool("ast-grep", "exit 0\n")
         self.tool("git", '''case "$*" in
     *ls-files*) printf 'go.mod\\0piglet.yaml\\0prompts/agent/SYSTEM.md\\0prompts/agent/APPEND_SYSTEM.md\\0prompts/agent/AGENTS.md\\0' ;;
     *) exit 0 ;;
@@ -57,7 +58,16 @@ esac
 ''')
         self.tool("go", '''printf '%s|%s|%s\\n' "${GOFLAGS:-}" "${GOMAXPROCS:-}" "$*" >> "$TOOL_LOG"
 case "$1" in
-    run) python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dependencies"]["pig"]["version"])' "$3" ;;
+    run)
+        if [ "$2" = ./cmd/install-ast-grep ]; then
+            [ "${FAIL_AST_INSTALL:-0}" != 1 ] || { echo 'fixture dependency failed' >&2; exit 8; }
+            mkdir -p "$3"
+            printf '#!/bin/sh\\nexit 0\\n' > "$3/ast-grep"
+            chmod +x "$3/ast-grep"
+        else
+            python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dependencies"]["pig"]["version"])' "$3"
+        fi
+        ;;
     list) echo "$SDK_FIXTURE" ;;
     build)
         for name in .git .agent-work build node_modules .ouro; do
@@ -136,12 +146,66 @@ chmod +x "$2"
         result = self.run_script("install.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("fixture fused progress", result.stderr)
-        for stage in range(1, 7):
-            self.assertIn(f"install: [{stage}/6]", result.stderr)
+        for stage in range(1, 8):
+            self.assertIn(f"install: [{stage}/7]", result.stderr)
         self.assertTrue((Path(self.env["PIG_PLUGINS_LINK_DIR"]) / "pig-plugins").is_symlink())
         launcher = Path(self.env["PIG_HOME"]) / "bin/pig-plugins"
         self.assertIn("--update", launcher.read_text())
         self.assertTrue((launcher.parent / "pig-plugins-native").is_file())
+
+    def without_system_ast_grep(self):
+        (self.tools / "ast-grep").unlink()
+        utilities = Path(self.tmp.name) / "utilities"
+        utilities.mkdir()
+        for name in ("sh", "dirname", "tar", "mkdir", "mktemp", "date", "cmp",
+                     "cp", "mv", "rm", "chmod", "ln", "basename", "diff", "cat", "python3"):
+            target = shutil.which(name)
+            assert target is not None, f"missing fixture utility: {name}"
+            (utilities / name).symlink_to(target)
+        self.env["PATH"] = f"{self.tools}:{utilities}"
+
+    def test_install_provides_ast_grep_and_reuses_it(self):
+        self.without_system_ast_grep()
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        dependency = Path(self.env["PIG_HOME"]) / "bin/ast-grep"
+        self.assertTrue(os.access(dependency, os.X_OK))
+        self.assertEqual(Path(self.env["TOOL_LOG"]).read_text().count("run ./cmd/install-ast-grep"), 1)
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(self.env["TOOL_LOG"]).read_text().count("run ./cmd/install-ast-grep"), 1)
+
+    def test_install_preserves_external_ast_grep(self):
+        before = (self.tools / "ast-grep").read_bytes()
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.tools / "ast-grep").read_bytes(), before)
+        self.assertFalse((Path(self.env["PIG_HOME"]) / "bin/ast-grep").exists())
+        self.assertNotIn("run ./cmd/install-ast-grep", Path(self.env["TOOL_LOG"]).read_text())
+
+    def test_dependency_failure_stops_before_build_and_prompts(self):
+        self.without_system_ast_grep()
+        self.env["FAIL_AST_INSTALL"] = "1"
+        result = self.run_script("install.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("fixture dependency failed", result.stderr)
+        self.assertIn("ast-grep installation failed", result.stderr)
+        self.assertNotIn("build -v", Path(self.env["TOOL_LOG"]).read_text())
+        self.assertFalse((Path(self.env["PIG_HOME"]) / "agent/SYSTEM.md").exists())
+
+    def test_launcher_exposes_managed_ast_grep(self):
+        self.without_system_ast_grep()
+        home_bin = Path(self.env["PIG_HOME"]) / "bin"
+        home_bin.mkdir(parents=True)
+        dependency = home_bin / "ast-grep"
+        dependency.write_text("#!/bin/sh\necho managed-dependency\n")
+        dependency.chmod(0o755)
+        native = home_bin / "pig-plugins-native"
+        native.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo fixture; else ast-grep; fi\n')
+        native.chmod(0o755)
+        result = self.run_script("pig-plugins.sh", "-p", "hello")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "managed-dependency\n")
 
     def test_install_failure_does_not_install_prompts(self):
         self.env["FAIL_BUILD"] = "1"

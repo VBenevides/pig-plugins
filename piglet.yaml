@@ -7,6 +7,10 @@ extensions:
     origins: [local:./extensions/tool-search]
   - name: hashline-edit
     origins: [local:./extensions/hashline-edit]
+  - name: command-output
+    origins: [local:./extensions/command-output]
+  - name: ast-search
+    origins: [local:./extensions/ast-search]
   - name: smart-approve-lancet
     origins: [local:./extensions/smart-approve-lancet]
   - name: pi-curator
