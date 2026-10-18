@@ -38,6 +38,12 @@ func TestBundledReadmapWorkflow(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "available", true: "unavailable"}[missing], func(t *testing.T) {
 			home := pigtest.NewHome(t)
+			if err := os.MkdirAll(home.AgentDir(), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(home.AgentDir(), "settings.json"), []byte(`{"reduceCommandOutput":true}`), 0600); err != nil {
+				t.Fatal(err)
+			}
 			source := "package example\nfunc Example() { println(1) }\n"
 			path := filepath.Join(home.Work, "example.go")
 			if err := os.WriteFile(path, []byte(source), 0600); err != nil {
@@ -71,7 +77,7 @@ func TestBundledReadmapWorkflow(t *testing.T) {
 			mock := pigtest.NewMockLLM(steps...)
 			defer mock.Close()
 			home.WriteModels(t, map[string]pigtest.ProviderModels{"mock": {Mock: mock, Models: []string{"mock-model"}, Vision: true}})
-			env := map[string]string{"PI_OFFLINE": "1", "PI_RTK": "1", "PI_RTK_BYPASS": "0", "PATH": filepath.Dir(ast) + string(os.PathListSeparator) + os.Getenv("PATH")}
+			env := map[string]string{"PI_OFFLINE": "1", "PI_RTK": "0", "PI_RTK_BYPASS": "0", "PATH": filepath.Dir(ast) + string(os.PathListSeparator) + os.Getenv("PATH")}
 			if missing {
 				env["PATH"] = t.TempDir()
 			}

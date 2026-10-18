@@ -18,7 +18,7 @@ func Extension() *sdk.Extension {
 	e := sdk.New("ast-search")
 	e.RegisterTool(sdk.ToolDefinition{
 		Name: "ast_search", Label: "ast_search", Exposure: sdk.ToolExposureDeferred,
-		Description:   "Read-only AST-pattern search using optional ast-grep 0.42.x. Returns locations and bounded snippets, not edit authority. Read matching ranges before editing. Uses code_search source-file discovery; files over 1 MiB are skipped. No parser-backed maps or rewrites.",
+		Description:   "Read-only AST-pattern search using optional ast-grep, with no version restriction. Returns locations and bounded snippets, not edit authority. Read matching ranges before editing. Uses code_search source-file discovery; files over 1 MiB are skipped. No parser-backed maps or rewrites.",
 		PromptSnippet: "Find structural AST-pattern matches; read the source before editing",
 		Parameters: map[string]any{"type": "object", "additionalProperties": false, "required": []string{"pattern", "lang"}, "properties": map[string]any{
 			"pattern": map[string]any{"type": "string", "minLength": 1, "maxLength": 8192, "description": "AST pattern, for example console.log($$$ARGS)"},

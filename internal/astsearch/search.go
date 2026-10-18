@@ -21,7 +21,6 @@ const maxSourceBytes = 1 << 20
 const visibleBudget = 20 << 10
 
 var languageName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]{0,31}$`)
-var supportedVersion = regexp.MustCompile(`^ast-grep 0\.42\.[0-9]+\s*$`)
 
 type Options struct {
 	Pattern, Language, Path string
@@ -90,11 +89,11 @@ func (s Searcher) Search(ctx context.Context, cwd string, options Options) (resu
 	if binary == "" {
 		binary, err = exec.LookPath("ast-grep")
 		if err != nil {
-			return result, failure("dependency_unavailable", fmt.Errorf("install ast-grep 0.42.x on PATH: %w", err))
+			return result, failure("dependency_unavailable", fmt.Errorf("install ast-grep on PATH: %w", err))
 		}
 	}
 	// Explicit safe configuration prevents automatic loading of repository custom
-	// language libraries, even for the CLI's version probe. No project config runs.
+	// language libraries. No project config runs.
 	configDir, err := os.MkdirTemp("", "pig-ast-search-")
 	if err != nil {
 		return result, fmt.Errorf("create isolated ast-grep config: %w", err)
@@ -103,13 +102,6 @@ func (s Searcher) Search(ctx context.Context, cwd string, options Options) (resu
 	defer func() { err = errors.Join(err, os.RemoveAll(configDir)) }()
 	if err := os.WriteFile(config, []byte("ruleDirs: []\n"), 0600); err != nil {
 		return result, fmt.Errorf("write isolated ast-grep config: %w", err)
-	}
-	version, err := execute(request, binary, configDir, []string{"--config", config, "--version"})
-	if err != nil {
-		return result, err
-	}
-	if version.limited || version.exit != 0 || !supportedVersion.MatchString(strings.TrimSpace(version.out)) {
-		return result, failure("dependency_incompatible", errors.New("requires ast-grep 0.42.x"))
 	}
 	base := []string{"run", "--config", config, "--json=stream", "--color=never", "--threads=2", "--lang=" + options.Language, "--pattern=" + options.Pattern}
 	// Validate even when the search scope has no eligible files. Stdin is closed.

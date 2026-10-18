@@ -9,6 +9,10 @@ curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts
 Requires `git`, `go`, and `curl`. If `pig` is not on `PATH`, the script first installs
 the PiG version declared in `COMPATIBILITY.json` (currently `0.4.1`; override with
 `PIG_VERSION`) into `~/.local/bin`.
+The installer also provides `ast-grep`. It preserves any existing version on `PATH`.
+If none exists, it downloads the latest official native release into `~/.pig/bin`.
+It verifies the archive against GitHub's SHA-256 asset digest before installation.
+No npm, Node.js, Cargo, or system package manager is required.
 The script clones the repository into a temporary directory and builds the fused executable at `~/.pig/bin/pig-plugins-native`.
 The `~/.pig/bin/pig-plugins` launcher starts it and supports `--update`.
 Only after that build succeeds does it copy the plugins, prompts and skills into `~/.pig` and remove the clone. Details are under
@@ -294,6 +298,11 @@ Select all comes from `patches/pig/0009-editor-select-all-host.patch`, which `sc
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
 Builds the fused executable at `~/.pig/bin/pig-plugins-native`, installs the launcher at `~/.pig/bin/pig-plugins`, and symlinks the launcher as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
+The launcher adds `~/.pig/bin` to its dependency search path after existing `PATH` entries.
+Automatic `ast-grep` installation supports Linux with glibc and macOS on amd64 and arm64.
+On other platforms, install `ast-grep` on `PATH` before running the installer.
+A dependency download or verification failure stops installation before the build and prompt updates.
+Reinstallation reuses an existing dependency. It does not upgrade or replace it.
 
 ### Build a bundled development binary
 
@@ -432,8 +441,14 @@ Both extensions are included in `piglet.yaml`; standalone loading works with
 
 ### Command-aware reducers
 
-Compression is opt-in: start `PI_RTK=1 pig-plugins` (or set that variable when
-loading the standalone extension). It post-processes the original Bash result;
+Compression is opt-in: open `/settings` and set **Reduce command output** to
+`true` (default: `false`). Changes apply to subsequent Bash results without a
+restart and are saved as `"reduceCommandOutput": true` in global `settings.json`.
+Trusted project settings can override the global value. `PI_RTK` is no longer
+used. The settings row requires the bundled host patch
+`0014-command-output-settings-host.patch`; rebuild the bundle to get it.
+The standalone extension also requires that patched host to expose the setting.
+It post-processes the original Bash result;
 it does not rewrite the approved command, execute it again, or alter exit/error
 status or native structured script values. Failed host results remain uncompressed.
 The initial reducers handle verbose Go test progress, Go test JSON envelopes,
@@ -457,13 +472,20 @@ process termination can leave the private temporary directory behind.
 Recovery/reducer failures retain the host output and show a warning; oversized
 diagnostics are not silently discarded to meet a compression target.
 
+Reducer settings and bypass tests run with `go test -race ./extensions/command-output ./internal/rtk`.
+To include the native-host execution test, set `PIG_COMMAND_OUTPUT_SMOKE_BINARY`
+to a host or bundle built with the settings patch.
+
 ### Read-only AST-pattern search
 
-Install an optional [ast-grep 0.42.x executable](https://ast-grep.github.io/guide/quick-start.html#installation)
-on `PATH` (validated with 0.42.2). No Node.js, npm, or parser runtime is added to
-this project's dependencies. Do not substitute Linux's unrelated `sg` command.
-Missing or incompatible ast-grep produces an explicit tool error only when
-search is called; it does not prevent startup or affect read/edit.
+Installation provides the [ast-grep executable](https://ast-grep.github.io/guide/quick-start.html#installation).
+For standalone extensions or development binaries, put `ast-grep` on `PATH` yourself.
+All versions are accepted without a version probe. CLI option and JSON output errors remain visible.
+Validated with 0.42.2, 0.44.1, and an installer-downloaded 0.51.0.
+No Node.js, npm, or parser runtime is added to this project's dependencies.
+Do not substitute Linux's unrelated `sg` command.
+Missing ast-grep or an unsupported CLI contract produces an error when search is called.
+It does not prevent startup or affect read/edit.
 
 ```text
 ast_search({ pattern: "println($A)", lang: "go", path: "internal", limit: 50 })

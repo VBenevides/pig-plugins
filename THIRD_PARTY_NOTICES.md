@@ -66,9 +66,12 @@ upstream archive integrity metadata are retained in `testfixtures/image-view/ups
 TypeScript implementation or mapping runtime.
 
 AST-pattern search optionally invokes [ast-grep](https://github.com/ast-grep/ast-grep)
-0.42.x as a separately installed executable. No ast-grep binary or parser
-grammar is redistributed by this repository. Its CLI contracts were checked
-against the 0.42.2 source and native executable.
+as a separately installed executable, without a version restriction. No ast-grep
+binary or parser grammar is redistributed by this repository.
+The installer preserves an existing executable or downloads an official release
+and verifies its GitHub SHA-256 asset digest. CLI contracts were initially checked
+against the 0.42.2 source and executable. Real-CLI and search/read/edit integration
+tests also pass with 0.44.1 and an installer-downloaded 0.51.0.
 
 ## Prompt material
 

@@ -31,7 +31,15 @@ func Extension() *sdk.Extension {
 	e.OnSessionShutdown(reset)
 	e.OnEvent(sdk.EventSessionTree, reset)
 	e.OnToolResult(func(ctx sdk.Context, event map[string]any) (any, error) {
-		if os.Getenv("PI_RTK") != "1" || os.Getenv("PI_RTK_BYPASS") == "1" {
+		if event["toolName"] != "bash" || os.Getenv("PI_RTK_BYPASS") == "1" {
+			return nil, nil
+		}
+		settings, err := ctx.GetSettings()
+		if err != nil {
+			ctx.Notify(fmt.Sprintf("Command output reduction disabled: read settings: %v", err), "warn")
+			return nil, nil
+		}
+		if settings["reduceCommandOutput"] != true {
 			return nil, nil
 		}
 		request, cancel := sdkctx.Request(ctx)

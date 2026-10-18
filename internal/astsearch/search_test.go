@@ -43,8 +43,8 @@ func TestRealStructuralSearchIsReadOnly(t *testing.T) {
 	source := "package example\nfunc Example() { println( 1 ); println(2); other(3) }\n"
 	path := fixture(t, dir, "source ; $(touch injected).go", source)
 	fixture(t, dir, "other.go", "package example\nfunc Other() { println(4) }\n")
-	// An invalid repository config must never be loaded, including during version
-	// checks. It could otherwise request native custom-language library loading.
+	// An invalid repository config must never be loaded; it could otherwise
+	// request native custom-language library loading.
 	fixture(t, dir, "sgconfig.yml", "not: [valid config\n")
 	result, err := (Searcher{Binary: binary}).Search(context.Background(), dir, Options{Pattern: "println($A)", Language: "go", Limit: 10})
 	if err != nil {
@@ -138,12 +138,8 @@ func TestAstHelper(t *testing.T) {
 	}
 	mode := os.Getenv("PI_AST_MODE")
 	if slicesIndex(args, "--version") >= 0 {
-		if mode == "old" {
-			fmt.Println("ast-grep 0.41.0")
-		} else {
-			fmt.Println("ast-grep 0.42.2")
-		}
-		os.Exit(0)
+		fmt.Fprintln(os.Stderr, "version probing is not supported by this fixture")
+		os.Exit(2)
 	}
 	if slicesIndex(args, "--stdin") >= 0 {
 		os.Exit(1)
@@ -192,8 +188,27 @@ func helper(t *testing.T) string {
 	}
 	return script
 }
+func TestSearchDoesNotRequireVersionProbe(t *testing.T) {
+	binary := helper(t)
+	dir := t.TempDir()
+	fixture(t, dir, "source.go", "package example\n")
+	log := filepath.Join(t.TempDir(), "argv")
+	t.Setenv("PI_AST_LOG", log)
+	result, err := (Searcher{Binary: binary}).Search(context.Background(), dir, Options{Pattern: "x", Language: "go"})
+	if err != nil || len(result.Matches) != 1 {
+		t.Fatalf("search rejected a CLI without version reporting: %+v %v", result, err)
+	}
+	data, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "--version") {
+		t.Fatalf("search must not gate execution on a version probe: %s", data)
+	}
+}
+
 func TestAdapterFailuresAndBudgets(t *testing.T) {
-	for _, mode := range []string{"old", "sleep", "bad-json", "stderr", "oversized-record", "many"} {
+	for _, mode := range []string{"sleep", "bad-json", "stderr", "oversized-record", "many"} {
 		t.Run(mode, func(t *testing.T) {
 			binary := helper(t)
 			t.Setenv("PI_AST_MODE", mode)

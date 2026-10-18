@@ -2,6 +2,9 @@
 # Installed entry point; the native executable remains independently usable.
 set -eu
 pig_home=${PIG_HOME:-"$HOME/.pig"}
+# Keep an existing system ast-grep first. Fall back to the managed dependency.
+PATH="$PATH:$pig_home/bin"
+export PATH
 if [ "${1:-}" = --update ]; then
     [ "$#" -eq 1 ] || { echo 'usage: pig-plugins --update' >&2; exit 2; }
     command -v curl >/dev/null 2>&1 || { echo 'update: curl is required' >&2; exit 1; }
