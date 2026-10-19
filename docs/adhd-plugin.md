@@ -46,6 +46,11 @@
 
 Optional launch flag: `pig --adhd` starts a new session with the mode enabled. A saved choice on the active branch **always wins** over launch/config defaults.
 
+**0.2.0 migration:** PiG 0.5.1 enables a boolean extension flag whenever it is present.
+`--adhd false` therefore enables the launch default. It no longer disables it.
+Remove that flag to use the configured default. Use `/adhd off` to save a disabled choice.
+This command also updates the default for new sessions.
+
 ### Footer behavior
 
 When enabled, show:

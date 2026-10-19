@@ -5,7 +5,7 @@ gowork:
 	./scripts/gowork.sh
 
 fmt-check:
-	@out=$$(gofmt -l .); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
+	@out=$$(git ls-files --cached --others --exclude-standard -z -- '*.go' | xargs -0 gofmt -l); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
 vet:
 	go vet ./...

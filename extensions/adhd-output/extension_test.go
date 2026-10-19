@@ -248,9 +248,11 @@ func TestPrintModeFlagWithoutTUI(t *testing.T) {
 		flags     []string
 		wantRules int
 	}{
+		{name: "no flag"},
 		{name: "bare", flags: []string{"--adhd"}, wantRules: 1},
 		{name: "explicit true", flags: []string{"--adhd", "true"}, wantRules: 1},
-		{name: "explicit false", flags: []string{"--adhd", "false"}},
+		// PiG 0.5.1 boolean extension flags use presence, not their value.
+		{name: "explicit false is still present", flags: []string{"--adhd", "false"}, wantRules: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := pigtest.NewHome(t)

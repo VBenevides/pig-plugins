@@ -8,14 +8,15 @@ import (
 	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 )
 
 func Extension() *sdk.Extension {
 	e := sdk.New("session-probe")
 	e.OnEvent(sdk.EventBeforeAgentStart, func(_ sdk.Context, data map[string]any) (any, error) {
-		base, ok := data["systemPrompt"].(string)
-		if !ok {
-			return nil, errors.New("test contribution received no base prompt")
+		base, err := eventprompt.Read("session-probe", data)
+		if err != nil {
+			return nil, err
 		}
 		return map[string]any{"systemPrompt": base + "\n\nUNCHANGED_EXTENSION_SENTINEL"}, nil
 	})
