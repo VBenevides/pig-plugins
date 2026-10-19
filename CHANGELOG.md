@@ -2,6 +2,17 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.1.4] - 2026-10-19
+
+### Features
+
+- Changed hashline edits now renew authority for source fully displayed in their responses, including context lines. Subsequent edits can reuse the returned version and anchors without rereading. Previous coverage is discarded; shortened lines, omitted tails and summary gaps do not authorize replacement or deletion. Whole-file version checks, session isolation and bounded retention remain enforced.
+
+### Other
+
+- Added regression coverage for chained edits, coverage replacement, truncation, summary gaps, retention limits and authority revocation; extended golden assertions to cover edit-response display ranges.
+- Updated tool descriptions, agent prompts and README guidance to distinguish reusable edit-response anchors from ranges that still require a read.
+
 ## [0.1.3] - 2026-10-18
 
 ### Features
