@@ -354,3 +354,20 @@ index 094bb80..b18e0e4 100644
  let input = "";
  process.stdin.setEncoding("utf8"); // decode across chunk boundaries: `input += chunk` on Buffers splits a multi-byte character at a 64 KiB edge
  for await (const chunk of process.stdin) input += chunk;
+diff --git a/tui/select_submenu.go b/tui/select_submenu.go
+index 8111551..0385cd6 100644
+--- a/tui/select_submenu.go
++++ b/tui/select_submenu.go
+@@ -110,6 +110,12 @@ func (s *SelectSubmenuComponent) HandleInput(data string) {
+ 		return
+ 	}
+ 	s.searchInput.HandleInput(data)
++	// The search input can submit through its own binding (for example LF
++	// under Kitty). Preserve that selection for the stepped parent instead
++	// of replacing the completed list while applying the unchanged filter.
++	if s.list.Done() {
++		return
++	}
+ 	items := FuzzyFilter(s.allOptions, s.searchInput.Text(), func(item SelectItem) string { return item.Label + " " + item.Description })
+ 	s.buildSelectList(s.listTitle, items, "")
+ }
