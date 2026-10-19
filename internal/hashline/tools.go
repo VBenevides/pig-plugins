@@ -46,7 +46,7 @@ type Result struct {
 	Text        string
 	Details     map[string]any
 	Images      []Image
-	readContent []byte // Private exact-byte snapshot, never serialized into tool details.
+	readContent []byte // Private exact-byte display snapshot, never serialized into tool details.
 }
 
 // ReadDescription, ReadSnippet, ReadGuidelines, EditDescription, EditSnippet and EditGuidelines are the model-facing
@@ -60,17 +60,17 @@ var (
 	ReadGuidelines = []string{
 		"Use read to examine files instead of cat or sed. For a large file, read the outline first, then the range you need.",
 	}
-	EditDescription = "Edit one existing text file using its Version token and line anchors from read (<line>#<hash>). The whole-file version must still match before any operation is applied. " +
-		"The extension requires retained read authority for this file in the current session. Replacement/deletion requires fully displayed source for every affected line. " +
+	EditDescription = "Edit one existing text file using its Version token and line anchors from read or a successful edit response (<line>#<hash>). The whole-file version must still match before any operation is applied. " +
+		"The extension requires retained display authority for this file in the current session. Replacement/deletion requires fully displayed source for every affected line. " +
 		"If the version or any anchor is stale, the whole call is rejected and nothing changes. " +
 		"Read again; text is never searched for. Ops: replace (anchor, optional end for a range, lines), " +
 		"insert_before / insert_after (anchor, lines), delete (anchor, optional end). lines is an array with one string " +
-		"per line, without line breaks. Do not paste display anchors into lines unless they are intended literal source; lines are never silently stripped or normalized. All ops use the anchors of the original read; ops in one call must not overlap " +
-		"and must not insert at the same position. After a successful mutation, read again before editing further. Create files with write; an empty existing file has no anchors, so fill it with write (explicit replacement keeps its permissions)."
-	EditSnippet    = "Edit a file with line anchors from read; stale or ambiguous anchors are rejected"
+		"per line, without line breaks. Do not paste display anchors into lines unless they are intended literal source; lines are never silently stripped or normalized. All ops use the same pre-edit snapshot; ops in one call must not overlap " +
+		"and must not insert at the same position. A changed edit renews authority only for fully displayed source in its response. Reuse that response's version and anchors for following edits; read other ranges. Create files with write; an empty existing file has no anchors, so fill it with write (explicit replacement keeps its permissions)."
+	EditSnippet    = "Edit with anchors from read or a successful edit response; stale or ambiguous anchors are rejected"
 	EditGuidelines = []string{
-		"Copy the Version token and full anchors from the same current read; never guess them. Reread after mutation or expired authority.",
-		"Put all changes to one file in a single edit call; every op refers to the original anchors, not to earlier ops.",
+		"Copy the Version token and full anchors from a current read or successful edit response; never guess them. Read undisplayed ranges or renew expired authority with read.",
+		"Batch planned changes to one file in a single edit call; every op refers to the same pre-edit snapshot, not to earlier ops.",
 	}
 )
 
@@ -94,17 +94,17 @@ func EditSchema() map[string]any {
 		"additionalProperties": false,
 		"properties": map[string]any{
 			"path":    map[string]any{"type": "string", "minLength": 1, "description": "Path to the file to edit (relative or absolute)"},
-			"version": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Version token from the same read as the anchors; required even if the selected lines are unchanged."},
+			"version": map[string]any{"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Version token from the read or successful edit response that supplied the anchors; required even if the selected lines are unchanged."},
 			"edits": map[string]any{
 				"type":     "array",
 				"minItems": 1, "maxItems": MaxEditOperations,
-				"description": "Anchored ops, all validated against the file as read.",
+				"description": "Anchored ops, all validated against the same pre-edit file version.",
 				"items": map[string]any{
 					"type":                 "object",
 					"additionalProperties": false,
 					"properties": map[string]any{
 						"op":     map[string]any{"type": "string", "enum": []string{"replace", "insert_before", "insert_after", "delete"}},
-						"anchor": map[string]any{"type": "string", "pattern": "^[1-9][0-9]*#[0-9a-f]{4}$", "description": "First (or only) line, as <line>#<hash> from read."},
+						"anchor": map[string]any{"type": "string", "pattern": "^[1-9][0-9]*#[0-9a-f]{4}$", "description": "First (or only) line, as <line>#<hash> from read or a successful edit response."},
 						"end":    map[string]any{"type": "string", "pattern": "^[1-9][0-9]*#[0-9a-f]{4}$", "description": "Last line of a range for replace/delete, as <line>#<hash>."},
 						"lines":  map[string]any{"type": "array", "minItems": 1, "maxItems": MaxEditLines, "items": map[string]any{"type": "string"}, "description": "Required for replacement/insertion; forbidden for deletion. One string per line."},
 					},
@@ -540,13 +540,16 @@ func editLockedContext(request Cancellation, cwd, absolute string, version, edit
 	}
 	regions := make([][2]int, len(edited.Regions))
 	copy(regions, edited.Regions)
+	text, coverage := editSummary(absolute, len(edits.([]any)), edited.File, edited.Regions)
+	content := []byte(updated)
 	return withVersion(Result{
-		Text:    editSummary(absolute, len(edits.([]any)), edited.File, edited.Regions),
-		Details: map[string]any{"changed": true, "regions": regions},
-	}, []byte(updated)), nil
+		Text:        text,
+		Details:     map[string]any{"changed": true, "regions": regions, "fullyDisplayedRanges": coverage},
+		readContent: content,
+	}, content), nil
 }
 
-func editSummary(absolute string, ops int, file ParsedFile, regions [][2]int) string {
+func editSummary(absolute string, ops int, file ParsedFile, regions [][2]int) (string, [][2]int) {
 	sorted := append([][2]int(nil), regions...)
 	sort.SliceStable(sorted, func(a, b int) bool { return sorted[a][0] < sorted[b][0] })
 	var wanted [][2]int
@@ -562,6 +565,7 @@ func editSummary(absolute string, ops int, file ParsedFile, regions [][2]int) st
 	// Reserve room for the truncation notice and the version envelope added by the caller.
 	remainingBytes := MaxRangeBytes - len(header) - 256
 	var rows []string
+	coverage := make([][2]int, 0)
 	byteCapped := false
 windows:
 	for _, window := range wanted {
@@ -581,11 +585,14 @@ windows:
 			}
 			rows = append(rows, row)
 			remainingBytes -= len(row) + 1
+			if utf16Length(file.Lines[n-1].Text) <= MaxLineChars {
+				coverage = append(coverage, [2]int{n, n})
+			}
 		}
 	}
 	truncated := ""
 	if byteCapped || len(rows) >= resultMaxLines {
 		truncated = "\n[more changed lines not shown; read again for their anchors]"
 	}
-	return header + strings.Join(rows, "\n") + truncated
+	return header + strings.Join(rows, "\n") + truncated, mergeCoverage(nil, coverage)
 }

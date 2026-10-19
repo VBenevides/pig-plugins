@@ -41,10 +41,10 @@ func TestDiscoveryRequiresReadBeforeEdit(t *testing.T) {
 	if string(got) != "package example\n\nfunc Example() { println(1) }\n" {
 		t.Fatalf("file = %q", got)
 	}
-	// A successful mutation revokes authority even if the new digest is known.
+	// Fully displayed edit output renews authority, unlike discovery output.
 	params["version"] = ContentVersion(got)
 	params["edits"] = []any{map[string]any{"op": "delete", "anchor": FormatAnchor(3, "func Example() { println(1) }")}}
-	if _, err := engine.EditContext(ctx, dir, params); err == nil {
-		t.Fatal("edit summary authorized a subsequent edit without rereading")
+	if _, err := engine.EditContext(ctx, dir, params); err != nil {
+		t.Fatalf("displayed edit response did not renew authority: %v", err)
 	}
 }

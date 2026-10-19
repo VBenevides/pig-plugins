@@ -24,7 +24,7 @@ func TestMutationsRevokeOldReadsAndRereadPublishesCurrentAuthority(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(engine.reads) != 0 || engine.bytes != 0 {
+			if operation == "write" && (len(engine.reads) != 0 || engine.bytes != 0) {
 				t.Fatal("successful mutation retained obsolete authority")
 			}
 			if _, err := engineDelete(engine, dir, "f", old.Details["version"].(string)); err == nil {

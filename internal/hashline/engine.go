@@ -19,13 +19,13 @@ type retainedRead struct {
 	coverage [][2]int
 }
 
-// Engine owns bounded read authority. Construct with NewEngine; do not copy it.
+// Engine owns bounded display authority. Construct with NewEngine; do not copy it.
 // The low-level stateless functions remain available for trusted internal callers.
 type Engine struct {
 	ready              chan struct{}
 	slots              chan struct{}
 	reads              map[string]retainedRead
-	order              []string // Least recently read first; edits never refresh retention.
+	order              []string // Least recently retained display first.
 	bytes              int
 	maxFiles, maxBytes int
 	scope              string
@@ -187,7 +187,11 @@ func (engine *Engine) EditContext(request Cancellation, cwd string, params map[s
 	}
 	result, err = EditContext(request, cwd, params)
 	var committed *CommittedError
-	if err == nil && result.Details["changed"] == true || errors.As(err, &committed) {
+	if err == nil && result.Details["changed"] == true {
+		// Never carry coverage across a mutation; only the returned display counts.
+		engine.forget(target)
+		engine.retain(target, result)
+	} else if errors.As(err, &committed) {
 		engine.forget(target)
 	}
 	return result, err
