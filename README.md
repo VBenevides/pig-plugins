@@ -359,7 +359,7 @@ intentionally rejected; reread instead of guessing a token. It does not match th
 0.8.3, which uses a different anchor format (`LINE#HASH:` with two-character hashes) and extra ops. The outline for
 large source files uses the same regular expressions as the original; `internal/hashline/testdata/ts-golden.json` holds
 the TypeScript outputs it is compared against (`.agent-work/scripts/hashline-golden/generate.mjs` regenerates it).
-Anchored read details include `fullyDisplayedRanges`: inclusive source-line ranges whose complete text was
+Anchored reads and changed-edit responses include `fullyDisplayedRanges`: inclusive source-line ranges whose complete text was
 shown. Outlines and empty files have empty coverage; shortened lines and omitted tails are excluded. This
 coverage authorizes replacement/deletion only when every affected line was fully displayed at the retained
 version. Multiple range reads of the same version accumulate coverage; outlines alone authorize no destruction.
@@ -368,14 +368,17 @@ Lines longer than 2,000 UTF-16 units cannot be replaced or deleted through trunc
 after repeated reads. Inspect their complete content through another suitable tool; deliberate whole-file
 replacement remains available through explicit write. No hidden-content override is inferred from anchors.
 The extension retains at most 64 canonical files and 32 MiB of snapshot content plus coverage metadata, with
-one current version per file. Reads refresh retention; oldest reads are evicted first. Eviction, a newer read
-version, or a successful mutation requires a fresh read before another edit. Oversized snapshots are displayed
-but not retained. Trusted internal callers can still use the stateless hashline functions directly.
-There is no time-based expiry: retention ends through bounded eviction, version replacement, changed mutation,
-or lifecycle revocation. Repeated reads of identical bytes merge displayed ranges; a new version discards
-previous coverage. No-op mutations and rejected requests do not revoke an otherwise valid read. A version
-digest in a saved transcript or successful-edit summary is not retained authority: explicitly reread the
-needed source range after expiry/mutation, even if its short anchors or content digest appear unchanged.
+one current version per file. Reads and changed-edit responses refresh retention; oldest retained displays
+are evicted first. A changed edit discards all previous coverage and retains only the source fully shown
+in its bounded response, including context lines. Use its new version and anchors to edit those lines again
+without rereading; read any other range before replacing or deleting it. Shortened lines, omitted tails,
+and gaps between summary windows grant no destructive authority. Oversized snapshots are displayed but not
+retained. Trusted internal callers can still use the stateless hashline functions directly.
+There is no time-based expiry: retention ends through bounded eviction, version replacement, writes,
+committed errors, or lifecycle revocation. Repeated reads of identical bytes merge displayed ranges; a new
+version discards previous coverage. No-op mutations and rejected requests preserve valid authority.
+A digest in a saved transcript alone is not authority. After eviction, writes, or revocation, explicitly
+reread the needed source even if its anchors or digest appear unchanged.
 Retained authority is bound to the canonical file and host session ID. Identical content in an unread file or
 another session does not authorize editing. Switching sessions revokes previous authority, including when
 switching back; no source snapshots are persisted on disk.

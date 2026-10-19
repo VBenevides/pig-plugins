@@ -204,7 +204,11 @@ func TestEditAgainstTypeScript(t *testing.T) {
 				message := `edit rejected: edits[0].anchor: anchor is not a full anchor. Use <line>#<hash> exactly as printed by read, e.g. "12#a3f9".`
 				c.Outcome.Error = &message
 			}
-			compareOutcome(t, versionedOutcome(c.Outcome, c.After), got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
+			want := versionedOutcome(c.Outcome, c.After)
+			if c.Outcome.Details["changed"] == true {
+				want = readCoverageOutcome(c.Outcome, c.After)
+			}
+			compareOutcome(t, want, got, err, func(s string) string { return strings.ReplaceAll(s, dir, "<CWD>") })
 			after, readErr := os.ReadFile(path)
 			if readErr != nil {
 				t.Fatal(readErr)
