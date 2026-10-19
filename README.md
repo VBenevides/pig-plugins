@@ -13,8 +13,8 @@ The installer also provides `ast-grep`. It preserves any existing version on `PA
 If none exists, it downloads the latest official native release into `~/.pig/bin`.
 It verifies the archive against GitHub's SHA-256 asset digest before installation.
 No npm, Node.js, Cargo, or system package manager is required.
-The script clones the repository into a temporary directory and builds the fused executable at `~/.pig/bin/pig-plugins-native`.
-The `~/.pig/bin/pig-plugins` launcher starts it and supports `--update`.
+The script clones the repository into a temporary directory and builds one fused executable at `~/.pig/bin/pig-plugins`.
+The executable supports both `update` and `--update`; no separate launcher or `-native` payload is installed.
 Only after that build succeeds does it copy the plugins, prompts and skills into `~/.pig` and remove the clone. Details are under
 [Install into `~/.pig`](#install-into-pig). Set `PIG_PLUGINS_REPO` to install from another clone or fork.
 
@@ -22,7 +22,7 @@ Only after that build succeeds does it copy the plugins, prompts and skills into
 
 `VERSION` starts at `0.1.0` and is embedded in the plugin build. At session startup,
 the bundled `check-update` extension shows `PiG - XXX | PiG Plugins - YYY`.
-The installed launcher supplies the native binary's PiG version; when loaded
+The fused executable supplies its PiG version; when loaded
 separately, the extension falls back to `pig --version` on `PATH`.
 
 `COMPATIBILITY.json` lists each dependency's repository path and latest supported
@@ -66,7 +66,7 @@ upgrades. An explicit `PIG_VERSION`
 override remains available at your own compatibility risk.
 The existing native executable survives a failed rebuild. Updates are never
 installed automatically, and the check preference survives reinstalls.
-`--update` belongs to the installed launcher, not the raw development binary.
+Both `pig-plugins update` and `pig-plugins --update` use this installer, including in development builds. Explicit extension-update commands keep PiG's package-update behavior.
 
 ## About
 
@@ -296,9 +296,9 @@ Copies `prompts/agent/SYSTEM.md`, `prompts/agent/APPEND_SYSTEM.md` and `prompts/
 Copies `config/agent/keybindings.json` to `~/.pig/agent/keybindings.json` only when that file is absent (it maps `ctrl+z` to undo and frees it from suspend, and binds `ctrl+a` to select all in the prompt editor with `home` left as line start); an existing file is never overwritten, and the installer prints a notice when it differs. PiG has no redo action, so `ctrl+r` still renames sessions.
 Select all comes from `patches/pig/0009-editor-select-all-host.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
-Builds the fused executable at `~/.pig/bin/pig-plugins-native`, installs the launcher at `~/.pig/bin/pig-plugins`, and symlinks the launcher as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Run it instead of `pig`.
+Builds the fused executable at `~/.pig/bin/pig-plugins` and symlinks it as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Successful installs remove the old managed `pig-plugins-native` and `pig-plugins-raw` payloads. Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
-The launcher adds `~/.pig/bin` to its dependency search path after existing `PATH` entries.
+The executable adds `~/.pig/bin` to its dependency search path after existing `PATH` entries.
 Automatic `ast-grep` installation supports Linux with glibc and macOS on amd64 and arm64.
 On other platforms, install `ast-grep` on `PATH` before running the installer.
 A dependency download or verification failure stops installation before the build and prompt updates.
