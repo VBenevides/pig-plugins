@@ -8,10 +8,6 @@ if [ "$#" -gt 1 ]; then
     echo "usage: $0 [output-path]" >&2
     exit 2
 fi
-if ! command -v pig >/dev/null 2>&1; then
-    echo "dev_build: pig is required on PATH" >&2
-    exit 1
-fi
 if ! command -v go >/dev/null 2>&1; then
     echo "dev_build: Go is required on PATH" >&2
     exit 1
@@ -45,15 +41,14 @@ mkdir -p -- "$(dirname -- "$out")"
 cd "$root"
 
 compatible_version=$(GOWORK=off go run ./cmd/compatibility "$root/COMPATIBILITY.json")
+# Explicit candidate override keeps supported compatibility metadata unchanged.
+compatible_version=${PIG_BUILD_VERSION:-$compatible_version}
 
 # PiG's fused builder adds local module replacements, but not their sums.
 # A workspace makes the extension module's verified dependency graph available.
 source=${PIG_SOURCE_ROOT:-}
 if [ -z "$source" ]; then
-    version=$(pig --version)
-    version=${version#pig }
-    version=${version%%+*}
-    ref="github.com/MichaelKinsy/PiG@v$version"
+    ref="github.com/MichaelKinsy/PiG@v$compatible_version"
     GOWORK=off go mod download "$ref" >&2
     source=$(GOWORK=off go list -m -f '{{.Dir}}' "$ref")
 fi
@@ -127,6 +122,9 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/001
 # only after verification; a failed rebuild leaves the previous binary usable.
 artifact_dir=$(mktemp -d "$(dirname -- "$out")/.pig-dev-build.XXXXXX")
 echo "dev_build: [6/6] building fused executable" >&2
+# Never bake the builder user's models, MCP servers, or discovery settings.
+PIG_HOME="$stage/build-home" PIG_CODING_AGENT_DIR="$stage/build-home/agent" \
+PI_CODING_AGENT_DIR="$stage/build-home/pi-agent" \
 PIG_SOURCE_ROOT="$stage/source" "$stage/pig-builder" piglet build "$stage/plugins/piglet.yaml" --format binary --out "$artifact_dir/pig-plugins" >&2
 if [ ! -x "$artifact_dir/pig-plugins" ]; then
     echo "dev_build: builder did not produce an executable" >&2

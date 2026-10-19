@@ -3,6 +3,7 @@
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 version=$(cd "$root" && GOWORK=off go run ./cmd/compatibility "$root/COMPATIBILITY.json")
+version=${PIG_BUILD_VERSION:-$version}
 ref="github.com/MichaelKinsy/PiG/extensions/sdk@v$version"
 GOWORK=off go mod download "$ref"
 source=$(GOWORK=off go list -m -f '{{.Dir}}' "$ref")
