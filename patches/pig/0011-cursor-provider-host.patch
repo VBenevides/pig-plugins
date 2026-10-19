@@ -470,6 +470,44 @@ index 08e9424..1196800 100644
  		if assistant.RawStopReason != "" {
  			out = append(out, rpcField{"rawStopReason", assistant.RawStopReason})
  		}
+diff --git a/coding/cli/rpc_mode.go b/coding/cli/rpc_mode.go
+index c68ce9e..0a5c3d7 100644
+--- a/coding/cli/rpc_mode.go
++++ b/coding/cli/rpc_mode.go
+@@ -275,16 +275,6 @@ func runRPCMode(ctx context.Context, flags Args, activePiglet *piglet.Piglet, re
+ 	// every replacement rebuilds the destination cwd's services, resources
+ 	// and extension host.
+ 	builder, initial := resources.Builder, resources.Build
+-	// RPC refreshes dynamic model catalogs (Radius, llama.cpp) in the background, as
+-	// upstream main.ts does for RPC mode unless offline (15 s timeout).
+-	if codingagent.ModelNetworkEnabled() {
+-		registry := initial.Services.Registry()
+-		registry.StartModelTask(ctx, func(taskContext context.Context) {
+-			refreshCtx, cancelRefresh := context.WithTimeout(taskContext, 15*time.Second)
+-			defer cancelRefresh()
+-			registry.RefreshCatalogs(refreshCtx, codingagent.CatalogRefreshOptions{AllowNetwork: true})
+-		})
+-	}
+ 	flags = initial.Flags
+ 
+ 	sessionDir, err := resolveSessionDir(flags.SessionDir, initial.Services.SettingsManager())
+@@ -569,6 +559,16 @@ func serveRPCMode(ctx context.Context, rt *coding.Runtime, options rpcModeOption
+ 		fmt.Fprintf(os.Stderr, "pig --rpc: %v\n", err)
+ 		return 1
+ 	}
++	// Bind startup extensions before the network pass: their queued local
++	// registration refresh otherwise supersedes and cancels catalog discovery.
++	if codingagent.ModelNetworkEnabled() {
++		registry := first.Services().Registry()
++		registry.StartModelTask(ctx, func(taskContext context.Context) {
++			refreshCtx, cancelRefresh := context.WithTimeout(taskContext, 15*time.Second)
++			defer cancelRefresh()
++			registry.RefreshCatalogs(refreshCtx, codingagent.CatalogRefreshOptions{AllowNetwork: true})
++		})
++	}
+ 
+ 	// Preflight is not an agent run. Admission marks the Session streaming only after before_agent_start and image normalization finish.
+ 	streaming := func() bool { return sess().IsStreaming() }
 diff --git a/coding/extension/host/subprocess/native_provider.go b/coding/extension/host/subprocess/native_provider.go
 index 39c6c07..c0368d5 100644
 --- a/coding/extension/host/subprocess/native_provider.go
