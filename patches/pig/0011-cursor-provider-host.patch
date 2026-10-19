@@ -1,29 +1,25 @@
 diff --git a/agent/agent.go b/agent/agent.go
-index 0efa1da..8163b6c 100644
+index 3e9352f..5353476 100644
 --- a/agent/agent.go
 +++ b/agent/agent.go
-@@ -59,9 +59,10 @@ type AssistantMessage struct {
- 	//         "aborted" (context cancelled), "error" (EventError received).
- 	StopReason ai.StopReason `json:"stopReason,omitempty"`
- 	// ErrorMessage holds the error string when StopReason == "error".
--	ErrorMessage  string `json:"errorMessage,omitempty"`
--	RawStopReason string `json:"rawStopReason,omitempty"`
--	EndTurn       *bool  `json:"endTurn,omitempty"`
-+	ErrorMessage     string `json:"errorMessage,omitempty"`
+@@ -69,7 +69,8 @@ type AssistantMessage struct {
+ 	EndTurn              *bool  `json:"endTurn,omitempty"`
+ 	// DurationMs is the milliseconds from the start of the request to the final message, measured with a monotonic clock by the AssistantMessageEventStream. Nil for legacy messages and for deferred results fetched later.
+ 	// upstream: ai/src/types.ts:582 AssistantMessage.durationMs
+-	DurationMs *int64 `json:"durationMs,omitempty"`
++	DurationMs       *int64 `json:"durationMs,omitempty"`
 +	ReplayProhibited bool   `json:"replayProhibited,omitempty"`
-+	RawStopReason    string `json:"rawStopReason,omitempty"`
-+	EndTurn          *bool  `json:"endTurn,omitempty"`
  	// ThinkingSignature is a legacy runtime convenience; durable signatures
  	// live on ThinkingContent blocks in the upstream wire shape.
  	ThinkingSignature string `json:"-"`
-@@ -1770,6 +1771,7 @@ func agentAssistantMessage(message *ai.AssistantMessage) *AssistantMessage {
- 		Deferred:              message.Deferred,
+@@ -2255,6 +2256,7 @@ func assistantMessageWith(message *ai.AssistantMessage, content []ai.AssistantCo
  		StopReason:            message.StopReason,
  		ErrorMessage:          message.ErrorMessage,
+ 		ErrorBeforeTimestamp:  message.ErrorBeforeTimestamp,
 +		ReplayProhibited:      message.ReplayProhibited,
  		RawStopReason:         message.RawStopReason,
  		EndTurn:               message.EndTurn,
- 	}
+ 		DurationMs:            message.DurationMs,
 diff --git a/agent/generation_replay_test.go b/agent/generation_replay_test.go
 new file mode 100644
 index 0000000..763d261
@@ -56,38 +52,56 @@ index 0000000..763d261
 +	}
 +}
 diff --git a/agent/message_json.go b/agent/message_json.go
-index 90fdf01..264d33d 100644
+index 0a50a36..a3f5fa1 100644
 --- a/agent/message_json.go
 +++ b/agent/message_json.go
-@@ -110,6 +110,7 @@ func (m AgentMessage) MarshalJSON() ([]byte, error) {
- 			StopReason            ai.StopReason                   `json:"stopReason"`
- 			Deferred              *ai.DeferredHandle              `json:"deferred,omitempty"`
- 			ErrorMessage          string                          `json:"errorMessage,omitempty"`
-+			ReplayProhibited      bool                            `json:"replayProhibited,omitempty"`
- 			RawStopReason         string                          `json:"rawStopReason,omitempty"`
- 			EndTurn               *bool                           `json:"endTurn,omitempty"`
- 			Timestamp             int64                           `json:"timestamp"`
-@@ -123,7 +124,8 @@ func (m AgentMessage) MarshalJSON() ([]byte, error) {
+@@ -173,6 +173,7 @@ func (m AgentMessage) wire(clone bool) (any, error) {
+ 				Usage                 ai.Usage                        `json:"usage"`
+ 				StopReason            ai.StopReason                   `json:"stopReason"`
+ 				ErrorMessage          string                          `json:"errorMessage"`
++				ReplayProhibited      bool                            `json:"replayProhibited,omitempty"`
+ 				Timestamp             int64                           `json:"timestamp"`
+ 				ResponseID            string                          `json:"responseId,omitempty"`
+ 				ResponseModel         string                          `json:"responseModel,omitempty"`
+@@ -187,7 +188,8 @@ func (m AgentMessage) wire(clone bool) (any, error) {
+ 				Role: RoleAssistant, Content: content, API: message.API,
+ 				Provider: message.Provider, Model: message.ModelID, Usage: usageToWire(message.Usage), StopReason: message.StopReason,
+ 				ErrorMessage: message.ErrorMessage, Timestamp: message.Timestamp,
+-				ResponseModel: message.ResponseModel, ResponseID: message.ResponseID, ProviderThinkingLevel: message.ProviderThinkingLevel,
++				ReplayProhibited: message.ReplayProhibited,
++				ResponseModel:    message.ResponseModel, ResponseID: message.ResponseID, ProviderThinkingLevel: message.ProviderThinkingLevel,
+ 				Diagnostics: message.Diagnostics, Deferred: message.Deferred, RawStopReason: message.RawStopReason, EndTurn: message.EndTurn,
+ 				DurationMs: message.DurationMs, ThinkingLevel: message.ThinkingLevel,
+ 			}, nil
+@@ -219,7 +221,8 @@ func (m AgentMessage) wire(clone bool) (any, error) {
+ 			RawStopReason string                          `json:"rawStopReason,omitempty"`
+ 			ErrorMessage  string                          `json:"errorMessage,omitempty"`
+ 			// durationMs is set by the response stream on its final message, after the provider's own keys and before the agent loop assigns thinkingLevel (event-stream.ts:127-128, agent-loop.ts:409).
+-			DurationMs *int64 `json:"durationMs,omitempty"`
++			DurationMs       *int64 `json:"durationMs,omitempty"`
++			ReplayProhibited bool   `json:"replayProhibited,omitempty"`
+ 			// thinkingLevel is assigned to the finished response after the provider built it, so it follows the provider's own keys.
+ 			ThinkingLevel ai.ModelThinkingLevel `json:"thinkingLevel,omitempty"`
+ 		}{
+@@ -230,7 +233,8 @@ func (m AgentMessage) wire(clone bool) (any, error) {
  			Diagnostics:           message.Diagnostics, Usage: usageToWire(message.Usage),
  			StopReason: message.StopReason, Deferred: message.Deferred,
  			ErrorMessage: message.ErrorMessage, RawStopReason: message.RawStopReason,
--			EndTurn: message.EndTurn, Timestamp: message.Timestamp, ThinkingLevel: message.ThinkingLevel,
+-			EndTurn: message.EndTurn, DurationMs: message.DurationMs, Timestamp: message.Timestamp, ThinkingLevel: message.ThinkingLevel,
 +			ReplayProhibited: message.ReplayProhibited,
-+			EndTurn:          message.EndTurn, Timestamp: message.Timestamp, ThinkingLevel: message.ThinkingLevel,
- 		})
++			EndTurn:          message.EndTurn, DurationMs: message.DurationMs, Timestamp: message.Timestamp, ThinkingLevel: message.ThinkingLevel,
+ 		}, nil
  	case m.ToolResult != nil:
  		content, err := marshalAgentContent(m.ToolResult.Content)
-@@ -219,7 +221,8 @@ func (m *AgentMessage) UnmarshalJSON(data []byte) error {
- 			ProviderThinkingLevel: wire.ProviderThinkingLevel, Diagnostics: wire.Diagnostics,
- 			Usage: wire.Usage.toAI(), StopReason: wire.StopReason, Deferred: wire.Deferred,
- 			ErrorMessage: wire.ErrorMessage, RawStopReason: wire.RawStopReason,
--			EndTurn: wire.EndTurn, Timestamp: wire.Timestamp, ThinkingLevel: wire.ThinkingLevel,
+@@ -648,6 +652,7 @@ func (m *AgentMessage) decode(data []byte) (bool, error) {
+ 			Usage: usageFromWire(wire.Usage), StopReason: wire.StopReason, Deferred: wire.Deferred,
+ 			ErrorMessage: wire.ErrorMessage, ErrorBeforeTimestamp: ai.ErrorKeyBeforeTimestamp(data), RawStopReason: wire.RawStopReason,
+ 			EndTurn: wire.EndTurn, DurationMs: wire.DurationMs.ptr(), Timestamp: int64(wire.Timestamp), ThinkingLevel: wire.ThinkingLevel,
 +			ReplayProhibited: wire.ReplayProhibited,
-+			EndTurn:          wire.EndTurn, Timestamp: wire.Timestamp, ThinkingLevel: wire.ThinkingLevel,
  		}
  	case RoleToolResult:
  		content, err := unmarshalToolResultContent(wire.Content)
-@@ -262,6 +265,7 @@ type agentMessageWire struct {
+@@ -713,6 +718,7 @@ type agentMessageWire struct {
  	StopReason            ai.StopReason                   `json:"stopReason"`
  	Deferred              *ai.DeferredHandle              `json:"deferred"`
  	ErrorMessage          string                          `json:"errorMessage"`
@@ -96,36 +110,24 @@ index 90fdf01..264d33d 100644
  	EndTurn               *bool                           `json:"endTurn"`
  	ToolCallID            string                          `json:"toolCallId"`
 diff --git a/agent/messages.go b/agent/messages.go
-index c28c341..f982c70 100644
+index 7760ebf..4b0a085 100644
 --- a/agent/messages.go
 +++ b/agent/messages.go
-@@ -180,7 +180,8 @@ func (m *AssistantMessage) LLMMessage() ai.AssistantMessage {
+@@ -218,7 +218,8 @@ func (m *AssistantMessage) LLMMessage() ai.AssistantMessage {
  		Diagnostics: m.Diagnostics,
  		Usage:       usage, StopReason: m.StopReason, Deferred: m.Deferred,
- 		ErrorMessage: m.ErrorMessage, RawStopReason: m.RawStopReason,
--		EndTurn: m.EndTurn, Timestamp: m.Timestamp,
+ 		ErrorMessage: m.ErrorMessage, ErrorBeforeTimestamp: m.ErrorBeforeTimestamp, RawStopReason: m.RawStopReason,
+-		EndTurn: m.EndTurn, Timestamp: m.Timestamp, DurationMs: m.DurationMs,
 +		ReplayProhibited: m.ReplayProhibited,
-+		EndTurn:          m.EndTurn, Timestamp: m.Timestamp,
++		EndTurn:          m.EndTurn, Timestamp: m.Timestamp, DurationMs: m.DurationMs,
  	}
  }
  
-diff --git a/ai/assistant_message_frame.go b/ai/assistant_message_frame.go
-index 3f96f7e..6dbec05 100644
---- a/ai/assistant_message_frame.go
-+++ b/ai/assistant_message_frame.go
-@@ -506,6 +506,7 @@ func cloneStartMessage(message AssistantMessage) AssistantMessage {
- 		ResponseModel:         message.ResponseModel,
- 		ResponseID:            message.ResponseID,
- 		ProviderThinkingLevel: message.ProviderThinkingLevel,
-+		ReplayProhibited:      message.ReplayProhibited,
- 		Diagnostics:           cloneDiagnostics(message.Diagnostics),
- 		Usage:                 cloneUsage(message.Usage),
- 		StopReason:            StopReasonPending,
 diff --git a/ai/assistant_retry.go b/ai/assistant_retry.go
-index 2a37cc0..1c3fed2 100644
+index 405300b..8dc5453 100644
 --- a/ai/assistant_retry.go
 +++ b/ai/assistant_retry.go
-@@ -240,7 +240,7 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
+@@ -258,7 +258,7 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
  // like a transient provider or transport error. It does not implement retry
  // policy; callers handle context overflow first.
  func IsRetryableAssistantError(message AssistantMessage) bool {
@@ -135,10 +137,10 @@ index 2a37cc0..1c3fed2 100644
  	}
  	if nonRetryableProviderLimitErrorPattern.MatchString(message.ErrorMessage) {
 diff --git a/ai/event_stream.go b/ai/event_stream.go
-index ca0e36c..d0594f3 100644
+index d945c6d..53f6cf7 100644
 --- a/ai/event_stream.go
 +++ b/ai/event_stream.go
-@@ -34,6 +34,7 @@ func (waiter *eventWaiter) deliver(delivery eventDelivery) func() {
+@@ -32,6 +32,7 @@ func (waiter *eventWaiter) deliver(delivery eventDelivery) func() {
  type AssistantMessageEventStream struct {
  	mu           sync.Mutex
  	queue        []AssistantMessageEvent
@@ -259,10 +261,10 @@ index 0000000..256b888
 +	}
 +}
 diff --git a/ai/event_stream_continuation.go b/ai/event_stream_continuation.go
-index 69b64bd..47b6e2e 100644
+index e6a36c1..884af6d 100644
 --- a/ai/event_stream_continuation.go
 +++ b/ai/event_stream_continuation.go
-@@ -16,6 +16,10 @@ func (iterator continuationEventIterator) next(ctx context.Context) *continuatio
+@@ -45,6 +45,10 @@ func (iterator *continuationEventIterator) next() *continuationPromise[eventDeli
  		event := stream.queue[0]
  		stream.queue[0] = nil
  		stream.queue = stream.queue[1:]
@@ -325,7 +327,7 @@ index 0000000..1e7f4a9
 +}
 diff --git a/ai/generation_replay_test.go b/ai/generation_replay_test.go
 new file mode 100644
-index 0000000..8e115a7
+index 0000000..ebc6c05
 --- /dev/null
 +++ b/ai/generation_replay_test.go
 @@ -0,0 +1,52 @@
@@ -368,7 +370,7 @@ index 0000000..8e115a7
 +	if err = json.Unmarshal(data, &restored); err != nil {
 +		t.Fatal(err)
 +	}
-+	if !restored.GenerationReplayProhibited() || !restored.Observe().ReplayProhibited || !cloneStartMessage(restored).ReplayProhibited {
++	if !restored.GenerationReplayProhibited() || !restored.Observe().ReplayProhibited || !cloneAssistantMessage(restored).ReplayProhibited {
 +		t.Fatal("JSON, observation or frame cloning dropped the veto")
 +	}
 +	veto := &AssistantCallError{Message: restored}
@@ -382,31 +384,49 @@ index 0000000..8e115a7
 +	}
 +}
 diff --git a/ai/messages.go b/ai/messages.go
-index 5e3bb45..b2630d6 100644
+index bb3afff..3f7652f 100644
 --- a/ai/messages.go
 +++ b/ai/messages.go
-@@ -129,9 +129,11 @@ type AssistantMessage struct {
- 	StopReason            StopReason                   `json:"stopReason"`
- 	Deferred              *DeferredHandle              `json:"deferred,omitempty"`
- 	ErrorMessage          string                       `json:"errorMessage,omitempty"`
--	RawStopReason         string                       `json:"rawStopReason,omitempty"`
--	EndTurn               *bool                        `json:"endTurn,omitempty"`
--	Timestamp             int64                        `json:"timestamp"`
-+	// ReplayProhibited vetoes automatic generation replay, regardless of status text.
-+	ReplayProhibited bool   `json:"replayProhibited,omitempty"`
-+	RawStopReason    string `json:"rawStopReason,omitempty"`
-+	EndTurn          *bool  `json:"endTurn,omitempty"`
-+	Timestamp        int64  `json:"timestamp"`
- 	// ThinkingLevel is the thinking level the agent loop requested for this response. Absent outside the agent loop and for legacy responses. Mirrors upstream AssistantMessage.thinkingLevel (packages/ai/src/types.ts:557).
- 	ThinkingLevel ModelThinkingLevel `json:"thinkingLevel,omitempty"`
+@@ -150,7 +150,8 @@ type AssistantMessage struct {
+ 	// upstream: ai/src/types.ts:582 AssistantMessage.durationMs
+ 	DurationMs *int64 `json:"durationMs,omitempty"`
+ 	// ModelThinkingLevel is the thinking level the agent loop requested for this response. Absent outside the agent loop and for legacy responses. Mirrors upstream AssistantMessage.thinkingLevel (packages/ai/src/types.ts:557).
+-	ThinkingLevel ModelThinkingLevel `json:"thinkingLevel,omitempty"`
++	ReplayProhibited bool               `json:"replayProhibited,omitempty"`
++	ThinkingLevel    ModelThinkingLevel `json:"thinkingLevel,omitempty"`
  }
-diff --git a/cmd/pig/generation_replay_test.go b/cmd/pig/generation_replay_test.go
+ 
+ func (AssistantMessage) messageRole() string { return "assistant" }
+@@ -405,15 +406,16 @@ func assistantErrorFirst(message AssistantMessage) any {
+ 	}
+ 	return struct {
+ 		head
+-		ErrorMessage  string             `json:"errorMessage"`
+-		ResponseID    string             `json:"responseId,omitempty"`
+-		Timestamp     int64              `json:"timestamp"`
+-		DurationMs    *int64             `json:"durationMs,omitempty"`
+-		ThinkingLevel ModelThinkingLevel `json:"thinkingLevel,omitempty"`
++		ErrorMessage     string             `json:"errorMessage"`
++		ResponseID       string             `json:"responseId,omitempty"`
++		Timestamp        int64              `json:"timestamp"`
++		DurationMs       *int64             `json:"durationMs,omitempty"`
++		ThinkingLevel    ModelThinkingLevel `json:"thinkingLevel,omitempty"`
++		ReplayProhibited bool               `json:"replayProhibited,omitempty"`
+ 	}{
+ 		head{message.Content, message.API, message.Provider, message.Model, message.ResponseModel, message.ProviderThinkingLevel,
+ 			message.Diagnostics, message.Usage, message.StopReason, message.Deferred, message.RawStopReason, message.EndTurn},
+-		message.ErrorMessage, message.ResponseID, message.Timestamp, message.DurationMs, message.ThinkingLevel,
++		message.ErrorMessage, message.ResponseID, message.Timestamp, message.DurationMs, message.ThinkingLevel, message.ReplayProhibited,
+ 	}
+ }
+ 
+diff --git a/coding/cli/generation_replay_test.go b/coding/cli/generation_replay_test.go
 new file mode 100644
-index 0000000..54d150b
+index 0000000..e710795
 --- /dev/null
-+++ b/cmd/pig/generation_replay_test.go
++++ b/coding/cli/generation_replay_test.go
 @@ -0,0 +1,30 @@
-+package main
++package cli
 +
 +import (
 +	"encoding/json"
@@ -436,13 +456,13 @@ index 0000000..54d150b
 +		}
 +	}
 +}
-diff --git a/cmd/pig/rpc_events.go b/cmd/pig/rpc_events.go
-index 090ef7f..f2b198c 100644
---- a/cmd/pig/rpc_events.go
-+++ b/cmd/pig/rpc_events.go
-@@ -314,6 +314,9 @@ func rpcAgentMessage(message agent.AgentMessage) (any, error) {
- 		if assistant.ErrorMessage != "" {
- 			out = append(out, rpcField{"errorMessage", assistant.ErrorMessage})
+diff --git a/coding/cli/rpc_events.go b/coding/cli/rpc_events.go
+index 08e9424..1196800 100644
+--- a/coding/cli/rpc_events.go
++++ b/coding/cli/rpc_events.go
+@@ -360,6 +360,9 @@ func rpcAgentMessage(message agent.AgentMessage) (any, error) {
+ 		if assistant.EndTurn != nil {
+ 			out = append(out, rpcField{"endTurn", *assistant.EndTurn})
  		}
 +		if assistant.ReplayProhibited {
 +			out = append(out, rpcField{"replayProhibited", true})
@@ -451,10 +471,10 @@ index 090ef7f..f2b198c 100644
  			out = append(out, rpcField{"rawStopReason", assistant.RawStopReason})
  		}
 diff --git a/coding/extension/host/subprocess/native_provider.go b/coding/extension/host/subprocess/native_provider.go
-index 04e6ba4..23d72f3 100644
+index 39c6c07..c0368d5 100644
 --- a/coding/extension/host/subprocess/native_provider.go
 +++ b/coding/extension/host/subprocess/native_provider.go
-@@ -133,7 +133,23 @@ func (p *nativeProviderProxy) stream(ctx context.Context, model *ai.Model, trans
+@@ -165,7 +165,23 @@ func (p *nativeProviderProxy) streamMethod(ctx context.Context, method string, m
  				cancel(decodeErr)
  				return
  			}
@@ -479,7 +499,7 @@ index 04e6ba4..23d72f3 100644
  				eventError = pushErr
  				cancel(pushErr)
  				return
-@@ -170,7 +186,7 @@ func (p *nativeProviderProxy) stream(ctx context.Context, model *ai.Model, trans
+@@ -185,7 +201,7 @@ func (p *nativeProviderProxy) streamMethod(ctx context.Context, method string, m
  		if ctx.Err() != nil {
  			reason = ai.StopReasonAborted
  		}
@@ -489,10 +509,10 @@ index 04e6ba4..23d72f3 100644
  	return stream, nil
  }
 diff --git a/coding/extension/host/subprocess/protocol.go b/coding/extension/host/subprocess/protocol.go
-index 0b26f0c..f767508 100644
+index c0a1afa..a55c2f9 100644
 --- a/coding/extension/host/subprocess/protocol.go
 +++ b/coding/extension/host/subprocess/protocol.go
-@@ -264,16 +264,17 @@ type ProviderDecl struct {
+@@ -269,16 +269,17 @@ type ProviderDecl struct {
  
  // NativeProviderDeclaration describes callback ownership, never executable code. Key identifies the owner's callback object; Handle identifies its host-owned reference lifetime. Methods lists the callable public members. Provider calls carry caller callbacks as request-scoped handles, and stream creation is acknowledged before ordered events.
  type NativeProviderDeclaration struct {
@@ -522,16 +542,17 @@ index 0b26f0c..f767508 100644
  type ProviderObjectAuthDeclaration struct {
 diff --git a/coding/generation_replay_test.go b/coding/generation_replay_test.go
 new file mode 100644
-index 0000000..978b0d7
+index 0000000..80ff407
 --- /dev/null
 +++ b/coding/generation_replay_test.go
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,70 @@
 +package coding
 +
 +import (
 +	"github.com/MichaelKinsy/PiG/agent"
 +	"github.com/MichaelKinsy/PiG/ai"
 +	"github.com/MichaelKinsy/PiG/coding/extension"
++	"github.com/MichaelKinsy/PiG/internal/codingagent/compaction"
 +	"testing"
 +)
 +
@@ -554,7 +575,7 @@ index 0000000..978b0d7
 +			// The suite's faux delta adapter overwrites provider identity and does not
 +			// carry private response metadata. Use the actual scripted error here.
 +			h.provider.streamDeltas = false
-+			if _, err := h.session.Prompt(t.Context(), "replay policy", nil); err != nil {
++			if err := h.session.Prompt(t.Context(), "replay policy", nil); err != nil {
 +				t.Fatal(err)
 +			}
 +			if got := h.provider.callCount(); got != tc.calls {
@@ -578,7 +599,7 @@ index 0000000..978b0d7
 +	}
 +	h := newRetryEventsHarness(t, retryEventsSettings, extension.Extension{}, []agent.AgentTool{tool}, fauxToolCallOnly("echo", ai.JsonObject{"text": "one effect"}), failure, fauxToolCallOnly("echo", ai.JsonObject{"text": "duplicate effect"}))
 +	h.provider.streamDeltas = false
-+	if _, err := h.session.Prompt(t.Context(), "one tool", nil); err != nil {
++	if err := h.session.Prompt(t.Context(), "one tool", nil); err != nil {
 +		t.Fatal(err)
 +	}
 +	if h.provider.callCount() != 2 || len(tool.ran()) != 1 {
@@ -590,56 +611,16 @@ index 0000000..978b0d7
 +	provider := &scriptedProvider{responses: []scriptedResponse{func([]ai.Message) *ai.AssistantMessage {
 +		return &ai.AssistantMessage{ReplayProhibited: true, StopReason: ai.StopReasonError, ErrorMessage: "HTTP 503"}
 +	}}}
-+	_, _, err := (modelCompleter{}).CompleteSimple(t.Context(), fakeModelWithProvider(provider), "summary", nil, ai.StreamOptions{})
++	_, _, err := (compaction.ProviderCompleter{}).CompleteSimple(t.Context(), fakeModelWithProvider(provider), "summary", nil, ai.StreamOptions{})
 +	if !ai.IsGenerationReplayProhibited(err) || err.Error() != "HTTP 503" || provider.callCount() != 1 {
 +		t.Fatalf("calls=%d err=%v", provider.callCount(), err)
 +	}
 +}
-diff --git a/coding/session.go b/coding/session.go
-index 3009c48..90a1037 100644
---- a/coding/session.go
-+++ b/coding/session.go
-@@ -1890,7 +1890,8 @@ func (c modelCompleter) CompleteSimple(
- 				Diagnostics: message.Assistant.Diagnostics, Usage: usage,
- 				StopReason: message.Assistant.StopReason, Deferred: message.Assistant.Deferred,
- 				ErrorMessage: message.Assistant.ErrorMessage, RawStopReason: message.Assistant.RawStopReason,
--				Timestamp: message.Assistant.Timestamp,
-+				ReplayProhibited: message.Assistant.ReplayProhibited,
-+				Timestamp:        message.Assistant.Timestamp,
- 			})
- 		}
- 	}
-@@ -1909,16 +1910,19 @@ func (c modelCompleter) CompleteSimple(
- 	if err != nil {
- 		return "", nil, fmt.Errorf("compaction completer: stream: %w", err)
- 	}
--	message := stream.Result()
-+	// Summary generation owns this stream. Drain events so a backpressured
-+	// provider can publish its terminal result instead of waiting on us.
-+	for range stream.Events(ctx) {
-+	}
-+	message, err := stream.ResultContext(ctx)
-+	if err != nil {
-+		return "", nil, err
-+	}
- 	if ctx.Err() != nil {
- 		return "", nil, ctx.Err()
- 	}
- 	if message.StopReason == ai.StopReasonError {
--		detail := message.ErrorMessage
--		if detail == "" {
--			detail = "Unknown error"
--		}
--		return "", nil, errors.New(detail)
-+		return "", nil, &ai.AssistantCallError{Message: *message}
- 	}
- 	if message.StopReason == ai.StopReasonLength {
- 		return "", nil, errors.New("generation hit the token cap and the summary is incomplete")
 diff --git a/coding/session_recovery.go b/coding/session_recovery.go
-index 0516b20..4cd73d9 100644
+index 1bd2d7c..1e7900c 100644
 --- a/coding/session_recovery.go
 +++ b/coding/session_recovery.go
-@@ -260,6 +260,11 @@ func (s *Session) handlePostAgentRun(ctx context.Context) (bool, error) {
+@@ -262,6 +262,11 @@ func (s *Session) handlePostAgentRun(ctx context.Context) (bool, error) {
  		if attempt := s.retryAttempt.Swap(0); attempt > 0 {
  			s.emitEvent(agent.AutoRetryEndEvent{Success: false, Attempt: int(attempt), FinalError: message.ErrorMessage})
  		}
@@ -653,10 +634,10 @@ index 0516b20..4cd73d9 100644
  	if err != nil {
 diff --git a/coding/session_summary_backpressure_test.go b/coding/session_summary_backpressure_test.go
 new file mode 100644
-index 0000000..2e07296
+index 0000000..e5d5e10
 --- /dev/null
 +++ b/coding/session_summary_backpressure_test.go
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,90 @@
 +package coding
 +
 +import (
@@ -667,6 +648,7 @@ index 0000000..2e07296
 +	"time"
 +
 +	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/internal/codingagent/compaction"
 +)
 +
 +func TestSummaryCompleterDrainsBackpressuredStream(t *testing.T) {
@@ -684,7 +666,7 @@ index 0000000..2e07296
 +			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 +			defer cancel()
 +			finished := make(chan struct{})
-+			completer := modelCompleter{streamFn: func(ctx context.Context, _ *ai.Model, _ ai.TranscriptContext, _ ai.StreamOptions) (*ai.AssistantMessageEventStream, error) {
++			completer := compaction.ProviderCompleter{StreamFn: func(ctx context.Context, _ *ai.Model, _ ai.TranscriptContext, _ ai.StreamOptions) (*ai.AssistantMessageEventStream, error) {
 +				stream := ai.NewAssistantMessageEventStream()
 +				go func() {
 +					defer close(finished)
@@ -726,7 +708,7 @@ index 0000000..2e07296
 +	defer cancel()
 +	stream := ai.NewAssistantMessageEventStream()
 +	stream.End()
-+	completer := modelCompleter{streamFn: func(context.Context, *ai.Model, ai.TranscriptContext, ai.StreamOptions) (*ai.AssistantMessageEventStream, error) {
++	completer := compaction.ProviderCompleter{StreamFn: func(context.Context, *ai.Model, ai.TranscriptContext, ai.StreamOptions) (*ai.AssistantMessageEventStream, error) {
 +		cancel()
 +		return stream, nil
 +	}}
@@ -746,11 +728,33 @@ index 0000000..2e07296
 +		t.Fatal("summary completer ignored cancellation while waiting for a terminal result")
 +	}
 +}
+diff --git a/coding/websocket_close_retry_test.go b/coding/websocket_close_retry_test.go
+index b40193e..5e75a22 100644
+--- a/coding/websocket_close_retry_test.go
++++ b/coding/websocket_close_retry_test.go
+@@ -22,7 +22,7 @@ func TestWebSocketCloseRecoveryPreservesCompletedTools(t *testing.T) {
+ 			}
+ 			h := newRetryEventsHarness(t, `{"retry":{"enabled":true,"maxRetries":1,"baseDelayMs":1}}`, extension.Extension{}, []agent.AgentTool{tool},
+ 				fauxToolCallOnly("echo", ai.JsonObject{"text": "completed edit"}), failure, fauxReply("recovered", ai.StopReasonStop, 0))
+-			if _, err := h.session.Prompt(t.Context(), "edit", nil); err != nil {
++			if err := h.session.Prompt(t.Context(), "edit", nil); err != nil {
+ 				t.Fatal(err)
+ 			}
+ 			if runs := tool.ran(); len(runs) != 1 || runs[0] != "completed edit" {
+@@ -43,7 +43,7 @@ func TestWebSocketCloseRetryBudgetIsBounded(t *testing.T) {
+ 		return &ai.AssistantMessage{Provider: "faux", Model: "faux-1", StopReason: ai.StopReasonError, ErrorMessage: "websocket: close 1000 (normal)", Timestamp: time.Now().UnixMilli()}
+ 	}
+ 	h := newRetryEventsHarness(t, `{"retry":{"enabled":true,"maxRetries":1,"baseDelayMs":1}}`, extension.Extension{}, nil, failure, failure)
+-	_, _ = h.session.Prompt(t.Context(), "continue", nil)
++	_ = h.session.Prompt(t.Context(), "continue", nil)
+ 	if got := h.provider.callCount(); got != 2 {
+ 		t.Fatalf("requests=%d, want initial and one retry", got)
+ 	}
 diff --git a/internal/codingagent/compaction/compaction.go b/internal/codingagent/compaction/compaction.go
-index 6692d34..387dbea 100644
+index 4b5957a..8612201 100644
 --- a/internal/codingagent/compaction/compaction.go
 +++ b/internal/codingagent/compaction/compaction.go
-@@ -517,7 +517,8 @@ func convertToLlm(msgs []agent.AgentMessage) []ai.Message {
+@@ -500,7 +500,8 @@ func convertToLlm(msgs []agent.AgentMessage) []ai.Message {
  				ResponseID: m.Assistant.ResponseID, Diagnostics: m.Assistant.Diagnostics,
  				Usage: usage, StopReason: m.Assistant.StopReason, Deferred: m.Assistant.Deferred,
  				ErrorMessage: m.Assistant.ErrorMessage, RawStopReason: m.Assistant.RawStopReason,
@@ -762,7 +766,7 @@ index 6692d34..387dbea 100644
  			out = append(out, ai.ToolResultMessage{
 diff --git a/internal/codingagent/compaction/generation_replay_test.go b/internal/codingagent/compaction/generation_replay_test.go
 new file mode 100644
-index 0000000..e4d9e04
+index 0000000..59e4932
 --- /dev/null
 +++ b/internal/codingagent/compaction/generation_replay_test.go
 @@ -0,0 +1,26 @@
@@ -778,11 +782,11 @@ index 0000000..e4d9e04
 +func TestGenerationReplayVetoOverridesSummaryClassifier(t *testing.T) {
 +	cause := &ai.AssistantCallError{Message: ai.AssistantMessage{ReplayProhibited: true, ErrorMessage: "HTTP 503"}}
 +	failure := fmt.Errorf("wrapped summary: %w", cause)
-+	calls, classifications := 0, 0
-+	opts := &RetryOptions{Policy: RetryPolicy{Enabled: true, MaxRetries: 3}, IsRetryable: func(string) bool { classifications++; return true }}
-+	_, _, err := completeSimpleWithRetries(t.Context(), opts, func() (string, *ai.Usage, error) { calls++; return "", nil, failure })
-+	if calls != 1 || classifications != 0 || err != failure {
-+		t.Fatalf("calls=%d classifiers=%d err=%v", calls, classifications, err)
++	calls := 0
++	opts := &ai.RetryPolicy{Enabled: true, MaxRetries: 3, BaseDelayMs: 0}
++	_, _, err := completeSimpleWithRetries(t.Context(), opts, ai.RetryCallbacks{}, func() (string, *ai.Usage, error) { calls++; return "", nil, failure })
++	if calls != 1 || err != failure {
++		t.Fatalf("calls=%d err=%v", calls, err)
 +	}
 +	if !ai.IsGenerationReplayProhibited(&summarizationCallError{failure}) {
 +		t.Fatal("summary wrapper lost veto")
@@ -792,37 +796,78 @@ index 0000000..e4d9e04
 +		t.Fatal("summary transcript lost veto")
 +	}
 +}
+diff --git a/internal/codingagent/compaction/provider_completer.go b/internal/codingagent/compaction/provider_completer.go
+index 9c4b15f..d23b86d 100644
+--- a/internal/codingagent/compaction/provider_completer.go
++++ b/internal/codingagent/compaction/provider_completer.go
+@@ -45,7 +45,8 @@ func (c ProviderCompleter) CompleteSimple(
+ 				Diagnostics: message.Assistant.Diagnostics, Usage: usage,
+ 				StopReason: message.Assistant.StopReason, Deferred: message.Assistant.Deferred,
+ 				ErrorMessage: message.Assistant.ErrorMessage, RawStopReason: message.Assistant.RawStopReason,
+-				Timestamp: message.Assistant.Timestamp,
++				ReplayProhibited: message.Assistant.ReplayProhibited,
++				Timestamp:        message.Assistant.Timestamp,
+ 			})
+ 		}
+ 	}
+@@ -68,16 +69,21 @@ func (c ProviderCompleter) CompleteSimple(
+ 	if err != nil {
+ 		return "", nil, fmt.Errorf("compaction completer: stream: %w", err)
+ 	}
+-	message := stream.Result()
++	for range stream.Events(ctx) {
++	}
++	message, err := stream.ResultContext(ctx)
++	if err != nil {
++		return "", nil, err
++	}
+ 	if ctx.Err() != nil {
+ 		return "", nil, ctx.Err()
+ 	}
+ 	if message.StopReason == ai.StopReasonError {
+-		detail := message.ErrorMessage
+-		if detail == "" {
+-			detail = "Unknown error"
++		failed := *message
++		if failed.ErrorMessage == "" {
++			failed.ErrorMessage = "Unknown error"
+ 		}
+-		return "", nil, errors.New(detail)
++		return "", nil, &ai.AssistantCallError{Message: failed}
+ 	}
+ 	if message.StopReason == ai.StopReasonLength {
+ 		return "", nil, errors.New("generation hit the token cap and the summary is incomplete")
 diff --git a/internal/codingagent/compaction/retry.go b/internal/codingagent/compaction/retry.go
-index 1376543..dd5c1e8 100644
+index fe55f0c..3babd58 100644
 --- a/internal/codingagent/compaction/retry.go
 +++ b/internal/codingagent/compaction/retry.go
-@@ -80,7 +80,7 @@ func completeSimpleWithRetries(ctx context.Context, opts *RetryOptions, call fun
- 			finish()
- 			return "", nil, err
+@@ -37,7 +37,7 @@ func completeSimpleWithRetries(ctx context.Context, policy *ai.RetryPolicy, call
+ 			abortedInCall = true
+ 			return ai.AssistantMessage{StopReason: ai.StopReasonAborted}, nil
  		}
--		retryable := opts != nil && opts.IsRetryable != nil && opts.IsRetryable(err.Error())
-+		retryable := !ai.IsGenerationReplayProhibited(err) && opts != nil && opts.IsRetryable != nil && opts.IsRetryable(err.Error())
- 		if attempt >= maxAttempts || !retryable {
- 			finish()
- 			return "", nil, err
+-		return ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: callErr.Error()}, nil
++		return ai.AssistantMessage{StopReason: ai.StopReasonError, ErrorMessage: callErr.Error(), ReplayProhibited: ai.IsGenerationReplayProhibited(callErr)}, nil
+ 	}, policy, callbacks)
+ 	if err != nil {
+ 		return "", nil, err
 diff --git a/internal/codingagent/interactive_extensions.go b/internal/codingagent/interactive_extensions.go
-index 1138b31..202de65 100644
+index 7929aa9..7a2aa9b 100644
 --- a/internal/codingagent/interactive_extensions.go
 +++ b/internal/codingagent/interactive_extensions.go
-@@ -1053,6 +1053,7 @@ func subprocessRequestMessages(raw any) ([]ai.Message, error) {
+@@ -1069,6 +1069,7 @@ func subprocessRequestMessages(raw any) ([]ai.Message, error) {
  				StopReason            ai.StopReason                   `json:"stopReason"`
  				Deferred              *ai.DeferredHandle              `json:"deferred"`
  				ErrorMessage          string                          `json:"errorMessage"`
 +				ReplayProhibited      bool                            `json:"replayProhibited"`
  				RawStopReason         string                          `json:"rawStopReason"`
  				EndTurn               *bool                           `json:"endTurn"`
- 				Timestamp             int64                           `json:"timestamp"`
-@@ -1060,7 +1061,7 @@ func subprocessRequestMessages(raw any) ([]ai.Message, error) {
+ 				DurationMs            *int64                          `json:"durationMs"`
+@@ -1077,7 +1078,7 @@ func subprocessRequestMessages(raw any) ([]ai.Message, error) {
  			if err := subprocessDecodeJSON(message, &fields, path); err != nil {
  				return nil, err
  			}
--			messages = append(messages, ai.AssistantMessage{Content: content, API: fields.API, Provider: fields.Provider, Model: fields.Model, ResponseModel: fields.ResponseModel, ResponseID: fields.ResponseID, ProviderThinkingLevel: fields.ProviderThinkingLevel, Diagnostics: fields.Diagnostics, Usage: fields.Usage, StopReason: fields.StopReason, Deferred: fields.Deferred, ErrorMessage: fields.ErrorMessage, RawStopReason: fields.RawStopReason, EndTurn: fields.EndTurn, Timestamp: fields.Timestamp})
-+			messages = append(messages, ai.AssistantMessage{Content: content, API: fields.API, Provider: fields.Provider, Model: fields.Model, ResponseModel: fields.ResponseModel, ResponseID: fields.ResponseID, ProviderThinkingLevel: fields.ProviderThinkingLevel, Diagnostics: fields.Diagnostics, Usage: fields.Usage, StopReason: fields.StopReason, Deferred: fields.Deferred, ErrorMessage: fields.ErrorMessage, ReplayProhibited: fields.ReplayProhibited, RawStopReason: fields.RawStopReason, EndTurn: fields.EndTurn, Timestamp: fields.Timestamp})
+-			messages = append(messages, ai.AssistantMessage{Content: content, API: fields.API, Provider: fields.Provider, Model: fields.Model, ResponseModel: fields.ResponseModel, ResponseID: fields.ResponseID, ProviderThinkingLevel: fields.ProviderThinkingLevel, Diagnostics: fields.Diagnostics, Usage: fields.Usage, StopReason: fields.StopReason, Deferred: fields.Deferred, ErrorMessage: fields.ErrorMessage, RawStopReason: fields.RawStopReason, EndTurn: fields.EndTurn, DurationMs: fields.DurationMs, Timestamp: fields.Timestamp})
++			messages = append(messages, ai.AssistantMessage{Content: content, API: fields.API, Provider: fields.Provider, Model: fields.Model, ResponseModel: fields.ResponseModel, ResponseID: fields.ResponseID, ProviderThinkingLevel: fields.ProviderThinkingLevel, Diagnostics: fields.Diagnostics, Usage: fields.Usage, StopReason: fields.StopReason, Deferred: fields.Deferred, ErrorMessage: fields.ErrorMessage, ReplayProhibited: fields.ReplayProhibited, RawStopReason: fields.RawStopReason, EndTurn: fields.EndTurn, DurationMs: fields.DurationMs, Timestamp: fields.Timestamp})
  		case "toolResult", "tool":
  			content, err := subprocessToolResultContent(message["content"])
  			if err != nil {
