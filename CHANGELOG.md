@@ -2,6 +2,16 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.1.5] - 2026-10-19
+
+### Bugfixes
+
+- Auto-models and better-footer now keep optional quota lookup failures out of warning popups, including expired credentials and usage API errors. Failures retain their original causes and sanitized debug diagnostics; model-selection warnings and successful account-switch notifications remain visible.
+
+### Other
+
+- Added regression coverage for quiet quota failures, preserved diagnostics and error causes, and account rotation past failed or expired neighboring accounts.
+
 ## [0.1.4] - 2026-10-19
 
 ### Features

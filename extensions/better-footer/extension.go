@@ -4,8 +4,10 @@ package betterfooter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -185,6 +187,11 @@ func (x *extension) report(ctx interface {
 	Notify(string, string)
 }, err error) {
 	if err != nil {
+		var usageErr *quota.UsageError
+		if errors.As(err, &usageErr) {
+			slog.Debug("better-footer: quota unavailable", "error", bf.SanitizePlain(err.Error()))
+			return
+		}
 		message := bf.SanitizePlain(err.Error())
 		if !ctx.HasUI() || !notice.Show(ctx, "better-footer: "+message, "warning") {
 			log.Printf("better-footer: %s", message)

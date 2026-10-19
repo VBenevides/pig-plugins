@@ -3,8 +3,10 @@ package automodels
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"math"
 	"os"
 	"runtime/debug"
@@ -149,6 +151,12 @@ func newExtension(store quota.Store, client quota.Client, enabled bool) *extensi
 
 func (x *extension) report(ctx interface{ Notify(string, string) }, err error) {
 	if err == nil {
+		return
+	}
+	var usageErr *quota.UsageError
+	if errors.As(err, &usageErr) {
+		// /usage retains explicit diagnostics; polling must not interrupt the TUI.
+		slog.Debug("auto-models: quota unavailable", "error", clean(err.Error()))
 		return
 	}
 	message := "auto-models: " + clean(err.Error())

@@ -46,10 +46,10 @@ func TestWarningCoalescingRemindersAndBound(t *testing.T) {
 	}
 }
 
-func TestReportCoalescesCredentialWarning(t *testing.T) {
+func TestReportCoalescesModelWarning(t *testing.T) {
 	x := &extension{}
 	source := &fakeSwitcher{}
-	err := errors.New("native OAuth credentials unavailable or expired")
+	err := errors.New("model selection failed")
 	for range 100 {
 		x.report(source, err)
 	}
@@ -79,7 +79,7 @@ func TestRotationCoalescesExpiredNeighborsAndStillSwitches(t *testing.T) {
 	if err != nil || !switched || source.selected != "local-first" || requests != 1 {
 		t.Fatal(switched, err, source.selected, requests)
 	}
-	if len(source.notices) != 2 || !strings.Contains(source.notices[0], "credentials unavailable or expired") || !strings.HasPrefix(source.notices[1], "Switched to another") {
+	if len(source.notices) != 1 || !strings.HasPrefix(source.notices[0], "Switched to another") {
 		t.Fatalf("notices=%v", source.notices)
 	}
 	if strings.Contains(strings.Join(source.notices, "\n"), "SECRET") {

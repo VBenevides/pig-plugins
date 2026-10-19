@@ -6,6 +6,7 @@ import (
 	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	quota "github.com/VBenevides/pig-plugins/internal/automodels"
 	bf "github.com/VBenevides/pig-plugins/internal/betterfooter"
 )
 
@@ -152,7 +153,7 @@ func (x *extension) worker() {
 		if poll {
 			x.reader.Registry = registry{ctx, x}
 			_, _, err := x.reader.Read(x.life, key, force, 0)
-			x.report(ctx, err)
+			x.report(ctx, quota.UsageFailure(err))
 		}
 		quota, _ := x.store.Get(key)
 		x.mu.Lock()
