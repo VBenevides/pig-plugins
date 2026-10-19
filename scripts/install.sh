@@ -4,8 +4,7 @@
 # fused executable; prompts and skills are installed only after that build succeeds.
 #
 #   <home>/pig-plugins/            tracked repository files, including every extension and prompts/
-#   <home>/bin/pig-plugins-native  fused PiG executable built from that copy
-#   <home>/bin/pig-plugins         launcher with --update support
+#   <home>/bin/pig-plugins         fused PiG executable with distribution update support
 #   <agent>/{SYSTEM,APPEND_SYSTEM,AGENTS}.md   copied from prompts/agent/; a differing existing file is
 #                                              kept as <file>.pig-plugins-backup-<timestamp>
 #   <agent>/keybindings.json                   copied from config/agent/ only when absent; never overwritten
@@ -94,7 +93,7 @@ fi
 
 # 3. Build the fused executable. Prompts and skills follow a successful build.
 echo "install: [3/7] building executable" >&2
-binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins-native") || { echo "install: build failed (see diagnostics above)" >&2; exit 1; }
+binary=$("$root/scripts/dev_build.sh" "$pig_home/bin/pig-plugins") || { echo "install: build failed (see diagnostics above)" >&2; exit 1; }
 
 # 4. Copy tracked files to a staging directory, then swap it in.
 echo "install: [4/7] copying repository files" >&2
@@ -155,11 +154,8 @@ for skill in "$dest"/skills/*/; do
     fi
 done
 
-# Publish the launcher only after the native build and resource installation succeed.
-cp -- "$root/scripts/pig-plugins.sh" "$pig_home/bin/pig-plugins.tmp.$$"
-chmod 755 "$pig_home/bin/pig-plugins.tmp.$$"
-mv -- "$pig_home/bin/pig-plugins.tmp.$$" "$pig_home/bin/pig-plugins"
-binary="$pig_home/bin/pig-plugins"
+# Retire the previous launcher payloads only after successful installation.
+rm -f -- "$pig_home/bin/pig-plugins-native" "$pig_home/bin/pig-plugins-raw"
 
 # 7. Link the executable into the user bin directory so `pig-plugins` is on PATH.
 echo "install: [7/7] linking executable" >&2

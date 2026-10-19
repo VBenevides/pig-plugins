@@ -2,6 +2,22 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.1.6] - 2026-10-19
+
+### Bugfixes
+
+- `pig-plugins update` now rebuilds the fused distribution through its installer instead of invoking PiG's upstream self-updater. `--update` remains an alias, including in development builds; explicit extension-only updates retain PiG's package-update behavior. Failed installer downloads are never executed, and installer failures remain visible.
+
+### Other
+
+- Installation now publishes a single fused executable at `~/.pig/bin/pig-plugins`, without a separate shell launcher or native payload. The executable supplies its host version and appends the managed dependency directory after existing `PATH` entries.
+- Added regression coverage for legacy-payload migration, environment setup, installer failures and temporary-file cleanup, plus fused-binary smoke tests for self-update routes and extension-only updates.
+- Updated installation and update documentation for the single-executable layout.
+
+### Breaking Changes
+
+- Successful installs remove the managed `pig-plugins-native` and `pig-plugins-raw` executables. Change scripts and shortcuts that use either legacy path to invoke `pig-plugins` instead.
+
 ## [0.1.5] - 2026-10-19
 
 ### Bugfixes
