@@ -51,7 +51,7 @@ func directProvider(c *client, transport directTransport) *sdk.Provider {
 		return result, err
 	}
 	p.Auth.OAuth = &sdk.OAuthAuth{Name: "Cursor", IsSubscription: &yes,
-		Login: func(interaction sdk.AuthInteraction) (map[string]any, error) {
+		Login: func(interaction sdk.AuthInteraction, _ sdk.LoginOptions) (*sdk.Credential, error) {
 			parent := interaction.Signal
 			if parent == nil {
 				parent = context.Background()
@@ -70,14 +70,14 @@ func directProvider(c *client, transport directTransport) *sdk.Provider {
 			if err != nil {
 				return nil, err
 			}
-			var out map[string]any
+			var out sdk.Credential
 			if err = json.Unmarshal(b, &out); err != nil {
 				return nil, err
 			}
-			out["type"] = "oauth"
-			return out, nil
+			out.Set("type", "oauth")
+			return &out, nil
 		},
-		Refresh: func(credential map[string]any, ctx context.Context) (map[string]any, error) {
+		Refresh: func(credential *sdk.Credential, ctx context.Context) (*sdk.Credential, error) {
 			if ctx == nil {
 				ctx = context.Background()
 			}
@@ -93,17 +93,14 @@ func directProvider(c *client, transport directTransport) *sdk.Provider {
 			if err != nil {
 				return nil, err
 			}
-			out := make(map[string]any, len(credential))
-			for k, v := range credential {
-				out[k] = v
-			}
-			out["access"] = next.Access
-			out["refresh"] = next.Refresh
-			out["expires"] = next.Expires
+			out := credential.Clone()
+			out.Set("access", next.Access)
+			out.Set("refresh", next.Refresh)
+			out.Set("expires", next.Expires)
 			return out, nil
 		},
-		ToAuth: func(credential map[string]any) (map[string]any, error) {
-			token, _ := credential["access"].(string)
+		ToAuth: func(credential *sdk.Credential) (map[string]any, error) {
+			token := credential.String("access")
 			if token == "" {
 				return nil, errors.New("cursor: access token missing; run /login cursor")
 			}
@@ -124,7 +121,7 @@ func directProvider(c *client, transport directTransport) *sdk.Provider {
 		if !accepted {
 			return nil
 		}
-		token, _ := refresh.Credential["access"].(string)
+		token := refresh.Credential.String("access")
 		if token == "" || !refresh.AllowNetwork {
 			return nil
 		}

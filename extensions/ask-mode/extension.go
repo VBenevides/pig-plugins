@@ -10,6 +10,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/askmode"
+	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 )
 
@@ -72,9 +73,9 @@ func Extension() *sdk.Extension {
 		if !on.Load() {
 			return nil, nil
 		}
-		base, ok := data["systemPrompt"].(string)
-		if !ok {
-			return nil, fmt.Errorf("%s: before_agent_start has no string systemPrompt", Name)
+		base, err := eventprompt.Read(Name, data)
+		if err != nil {
+			return nil, err
 		}
 		return map[string]any{"systemPrompt": base + askmode.Prompt}, nil
 	})

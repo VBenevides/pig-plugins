@@ -15,6 +15,7 @@ import (
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
+	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/goal"
 )
@@ -113,9 +114,9 @@ func (x *extension) appendPrompt(_ sdk.Context, data map[string]any) (any, error
 	if state == nil || state.Status != goal.Working {
 		return nil, nil
 	}
-	base, ok := data["systemPrompt"].(string)
-	if !ok {
-		return nil, fmt.Errorf("%s: before_agent_start has no string systemPrompt", Name)
+	base, err := eventprompt.Read(Name, data)
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{"systemPrompt": base + goal.SystemPrompt(state.Objective)}, nil
 }

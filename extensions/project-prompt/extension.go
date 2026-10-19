@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 )
 
 // Extension adds no tools and preserves the base prompt on each agent start.
@@ -20,9 +21,9 @@ func Extension() *sdk.Extension {
 }
 
 func appendRules(ctx sdk.Context, data map[string]any) (any, error) {
-	base, ok := data["systemPrompt"].(string)
-	if !ok {
-		return nil, fmt.Errorf("project-prompt: before_agent_start has no string systemPrompt")
+	base, err := eventprompt.Read("project-prompt", data)
+	if err != nil {
+		return nil, err
 	}
 	trusted, err := ctx.IsProjectTrusted()
 	if err != nil {
