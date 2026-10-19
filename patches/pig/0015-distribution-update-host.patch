@@ -1,19 +1,12 @@
-diff --git a/cmd/pig/self_update.go b/cmd/pig/self_update.go
---- a/cmd/pig/self_update.go
-+++ b/cmd/pig/self_update.go
-@@ -24,5 +24,5 @@
- // runSelfUpdate applies one proven installation tier.
- // pig divergence (D39): a started tier never falls through to another.
--func runSelfUpdate(force bool) int {
-+func runUpstreamSelfUpdate(force bool) int {
- 	if code, done := checkSelfUpdateVersion(force); done {
- 		return code
-diff --git a/cmd/pig/plugins_distribution.go b/cmd/pig/plugins_distribution.go
+diff --git a/coding/cli/plugins_distribution.go b/coding/cli/plugins_distribution.go
 new file mode 100644
+index 0000000..5814844
 --- /dev/null
-+++ b/cmd/pig/plugins_distribution.go
-@@ -0,0 +1,31 @@
-+package main
++++ b/coding/cli/plugins_distribution.go
+@@ -0,0 +1,33 @@
++//go:build !pig_strip_self_update
++
++package cli
 +
 +import (
 +	"fmt"
@@ -44,3 +37,16 @@ new file mode 100644
 +	}
 +	return 0
 +}
+diff --git a/coding/cli/self_update.go b/coding/cli/self_update.go
+index 6fa1cb8..e43148d 100644
+--- a/coding/cli/self_update.go
++++ b/coding/cli/self_update.go
+@@ -30,7 +30,7 @@ var errUpdateNotNeeded = errors.New("up to date")
+ 
+ // runSelfUpdate applies one proven installation tier.
+ // pig divergence (D39): a started tier never falls through to another.
+-func runSelfUpdate(force bool) int {
++func runUpstreamSelfUpdate(force bool) int {
+ 	// pig additive (D92): a Piglet that strips self-update refuses, as its Binary does.
+ 	if pigstrip.Has(pigstrip.ListFeatures, pigstrip.SelfUpdate) {
+ 		return reportStrippedFeature("self-update", pigstrip.SelfUpdate, selfUpdateStrippedHint)
