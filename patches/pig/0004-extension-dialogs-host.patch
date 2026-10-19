@@ -1,8 +1,8 @@
 diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
-index 8a56061..b03d78c 100644
+index be48f72..fa3bdea 100644
 --- a/internal/codingagent/interactive_input.go
 +++ b/internal/codingagent/interactive_input.go
-@@ -469,6 +469,15 @@ func (m *InteractiveMode) dispatchKey(ctx context.Context, data string) error {
+@@ -616,6 +616,15 @@ func (m *InteractiveMode) dispatchKey(ctx context.Context, data string) error {
  	return m.dispatchInputChunk(ctx, data, nil)
  }
  
@@ -18,21 +18,21 @@ index 8a56061..b03d78c 100644
  // dispatchInputChunk processes one keystroke routed with ticket. When a
  // subprocess terminal-input listener must answer first, it returns before the
  // keystroke is handled, and handling resumes on the main loop with the verdict.
-@@ -510,7 +519,8 @@ func (m *InteractiveMode) dispatchInputChunk(ctx context.Context, data string, t
+@@ -663,7 +672,8 @@ func (m *InteractiveMode) dispatchInputChunk(ctx context.Context, data string, t
  	// handled by the alt-screen renderer and must not reach the editor. Mirrors
- 	// upstream's addInputListener(handleViewportInput) on the alt-screen; pig is
- 	// driver-owned, so the driver routes it explicitly.
--	if m.altScreen != nil {
-+	// An open dialog keeps the page keys so a long dialog body scrolls instead of the chat behind it (pig additive).
-+	if m.altScreen != nil && !m.dialogOwnsPageKey(data) {
- 		consumed := m.altScreen.HandleViewportInput(data)
- 		if consumed {
+ 	// upstream's addInputListener(handleViewportInput) on the alt-screen, which
+ 	// the alt-screen renderer registers; the driver runs the renderer's listeners.
+-	if m.tuiInst != nil {
++	// A dialog retains its page keys instead of scrolling the transcript behind it.
++	if m.tuiInst != nil && !m.dialogOwnsPageKey(data) {
+ 		current, done := m.tuiInst.RunInputListeners(data)
+ 		if done {
  			return nil
 diff --git a/internal/codingagent/interactive_layout.go b/internal/codingagent/interactive_layout.go
-index cba0afa..20d8d28 100644
+index a50768b..f22a73d 100644
 --- a/internal/codingagent/interactive_layout.go
 +++ b/internal/codingagent/interactive_layout.go
-@@ -26,7 +26,7 @@ const extensionDialogReservedLines = 3
+@@ -31,7 +31,7 @@ const extensionDialogReservedLines = 3
  // while an extension dialog is open. On a terminal too short for both, the
  // dialog wins, but the transcript never renders empty and leaves the user
  // answering with no context at all.
@@ -41,7 +41,7 @@ index cba0afa..20d8d28 100644
  
  // setExtensionDialogViewMode caps (or restores) the chat container so an open
  // extension dialog has room without hiding the reasoning that motivated it
-@@ -62,6 +62,9 @@ func (m *InteractiveMode) extensionDialogLines(component tui.Component) int {
+@@ -67,6 +67,9 @@ func (m *InteractiveMode) extensionDialogLines(component tui.Component) int {
  	if width <= 0 || component == nil {
  		return 0
  	}
@@ -52,42 +52,74 @@ index cba0afa..20d8d28 100644
  }
  
 diff --git a/tui/extension_selector.go b/tui/extension_selector.go
-index c86232d..9dfcd90 100644
+index 12f83cf..a8c5f92 100644
 --- a/tui/extension_selector.go
 +++ b/tui/extension_selector.go
-@@ -20,6 +20,9 @@ type ExtensionSelectorComponent struct {
- 	done                  bool
- 	cancel                bool
+@@ -38,6 +38,10 @@ type ExtensionSelectorComponent struct {
  	onToggleToolsExpanded func()
+ 	onSelect              func(option string)
+ 	onCancel              func()
 +	bodyScroll            int // first visible row of a long title/description (pig additive)
 +	terminalHeight        int
 +	bodyRows              int
++	bodyScrolls           bool
  
  	// The themed texts are built when they change, as upstream builds each Text with theme.fg: the title at
  	// construction and for a countdown tick, the description at construction, the hint at construction and the
-@@ -135,12 +138,16 @@ func (e *ExtensionSelectorComponent) SelectedValue() string {
+@@ -171,6 +175,15 @@ func (e *ExtensionSelectorComponent) SetPreview(preview func(selectedIndex int)
+ // longest row (wrapping only to keep the preview inside the dialog), the preview follows previewGapCells later,
+ // top-aligned with the first row, and the title, hint and borders keep the full width.
  func (e *ExtensionSelectorComponent) Render(width int) []string {
- 	border := NewDynamicBorder("")
- 	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
++	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
 +	if e.terminalHeight > 0 {
-+		return e.renderHeight(width, text, border.Render(width))
++		return e.renderHeight(width, text, NewDynamicBorder().Render(width))
 +	}
++	body := append(e.titleText.Render(width), styledDescriptionLines(e.descriptionText, width)...)
++	e.bodyScrolls = len(body) > extensionSelectorBodyRows
++	if e.bodyScrolls {
++		return e.renderLongBody(width)
++	}
+ 	preview := e.previewLines(width)
+ 	if preview == nil {
+ 		return e.Container.Render(width)
+@@ -321,6 +334,58 @@ const extensionSelectorPageSize = 8
+ // CapturesSelectPageInput reports that the selector handles tui.select.pageUp and tui.select.pageDown.
+ func (e *ExtensionSelectorComponent) CapturesSelectPageInput() bool { return true }
  
- 	var lines []string
- 	lines = append(lines, border.Render(width)...)
- 	lines = append(lines, "")
--	lines = append(lines, text(e.titleText)...)
--	lines = append(lines, styledDescriptionLines(e.descriptionText, width)...)
-+	body := text(e.titleText)
++// Render mirrors upstream extension-selector.ts, whose rows are Text(…, 1, 0)
++// children between Spacer(1) and DynamicBorder rows:
++//
++//	DynamicBorder + Spacer + accent(bold(title)) + [Spacer + description] +
++//	Spacer + one Text per option ("→ " prefix on selected) + Spacer +
++//	navigate/select/cancel hint + Spacer + DynamicBorder.
++//
++// Every Text wraps within one cell of padding on each side and pads to width,
++// so no row is wider than the render width.
++func (e *ExtensionSelectorComponent) renderLongBody(width int) []string {
++	border := NewDynamicBorder()
++	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
++
++	var lines []string
++	lines = append(lines, border.Render(width)...)
++	lines = append(lines, "")
++	body := e.titleText.Render(width)
 +	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
 +	lines = append(lines, e.scrollBody(body, text)...)
- 	lines = append(lines, "")
- 
- 	for _, row := range e.rowTexts {
-@@ -154,6 +161,24 @@ func (e *ExtensionSelectorComponent) Render(width int) []string {
- 	return lines
- }
- 
++	lines = append(lines, "")
++
++	if preview := e.previewLines(width); preview != nil {
++		lines = append(lines, e.rowsBesidePreview(width, preview)...)
++	} else {
++		lines = append(lines, e.listContainer.Render(width)...)
++	}
++
++	lines = append(lines, "")
++	lines = append(lines, text(e.hintText)...)
++	lines = append(lines, "")
++	lines = append(lines, border.Render(width)...)
++	return lines
++}
++
 +// extensionSelectorBodyRows is the most title and description rows shown at once (pig additive).
 +// A longer body scrolls with the page keys instead of growing past the screen.
 +const extensionSelectorBodyRows = 12
@@ -103,38 +135,38 @@ index c86232d..9dfcd90 100644
 +	visible := append([]string(nil), body[e.bodyScroll:end]...)
 +	status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) +
 +		"  " + extKeyHint("pgup/pgdn", "scroll")
-+	return append(visible, text(ActiveTheme().FgText("muted", status))...)
++	return append(visible, text(ActiveTheme().Fg("muted", status))...)
 +}
 +
  // HandleInput resolves expansion, navigation, confirmation and cancellation in that order. Empty options do not complete the selector.
  func (e *ExtensionSelectorComponent) HandleInput(data string) {
  	if e.done {
-@@ -165,6 +190,10 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+@@ -332,6 +397,10 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
  		if e.onToggleToolsExpanded != nil {
  			e.onToggleToolsExpanded()
  		}
-+	case kb.Matches(data, KBSelectPageUp):
++	case kb.Matches(data, KBSelectPageUp) && e.bodyScrolls:
 +		e.bodyScroll = max(0, e.bodyScroll-e.pageRows())
-+	case kb.Matches(data, KBSelectPageDown):
++	case kb.Matches(data, KBSelectPageDown) && e.bodyScrolls:
 +		e.bodyScroll += e.pageRows() // Render clamps to the last page
  	case kb.Matches(data, KBSelectUp) || data == "k":
  		e.cursor = max(0, e.cursor-1)
  		e.updateList()
-@@ -175,7 +204,7 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
- 		if e.SelectedValue() != "" {
- 			e.done = true
+@@ -348,7 +417,7 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 				e.onSelect(selected)
+ 			}
  		}
 -	case kb.Matches(data, KBSelectCancel):
 +	case kb.Matches(data, KBSelectCancel) || data == "q": // No filter input here, so q is not text (pig additive).
  		e.done = true
  		e.cancel = true
- 	}
+ 		if e.onCancel != nil {
 diff --git a/tui/extension_selector_height.go b/tui/extension_selector_height.go
 new file mode 100644
-index 0000000..b6996f3
+index 0000000..689d52b
 --- /dev/null
 +++ b/tui/extension_selector_height.go
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,73 @@
 +package tui
 +
 +import "strconv"
@@ -142,6 +174,13 @@ index 0000000..b6996f3
 +// SetTerminalHeight budgets the complete selector, not just its message body.
 +func (e *ExtensionSelectorComponent) SetTerminalHeight(height int) {
 +	e.terminalHeight = max(0, height)
++}
++
++func styledDescriptionLines(description string, width int) []string {
++	if description == "" {
++		return nil
++	}
++	return append([]string{""}, NewPaddedText(description, 1, 0, nil).Render(width)...)
 +}
 +
 +func (e *ExtensionSelectorComponent) pageRows() int {
@@ -168,16 +207,17 @@ index 0000000..b6996f3
 +	}
 +	// Reserve body space, but keep every approval option visible whenever it
 +	// physically fits. At extremely small heights, options follow the cursor.
-+	optionRows := min(len(e.rowTexts), max(1, budget-borders-2))
++	optionRows := min(len(e.options), max(1, budget-borders-2))
 +	remaining := max(0, budget-borders-optionRows)
 +	hintRows := 0
 +	if remaining >= 4 {
 +		hintRows = 1
 +	}
-+	body := text(e.titleText)
++	body := e.titleText.Render(width)
 +	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
 +	e.bodyRows = max(0, remaining-hintRows)
 +	scrolling := len(body) > e.bodyRows
++	e.bodyScrolls = scrolling
 +	if scrolling && e.bodyRows > 1 {
 +		e.bodyRows-- // reserve a one-row scroll indicator
 +	}
@@ -186,11 +226,11 @@ index 0000000..b6996f3
 +	lines = append(lines, body[e.bodyScroll:end]...)
 +	if scrolling && remaining-hintRows > 1 {
 +		status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) + "  pgup/pgdn scroll"
-+		lines = append(lines, oneLine(ActiveTheme().FgText("muted", status)))
++		lines = append(lines, oneLine(ActiveTheme().Fg("muted", status)))
 +	}
-+	start := max(0, min(e.cursor, len(e.rowTexts)-optionRows))
-+	for _, row := range e.rowTexts[start : start+optionRows] {
-+		lines = append(lines, oneLine(row))
++	start := max(0, min(e.cursor, len(e.options)-optionRows))
++	for i := start; i < start+optionRows; i++ {
++		lines = append(lines, oneLine(e.rowText(i)))
 +	}
 +	if hintRows > 0 {
 +		lines = append(lines, oneLine(e.hintText))
@@ -202,7 +242,7 @@ index 0000000..b6996f3
 +}
 diff --git a/tui/extension_selector_height_test.go b/tui/extension_selector_height_test.go
 new file mode 100644
-index 0000000..330ed77
+index 0000000..c058b3d
 --- /dev/null
 +++ b/tui/extension_selector_height_test.go
 @@ -0,0 +1,50 @@
@@ -216,7 +256,7 @@ index 0000000..330ed77
 +func TestExtensionSelectorHeightBudgetPreservesApprovalChoices(t *testing.T) {
 +	for _, height := range []int{1, 6, 10, 12, 18, 24, 40, 80} {
 +		for _, width := range []int{16, 40, 80} {
-+			sel := NewExtensionSelector(strings.Repeat("long explanation\n", 100), []string{"Deny", "Allow", "Allow once"})
++			sel := NewExtensionSelectorComponent(strings.Repeat("long explanation\n", 100), []string{"Deny", "Allow", "Allow once"}, nil, nil)
 +			sel.SetTerminalHeight(height)
 +			rows := sel.Render(width)
 +			if len(rows) > max(1, height*7/10) {
@@ -234,7 +274,7 @@ index 0000000..330ed77
 +}
 +
 +func TestExtensionSelectorHeightResizeAndScrolling(t *testing.T) {
-+	sel := NewExtensionSelector(strings.Repeat("explanation\n", 100), []string{"Deny", "Allow", "Allow once"})
++	sel := NewExtensionSelectorComponent(strings.Repeat("explanation\n", 100), []string{"Deny", "Allow", "Allow once"}, nil, nil)
 +	sel.SetTerminalHeight(40)
 +	before := sel.Render(80)
 +	sel.HandleInput("\x1b[6~")
@@ -256,30 +296,62 @@ index 0000000..330ed77
 +		t.Fatal("approval navigation changed")
 +	}
 +}
+diff --git a/tui/extension_selector_oracle_test.go b/tui/extension_selector_oracle_test.go
+index 57b5a39..4257205 100644
+--- a/tui/extension_selector_oracle_test.go
++++ b/tui/extension_selector_oracle_test.go
+@@ -124,7 +124,17 @@ func TestExtensionSelectorMatchesPi(t *testing.T) {
+ 			func(option string) { events = append(events, "select:"+option) },
+ 			func() { events = append(events, "cancel") },
+ 			ExtensionSelectorOptions{Description: probe.Description})
+-		got := showImagesResult{Steps: [][]string{}, Frames: [][]string{selector.Render(probe.Width)}}
++		// Compare the native child composition with Pi. The distribution adds bounded
++		// body scrolling; dedicated height/scroll tests cover that intentional divergence.
++		renderFrame := func() []string {
++			native := selector.Container.Render(probe.Width)
++			actual := selector.Render(probe.Width)
++			if !selector.bodyScrolls && !reflect.DeepEqual(actual, native) {
++				t.Errorf("probe %d: short dialog diverged from its native composition", i)
++			}
++			return native
++		}
++		got := showImagesResult{Steps: [][]string{}, Frames: [][]string{renderFrame()}}
+ 		// The host removes the component as soon as a callback runs, so Pi's never sees a key after one; Pig's host polls Done and ignores later keys.
+ 		keys := probe.Keys
+ 		if completed := firstCompletedStep(expected[i].Steps); completed >= 0 {
+@@ -134,7 +144,7 @@ func TestExtensionSelectorMatchesPi(t *testing.T) {
+ 		for _, key := range keys {
+ 			selector.HandleInput(key)
+ 			got.Steps = append(got.Steps, append([]string{}, events...))
+-			got.Frames = append(got.Frames, selector.Render(probe.Width))
++			got.Frames = append(got.Frames, renderFrame())
+ 		}
+ 		if !reflect.DeepEqual(got.Steps, expected[i].Steps) || !reflect.DeepEqual(got.Frames, expected[i].Frames) {
+ 			if failures++; failures <= 3 {
 diff --git a/tui/extension_selector_test.go b/tui/extension_selector_test.go
-index 587c3bd..bcb2c24 100644
+index 757edee..db8bcec 100644
 --- a/tui/extension_selector_test.go
 +++ b/tui/extension_selector_test.go
-@@ -2,6 +2,7 @@ package tui
+@@ -7,6 +7,7 @@ package tui
  
  import (
  	"slices"
 +	"strconv"
  	"strings"
  	"testing"
- 
-@@ -71,6 +72,21 @@ func TestExtensionSelectorHandleInput_CancelStillWins(t *testing.T) {
+ 	"time"
+@@ -77,6 +78,21 @@ func TestExtensionSelectorHandleInput_CancelStillWins(t *testing.T) {
  	}
  }
  
 +// q cancels like Escape: this selector has no filter input, so q is never text (pig additive).
 +func TestExtensionSelectorQCancelsLikeEscape(t *testing.T) {
-+	sel := NewExtensionSelector("Pick one", []string{"a", "b"})
++	sel := NewExtensionSelectorComponent("Pick one", []string{"a", "b"}, nil, nil)
 +	sel.HandleInput("q")
 +	if !sel.Done() || !sel.Cancelled() {
 +		t.Fatal("q must cancel the selector")
 +	}
-+	other := NewExtensionSelector("Pick one", []string{"a", "b"})
++	other := NewExtensionSelectorComponent("Pick one", []string{"a", "b"}, nil, nil)
 +	other.HandleInput("j")
 +	other.HandleInput("\r")
 +	if !other.Done() || other.Cancelled() || other.SelectedValue() != "b" {
@@ -290,8 +362,8 @@ index 587c3bd..bcb2c24 100644
  // Upstream extension-selector.ts and extension-editor.ts render an optional
  // description between the title and the body, after a blank spacer, wrapped
  // with one cell of padding.
-@@ -123,3 +139,37 @@ func TestExtensionSelectorHintWrapsAtNarrowWidth(t *testing.T) {
- 		t.Fatalf("hint rows = %q, want %q", hint, want)
+@@ -410,3 +426,37 @@ func TestExtensionSelectorComponentHasNoPreviewWithoutOptionsAndCapturesThePageK
+ 		t.Error("the selector must capture tui.select.pageUp and pageDown")
  	}
  }
 +
@@ -300,7 +372,7 @@ index 587c3bd..bcb2c24 100644
 +	for i := 1; i <= 40; i++ {
 +		rows = append(rows, "row"+strconv.Itoa(i)+"x")
 +	}
-+	sel := NewExtensionSelector(strings.Join(rows, "\n"), []string{"Deny", "Allow once"})
++	sel := NewExtensionSelectorComponent(strings.Join(rows, "\n"), []string{"Deny", "Allow once"}, nil, nil)
 +	first := sel.Render(80)
 +	joined := strings.Join(first, "\n")
 +	if !strings.Contains(joined, "row1x") || strings.Contains(joined, "row13x") || !strings.Contains(joined, "of 40") {

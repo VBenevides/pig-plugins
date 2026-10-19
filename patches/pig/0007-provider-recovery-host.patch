@@ -210,8 +210,8 @@ index 0000000..eb9327b
 +		t.Fatalf("last answer = %v", last)
 +	}
 +	var compactions, omissions int
-+	for _, entry := range pair.session.Inner().Entries() {
-+		switch entry.Base.Type {
++	for _, entry := range pair.session.Inner().GetEntries() {
++		switch entry.Base().Type {
 +		case "compaction":
 +			compactions++
 +		case "context_edit":

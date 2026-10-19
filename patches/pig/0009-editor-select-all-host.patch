@@ -1,22 +1,21 @@
 diff --git a/test/parity/known-gaps.toml b/test/parity/known-gaps.toml
-index 52fbe66..ff7d34a 100644
+index 2932298..03be9da 100644
 --- a/test/parity/known-gaps.toml
 +++ b/test/parity/known-gaps.toml
-@@ -29,3 +29,9 @@ scope = "upstream-parity"
- key = "api-count"
- tracking = "unresolved.tsv: Extension boundary events"
- why = "Total extension.API method count trails upstream by the api:* entries above."
-+
+@@ -18,3 +18,8 @@
+ 
+ pi_version = "1.3.0+1402973a"
+ 
 +[[gap]]
 +scope = "tui-keybindings"
 +key = "keybinding:tui.editor.selectAll"
-+tracking = "pig-plugins patches/pig/0021-editor-select-all.patch"
++tracking = "pig-plugins patches/pig/0009-editor-select-all-host.patch"
 +why = "pig additive: whole-text selection in the prompt editor. It has no default key so ctrl+a keeps moving to the line start; a keybindings.json entry binds it."
 diff --git a/tui/editor.go b/tui/editor.go
-index 24c54c2..6e662ab 100644
+index 5a6d2b0..548d8cd 100644
 --- a/tui/editor.go
 +++ b/tui/editor.go
-@@ -38,6 +38,8 @@ type Editor struct {
+@@ -45,6 +45,8 @@ type Editor struct {
  	history    []editorState
  	killRing   KillRing
  	lastAction string // "kill" | "yank" | "type-word" | ""
@@ -25,7 +24,7 @@ index 24c54c2..6e662ab 100644
  
  	preferredVisualCol   *int
  	snappedFromCursorCol *int
-@@ -254,6 +256,7 @@ func (e *Editor) SetText(text string) {
+@@ -359,6 +361,7 @@ func (e *Editor) SetText(text string) {
  		e.remoteSetText(text)
  		return
  	}
@@ -33,10 +32,10 @@ index 24c54c2..6e662ab 100644
  	e.AutocompleteCancel()
  	e.lastAction = ""
  	e.inputHistIdx = -1
-@@ -633,6 +636,12 @@ func (e *Editor) layoutText(contentWidth int) []layoutLine {
- func (e *Editor) buildVisualLines(width, rowWidth int) []string {
- 	var out []string
- 	emitCursorMarker := e.Focused && len(e.autocompleteItems) == 0
+@@ -751,6 +754,12 @@ func (e *Editor) buildVisualLines(width, rowWidth int) []string {
+ 	out := e.visualScratch[:0]
+ 	defer func() { e.visualScratch = out[:0] }()
+ 	emitCursorMarker := e.Focused // upstream editor.ts: const emitCursorMarker = this.focused; the hardware cursor stays on the text while the autocomplete popup is open
 +	if e.selectedAll {
 +		for _, line := range e.layoutText(width) {
 +			out = append(out, selectedRow(line.text))
@@ -46,7 +45,7 @@ index 24c54c2..6e662ab 100644
  	for _, line := range e.layoutText(width) {
  		if !line.hasCursor {
  			out = append(out, line.text)
-@@ -1433,6 +1442,9 @@ func (e *Editor) handlePasteFlush(buf string) {
+@@ -1622,6 +1631,9 @@ func (e *Editor) handlePasteFlush(buf string) {
  	e.inputHistSaved = nil
  	e.lastAction = ""
  	e.saveHistory()
@@ -56,7 +55,7 @@ index 24c54c2..6e662ab 100644
  	// Some terminals re-encode control bytes inside bracketed paste as
  	// CSI-u Ctrl+<letter> sequences (ESC [ <codepoint> ; 5 u). Decode
  	// those back to their literal byte before normalization so Ctrl+J
-@@ -1567,6 +1579,10 @@ func (e *Editor) HandleInput(data string) {
+@@ -1750,6 +1762,10 @@ func (e *Editor) HandleInput(data string) {
  		return
  	}
  
@@ -66,7 +65,7 @@ index 24c54c2..6e662ab 100644
 +
  	// Completion selection precedes ordinary editing. Async application remains owned by the host's input ticket.
  	kb := GetTUIKeybindings()
- 	if len(e.autocompleteItems) > 0 {
+ 	// Upstream editor.ts handleInput: "Ctrl+C - let parent handle (exit/clear)".
 diff --git a/tui/editor_select_all.go b/tui/editor_select_all.go
 new file mode 100644
 index 0000000..8eb01b0
@@ -289,10 +288,10 @@ index 0000000..351dc52
 +	}
 +}
 diff --git a/tui/keybindings.go b/tui/keybindings.go
-index cbea105..852996e 100644
+index 74cb993..ef9296a 100644
 --- a/tui/keybindings.go
 +++ b/tui/keybindings.go
-@@ -32,6 +32,7 @@ const (
+@@ -34,6 +34,7 @@ const (
  	KBEditorCursorLineEnd     TUIKeybinding = "tui.editor.cursorLineEnd"
  	KBEditorJumpForward       TUIKeybinding = "tui.editor.jumpForward"
  	KBEditorJumpBackward      TUIKeybinding = "tui.editor.jumpBackward"
@@ -300,7 +299,7 @@ index cbea105..852996e 100644
  	KBEditorPageUp            TUIKeybinding = "tui.editor.pageUp"
  	KBEditorPageDown          TUIKeybinding = "tui.editor.pageDown"
  	KBEditorDeleteCharBack    TUIKeybinding = "tui.editor.deleteCharBackward"
-@@ -178,6 +179,7 @@ func TUIKeybindingDefinitionsFor(platform KeybindingPlatform) map[string]TUIKeyb
+@@ -180,6 +181,7 @@ func TUIKeybindingDefinitionsFor(platform KeybindingPlatform) KeybindingDefiniti
  		KBEditorCursorLineEnd:     {DefaultKeys: []string{"end", "ctrl+e"}, Description: "Move to line end"},
  		KBEditorJumpForward:       {DefaultKeys: []string{"ctrl+]"}, Description: "Jump forward to character"},
  		KBEditorJumpBackward:      {DefaultKeys: []string{"ctrl+alt+]"}, Description: "Jump backward to character"},
@@ -308,3 +307,34 @@ index cbea105..852996e 100644
  		KBEditorPageUp:            {DefaultKeys: []string{"pageUp", "ctrl+pageUp"}, Description: "Page up"},
  		KBEditorPageDown:          {DefaultKeys: []string{"pageDown", "ctrl+pageDown"}, Description: "Page down"},
  		KBEditorDeleteCharBack:    {DefaultKeys: []string{"backspace"}, Description: "Delete character backward"},
+diff --git a/tui/tool_execution.go b/tui/tool_execution.go
+index 6a64534..3c269c2 100644
+--- a/tui/tool_execution.go
++++ b/tui/tool_execution.go
+@@ -774,7 +774,7 @@ func (c *ToolExecutionComponent) renderToolImages(width int) []string { return c
+ // renderLegacyHeader draws the call header, wrapped across rows like upstream's Text.
+ func (c *ToolExecutionComponent) renderLegacyHeader(width int) []string {
+ 	if c.isUnregisteredTool() {
+-		return wrapText(c.formatToolExecution(), width)
++		return wrapText(c.formatToolExecution(width), width)
+ 	}
+ 	return wrapText(c.renderHeaderInner(width), width)
+ }
+@@ -787,7 +787,7 @@ func (c *ToolExecutionComponent) isUnregisteredTool() bool {
+ 
+ // formatToolExecution is upstream formatToolExecution (tool-execution.ts:394-406): the tool name in toolTitle, its arguments as JSON.stringify(args, null, 2)
+ // after a blank line, and the result text on the next line, stripped of ANSI sequences, binary control characters and carriage returns (render-utils.ts getTextOutput).
+-func (c *ToolExecutionComponent) formatToolExecution() string {
++func (c *ToolExecutionComponent) formatToolExecution(width int) string {
+ 	out := toolTitleText(c.Name)
+ 	if len(c.argumentsRaw) > 0 {
+ 		if canonical, err := jsonstringify.Canonicalize(c.argumentsRaw); err == nil {
+@@ -798,7 +798,7 @@ func (c *ToolExecutionComponent) formatToolExecution() string {
+ 		}
+ 	}
+ 	if output := strings.ReplaceAll(text.SanitizeBinaryOutput(text.StripANSIString(c.Output)), "\r", ""); output != "" {
+-		out += "\n" + output
++		out += "\n" + strings.Join(c.collapsedToolRows(wrapText(output, width), width), "\n")
+ 	}
+ 	return out
+ }

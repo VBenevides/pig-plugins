@@ -101,7 +101,7 @@ index 0000000..3c8be71
 +}
 diff --git a/coding/extension/host/subprocess/image_preview.go b/coding/extension/host/subprocess/image_preview.go
 new file mode 100644
-index 0000000..5e5a20f
+index 0000000..81e936e
 --- /dev/null
 +++ b/coding/extension/host/subprocess/image_preview.go
 @@ -0,0 +1,53 @@
@@ -136,7 +136,7 @@ index 0000000..5e5a20f
 +	supported := tui.GetCapabilities().Images != ""
 +	var lines []string
 +	if supported {
-+		preview := tui.NewImage(p.Data, "image/png", tui.ImageOptions{MaxWidthCells: p.Width, MaxHeightCells: p.Height}, dimensions)
++		preview := tui.NewImage(p.Data, "image/png", tui.DefaultImageTheme(), tui.ImageOptions{MaxWidthCells: p.Width, MaxHeightCells: p.Height}, dimensions)
 +		lines = preview.Render(p.Width + 2)
 +	}
 +	result, err := json.Marshal(map[string]any{"frame": map[string]any{"lines": lines, "supported": supported}})
@@ -160,7 +160,7 @@ index 0000000..5e5a20f
 +}
 diff --git a/coding/extension/host/subprocess/image_preview_test.go b/coding/extension/host/subprocess/image_preview_test.go
 new file mode 100644
-index 0000000..4bbd38e
+index 0000000..1956542
 --- /dev/null
 +++ b/coding/extension/host/subprocess/image_preview_test.go
 @@ -0,0 +1,76 @@
@@ -229,8 +229,8 @@ index 0000000..4bbd38e
 +	if _, err := bridge.handleSetPreviewWidget("images", args); err != nil {
 +		t.Fatal(err)
 +	}
-+	proxy := bridge.widgets["images:gallery"]
-+	if proxy == nil {
++	proxy := bridge.widgets["gallery"]
++	if proxy == nil || bridge.widgetOwners["gallery"] != "images" {
 +		t.Fatal("missing gallery widget")
 +	}
 +	if got := proxy.Render(80); len(got) != len(lines) {
@@ -241,13 +241,13 @@ index 0000000..4bbd38e
 +	}
 +}
 diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/host/subprocess/ui_bridge.go
-index 19d1bfc..35d9524 100644
+index f739835..f8cdbb9 100644
 --- a/coding/extension/host/subprocess/ui_bridge.go
 +++ b/coding/extension/host/subprocess/ui_bridge.go
-@@ -1206,6 +1206,10 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
+@@ -1373,6 +1373,10 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
  		return b.handleSetHiddenThinkingLabel(ui, call.Args)
  	case "ui.setWidget":
- 		return b.handleSetWidget(extName, call.Args)
+ 		return b.handleSetWidget(extName, owner, call.Args)
 +	case "ui.renderImage":
 +		return b.handleRenderImage(call.Args)
 +	case "ui.setPreviewWidget":
@@ -255,7 +255,7 @@ index 19d1bfc..35d9524 100644
  
  	// ── Category 2: User Interaction (blocking) ──────────────────────────
  	case "ui.select":
-@@ -1241,6 +1245,8 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
+@@ -1416,6 +1420,8 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
  		return b.handlePasteToEditor(ui, call.Args)
  	case "ui.setEditorText":
  		return b.handleSetEditorText(ui, call.Args)
