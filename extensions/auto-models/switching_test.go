@@ -1,9 +1,11 @@
 package automodels
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -85,6 +87,10 @@ func TestRotateSameProviderAccount(t *testing.T) {
 }
 
 func TestAccountRotationContinuesAfterFailedNeighbor(t *testing.T) {
+	var diagnostics bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&diagnostics, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
 	source := &fakeSwitcher{fakeAccounts: twoAccounts()}
 	source.fail = "broken"
 	source.accounts = append([]sdk.OAuthAccount{{ID: "broken", Provider: "openai-codex"}}, source.accounts...)
@@ -95,8 +101,11 @@ func TestAccountRotationContinuesAfterFailedNeighbor(t *testing.T) {
 	if err != nil || !switched || source.selected != "local-first" {
 		t.Fatal(switched, err, source.selected)
 	}
-	if len(source.notices) != 2 {
-		t.Fatal("failure not observable", source.notices)
+	if len(source.notices) != 1 || !strings.HasPrefix(source.notices[0], "Switched to another") {
+		t.Fatal("unexpected quota warning", source.notices)
+	}
+	if !strings.Contains(diagnostics.String(), "native account credential lookup failed") {
+		t.Fatal("failure not observable in debug diagnostics", diagnostics.String())
 	}
 }
 

@@ -48,7 +48,8 @@ func (x *extension) accountStatus(run context.Context, source accountSource, acc
 	return status, err
 }
 
-func (x *extension) accountQuota(run context.Context, source accountSource, account sdk.OAuthAccount) (*quota.StatusQuota, *float64, error) {
+func (x *extension) accountQuota(run context.Context, source accountSource, account sdk.OAuthAccount) (status *quota.StatusQuota, remaining *float64, err error) {
+	defer func() { err = quota.UsageFailure(err) }()
 	entry, err := accountAuth(source, account.ID)
 	if err != nil {
 		return nil, nil, err

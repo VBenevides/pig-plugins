@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	quota "github.com/VBenevides/pig-plugins/internal/automodels"
 	bf "github.com/VBenevides/pig-plugins/internal/betterfooter"
 	"github.com/VBenevides/pig-plugins/internal/notice"
 )
@@ -122,7 +123,7 @@ func (x *extension) skip(ctx sdk.Context, event map[string]any, gen, cycle uint6
 				if r.err == nil {
 					q, known = r.quota, r.known
 				}
-				x.report(ctx, r.err)
+				x.report(ctx, quota.UsageFailure(r.err))
 			case <-bounded.Done():
 			}
 		}
