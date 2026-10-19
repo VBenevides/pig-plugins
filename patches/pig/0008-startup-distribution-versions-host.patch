@@ -1,6 +1,6 @@
 diff --git a/internal/codingagent/distribution_versions_test.go b/internal/codingagent/distribution_versions_test.go
 new file mode 100644
-index 0000000..42bf54f
+index 0000000..b8acb1f
 --- /dev/null
 +++ b/internal/codingagent/distribution_versions_test.go
 @@ -0,0 +1,42 @@
@@ -24,7 +24,7 @@ index 0000000..42bf54f
 +	isolatePigHome(t)
 +	for _, width := range []int{20, 40, 70, 120} {
 +		t.Run(strconv.Itoa(width), func(t *testing.T) {
-+			m := &InteractiveMode{opts: InteractiveOptions{LoginVisible: true}, extHeader: newSpecialLinesComponent(nil)}
++			m := &InteractiveMode{opts: InteractiveModeOptions{LoginVisible: true}, extHeader: newSpecialLinesComponent(nil)}
 +			m.restoreBuiltInHeader()
 +			lines := m.extHeader.Render(width)
 +			for _, line := range lines {
@@ -47,7 +47,7 @@ index 0000000..42bf54f
 +	}
 +}
 diff --git a/internal/codingagent/pi_logo_apple_terminal_darwin_test.go b/internal/codingagent/pi_logo_apple_terminal_darwin_test.go
-index f8ace5e..910406b 100644
+index 9150836..b837ca1 100644
 --- a/internal/codingagent/pi_logo_apple_terminal_darwin_test.go
 +++ b/internal/codingagent/pi_logo_apple_terminal_darwin_test.go
 @@ -5,7 +5,6 @@ import (
@@ -68,10 +68,10 @@ index f8ace5e..910406b 100644
  		}
  		wantHint := " escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more"
 diff --git a/internal/codingagent/pi_logo_upstream_test.go b/internal/codingagent/pi_logo_upstream_test.go
-index 2b1fe41..be7fc81 100644
+index a00ddbd..96bc866 100644
 --- a/internal/codingagent/pi_logo_upstream_test.go
 +++ b/internal/codingagent/pi_logo_upstream_test.go
-@@ -228,8 +228,8 @@ func TestBuiltInHeaderDrawsThePigHeadInPisLogoSlot(t *testing.T) {
+@@ -230,8 +230,8 @@ func TestBuiltInHeaderDrawsThePigHeadInPisLogoSlot(t *testing.T) {
  		expanded bool
  		want     []string
  	}{
@@ -82,7 +82,7 @@ index 2b1fe41..be7fc81 100644
  	} {
  		m.setAllToolsExpanded(tc.expanded)
  		raw, lines := headerLines(m, 120)
-@@ -326,7 +326,7 @@ func TestBuiltInHeaderAt80Columns(t *testing.T) {
+@@ -328,7 +328,7 @@ func TestBuiltInHeaderAt80Columns(t *testing.T) {
  	for i, line := range lines {
  		beside[i] = strings.TrimSpace(string([]rune(line)[min(len([]rune(line)), piglogin.HeadCells+2):]))
  	}
@@ -91,7 +91,12 @@ index 2b1fe41..be7fc81 100644
  		strings.Join(beside[1:3], " ") != compactHints || beside[3] != pressLine || beside[4] != "" ||
  		strings.Join(beside[5:], " ") != onboardingLine {
  		t.Fatalf("80-column header = %q", lines)
-@@ -360,7 +360,7 @@ func TestBuiltInHeaderUsesTheHeadAsSoonAsTheVersionFits(t *testing.T) {
+@@ -339,11 +339,11 @@ func TestBuiltInHeaderAt80Columns(t *testing.T) {
+ // text mark takes Pi's logo slot.
+ func TestBuiltInHeaderUsesTheHeadAsSoonAsTheVersionFits(t *testing.T) {
+ 	m := newHeaderMode(t)
+-	fits := 2 + piglogin.HeadCells + 1 + widthx.VisibleWidth("v"+pigversion.Version)
++	fits := 2 + piglogin.HeadCells + 1 + widthx.VisibleWidth(distributionVersionText())
  	raw, _ := headerLines(m, fits)
  	assertHead(t, fmt.Sprintf("width %d", fits), raw, headGolden(t, piglogin.DefaultID))
  	raw, lines := headerLines(m, fits-1)
@@ -100,11 +105,11 @@ index 2b1fe41..be7fc81 100644
  		t.Errorf("width %d = %q, want the text mark", fits-1, lines[:2])
  	}
  }
-@@ -370,14 +370,17 @@ func TestBuiltInHeaderFallsBackToTheTextMarkWhenNarrow(t *testing.T) {
- 	mark := textMark(t, piglogin.Default(), tui.TerminalColorModeTrueColor)
- 	for _, width := range []int{26, 24, 20} {
+@@ -356,14 +356,17 @@ func TestBuiltInHeaderFallsBackToTheTextMarkWhenNarrow(t *testing.T) {
+ 	n := widthx.VisibleWidth(first)
+ 	for _, width := range []int{n + 8, n + 6, n + 2} {
  		raw, lines := headerLines(m, width)
--		if got, want := strings.TrimRight(lines[0], " "), " PiG. v"+pigversion.Version; got != want {
+-		if got, want := strings.TrimRight(lines[0], " "), first; got != want {
 -			t.Errorf("width %d first line = %q, want %q", width, got, want)
 +		versionLines := widthx.WrapTextWithAnsi("PiG. "+distributionVersionText(), width-2)
 +		for i, want := range versionLines {
@@ -124,7 +129,7 @@ index 2b1fe41..be7fc81 100644
  		}
  		if !strings.Contains(raw[0], mark) || hasHalfBlocks(raw) {
  			t.Errorf("width %d: first line does not carry the text mark alone: %q", width, raw[0])
-@@ -498,7 +501,7 @@ func TestPigletSetLoginReplacesTheBuiltInArt(t *testing.T) {
+@@ -484,7 +487,7 @@ func TestPigletSetLoginReplacesTheBuiltInArt(t *testing.T) {
  			t.Fatalf("the Piglet's login still draws the built-in head line %q", line)
  		}
  	}
@@ -133,7 +138,7 @@ index 2b1fe41..be7fc81 100644
  		t.Errorf("the Piglet's login still carries the built-in version line: %q", plain)
  	}
  	// The selected sprite does not leak through the Piglet's login on a later render.
-@@ -547,7 +550,7 @@ func TestBuiltInHeaderUsesTheTextMarkInAppleTerminal(t *testing.T) {
+@@ -533,7 +536,7 @@ func TestBuiltInHeaderUsesTheTextMarkInAppleTerminal(t *testing.T) {
  	t.Cleanup(func() { supportsHalfBlockMark = previous })
  	for _, width := range []int{120, 100, 80} {
  		raw, lines := headerLines(m, width)
@@ -142,7 +147,7 @@ index 2b1fe41..be7fc81 100644
  			t.Errorf("width %d first line = %q, want %q", width, got, want)
  		}
  		// interactive-mode.ts withLogo without the logo: `${piWordmark()} v${version}\n${hints}`.
-@@ -717,7 +720,7 @@ func TestBuiltInHeaderColorsTheTextMarkInAppleTerminal256(t *testing.T) {
+@@ -776,7 +779,7 @@ func TestBuiltInHeaderColorsTheTextMarkInAppleTerminal256(t *testing.T) {
  	if strings.Count(raw[0], "38;5;") < 4 {
  		t.Errorf("Apple Terminal text mark does not color P, i, G and the period: %q", raw[0])
  	}
@@ -152,35 +157,31 @@ index 2b1fe41..be7fc81 100644
  	}
  }
 diff --git a/internal/codingagent/startup_header.go b/internal/codingagent/startup_header.go
-index 4c72ead..2b0b7d0 100644
+index 70d1885..dbf1eb8 100644
 --- a/internal/codingagent/startup_header.go
 +++ b/internal/codingagent/startup_header.go
-@@ -8,6 +8,7 @@ import (
- 	"github.com/MichaelKinsy/PiG/internal/coding/pigversion"
+@@ -11,6 +11,7 @@ import (
+ 	"github.com/MichaelKinsy/PiG/internal/pigstrip"
  	"github.com/MichaelKinsy/PiG/tui"
  	"github.com/MichaelKinsy/PiG/tui/widthx"
 +	pigplugins "github.com/VBenevides/pig-plugins"
  )
  
- // headerContainer keeps host spacing outside the replaceable header component, including when a custom header renders no rows.
-@@ -46,10 +47,10 @@ func (m *InteractiveMode) renderBuiltInHeader(width int) []string {
+ // headerContainer keeps host spacing outside the replaceable header component, including when a custom header renders no rows. While startup waits for the terminal's colors (startupHeaderPending) it returns one empty container, so the first paint carries no header, as Pi's headerContainer has no children until after that wait (interactive-mode.ts init()); mountStartupHeader fills it.
+@@ -139,7 +140,7 @@ func drawBuiltInHeader(in builtInHeaderKey, bindings *tui.TUIKeybindingsManager,
  	// Apple Terminal, where Pi draws its wordmark instead of the logo (supportsPiLogo), the text mark takes the wordmark's
  	// place.
  	// pig divergence (D63): the startup version is the composite PiG+Pi release identity.
 -	version := themeFg(theme.Dim, "v"+pigversion.Version)
 +	version := themeFg(theme.Dim, "PiG - "+pigversion.Version+" | PiG Plugins - "+pigplugins.Version())
- 	variant, mode := piglogin.Active(), theme.ColorMode()
- 	drawHead := supportsHalfBlockMark() && mode == tui.TerminalColorModeTrueColor &&
--		width-2 >= piglogin.HeadCells+1+widthx.VisibleWidth(version)
-+		width-2 >= piglogin.HeadCells+1+widthx.VisibleWidth("v"+pigversion.Version)
+ 	drawHead := in.halfBlock && mode == tui.TerminalColorModeTrueColor &&
+ 		width-2 >= piglogin.HeadCells+1+widthx.VisibleWidth(version)
  	withLogo := func(hints string) string {
- 		switch {
- 		case drawHead:
 diff --git a/internal/codingagent/startup_header_test.go b/internal/codingagent/startup_header_test.go
-index d332516..3c6d030 100644
+index 53cc8cc..9f6ce7e 100644
 --- a/internal/codingagent/startup_header_test.go
 +++ b/internal/codingagent/startup_header_test.go
-@@ -128,7 +128,7 @@ func TestBuiltInHeaderMatchesPiStartupHelp(t *testing.T) {
+@@ -130,7 +130,7 @@ func TestBuiltInHeaderMatchesPiStartupHelp(t *testing.T) {
  	m.restoreBuiltInHeader()
  	compact := stripANSITest(strings.Join(m.extHeader.Render(120), "\n"))
  	for _, want := range []string{

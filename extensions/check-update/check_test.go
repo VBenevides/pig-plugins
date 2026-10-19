@@ -19,7 +19,7 @@ func TestCheckUpdatesIsolatesFailureAndSuggestsCompatibleUpdate(t *testing.T) {
 				if r.URL.Path == "/pig" {
 					_, _ = w.Write([]byte(`{"dependencies":{"pig":{"path":"github.com/MichaelKinsy/PiG","version":"0.5.0"}}}`))
 				} else {
-					_, _ = w.Write([]byte("0.2.0"))
+					_, _ = w.Write([]byte("0.3.0"))
 				}
 			}))
 			defer server.Close()
@@ -62,7 +62,7 @@ func TestCheckUpdatesUsesCompatibilityInsteadOfNewerUpstream(t *testing.T) {
 		{"0.4.0+1.0.3", "0.1.0", true, false},
 		{"0.4.1+1.0.3", "0.1.0", false, false},
 		{"0.5.0+1.0.3", "0.1.0", false, false},
-		{"0.4.1+1.0.3", "0.2.0", false, true},
+		{"0.4.1+1.0.3", "0.3.0", false, true},
 	} {
 		t.Run(tc.current+"/"+tc.plugins, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +85,7 @@ func TestCheckUpdatesUsesCompatibilityInsteadOfNewerUpstream(t *testing.T) {
 			for _, message := range messages {
 				if strings.HasPrefix(message, "PiG 0.4.1 is available.") {
 					gotPiG = true
-				} else if strings.HasPrefix(message, "PiG Plugins 0.2.0 is available.") {
+				} else if strings.HasPrefix(message, "PiG Plugins 0.3.0 is available.") {
 					gotPlugins = true
 				} else {
 					t.Errorf("unexpected notice: %s", message)

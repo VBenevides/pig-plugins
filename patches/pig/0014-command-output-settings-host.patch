@@ -1,9 +1,9 @@
 diff --git a/internal/codingagent/reducer_settings_test.go b/internal/codingagent/reducer_settings_test.go
 new file mode 100644
-index 0000000..6f397ab
+index 0000000..dc079d1
 --- /dev/null
 +++ b/internal/codingagent/reducer_settings_test.go
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,145 @@
 +package codingagent
 +
 +import (
@@ -13,8 +13,6 @@ index 0000000..6f397ab
 +	"strings"
 +	"testing"
 +	"time"
-+
-+	"github.com/MichaelKinsy/PiG/tui"
 +)
 +
 +func TestReducerSettingsRoundTripAndLayers(t *testing.T) {
@@ -62,7 +60,9 @@ index 0000000..6f397ab
 +	sm := NewSettingsManager(t.TempDir(), t.TempDir())
 +	var applied []string
 +	sc := &SlashContext{SettingsManager: sm, OnSettingApplied: func(id, value string) { applied = append(applied, id+"="+value) }}
-+	sc.ShowSettingsList = func(items []tui.SettingItem, change func(string, string) string) {
++	useSettingsSelector(sc, func(selector *SettingsSelectorComponent) {
++		list := selector.GetSettingsList()
++		items := list.Items()
 +		found := false
 +		for _, item := range items {
 +			if item.ID == "reduce-command-output" {
@@ -76,7 +76,9 @@ index 0000000..6f397ab
 +			t.Fatal("missing reducer setting")
 +		}
 +		for _, value := range []string{"true", "false"} {
-+			if got := change("reduce-command-output", value); got != value {
++			list.SelectItem("reduce-command-output")
++			list.HandleInput("\r")
++			if got := settingsRowValue(t, list, "reduce-command-output"); got != value {
 +				t.Fatalf("toggle returned %q", got)
 +			}
 +			reloaded := NewSettingsManager(sm.CWD(), sm.AgentDir())
@@ -84,7 +86,7 @@ index 0000000..6f397ab
 +				t.Fatalf("persisted setting: %v", got)
 +			}
 +		}
-+	}
++	})
 +	if err := settingsHandler(sc); err != nil {
 +		t.Fatal(err)
 +	}
@@ -101,11 +103,14 @@ index 0000000..6f397ab
 +	}
 +	notified := false
 +	sc.Append = func(text string) { notified = strings.Contains(text, "Failed to save settings") }
-+	sc.ShowSettingsList = func(_ []tui.SettingItem, change func(string, string) string) {
-+		if got := change("reduce-command-output", "true"); got != "true" {
++	useSettingsSelector(sc, func(selector *SettingsSelectorComponent) {
++		list := selector.GetSettingsList()
++		list.SelectItem("reduce-command-output")
++		list.HandleInput("\r")
++		if got := settingsRowValue(t, list, "reduce-command-output"); got != "true" {
 +			t.Fatalf("row did not reflect the host's in-memory value: %s", got)
 +		}
-+	}
++	})
 +	if err := settingsHandler(sc); err != nil {
 +		t.Fatal(err)
 +	}
@@ -145,10 +150,10 @@ index 0000000..6f397ab
 +	}
 +}
 diff --git a/internal/codingagent/settings.go b/internal/codingagent/settings.go
-index 3970c74..020a835 100644
+index 46fd434..686ce3b 100644
 --- a/internal/codingagent/settings.go
 +++ b/internal/codingagent/settings.go
-@@ -270,6 +270,7 @@ type settingsWire struct {
+@@ -348,6 +348,7 @@ type settingsWire struct {
  	NpmCommand             []string                 `json:"npmCommand,omitzero"`
  	CollapseChangelog      *bool                    `json:"collapseChangelog,omitempty"`
  	ToolsExpanded          *bool                    `json:"toolsExpanded,omitempty"`
@@ -156,7 +161,7 @@ index 3970c74..020a835 100644
  	ShowCacheMissNotices   *bool                    `json:"showCacheMissNotices,omitempty"`
  	EnableInstallTelemetry *bool                    `json:"enableInstallTelemetry,omitempty"`
  	EnableAnalytics        *bool                    `json:"enableAnalytics,omitempty"`
-@@ -552,6 +553,9 @@ type Settings struct {
+@@ -646,6 +647,9 @@ type Settings struct {
  	// ToolsExpanded persists the global Ctrl+O preference; nil defaults to collapsed.
  	ToolsExpanded *bool `json:"toolsExpanded,omitempty"`
  
@@ -166,7 +171,7 @@ index 3970c74..020a835 100644
  	// ShowCacheMissNotices controls transcript notices for significant prompt
  	// cache misses. Default: false. Mirrors upstream settings.showCacheMissNotices
  	// (settings-manager.ts:96).
-@@ -896,6 +900,7 @@ func cloneSettings(s Settings) Settings {
+@@ -1026,6 +1030,7 @@ func cloneSettings(s Settings) Settings {
  		CollapseChangelog:              s.CollapseChangelog,
  		collapseChangelogSet:           s.collapseChangelogSet,
  		ToolsExpanded:                  cloneBoolPtr(s.ToolsExpanded),
@@ -174,15 +179,15 @@ index 3970c74..020a835 100644
  		ShowCacheMissNotices:           s.ShowCacheMissNotices,
  		showCacheMissNoticesSet:        s.showCacheMissNoticesSet,
  		EnableSkillCommands:            cloneBoolPtr(s.EnableSkillCommands),
-@@ -953,6 +958,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
- 		Codemode:                   s.Codemode,
- 		MaskSecretInput:            s.MaskSecretInput,
- 		ToolsExpanded:              s.ToolsExpanded,
-+		ReduceCommandOutput:        s.ReduceCommandOutput,
- 		Theme:                      s.themeSetting(),
- 		Compaction:                 s.Compaction,
- 		Retry:                      s.Retry,
-@@ -1091,6 +1097,11 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
+@@ -1086,6 +1091,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
+ 		Codemode:                    s.Codemode,
+ 		MaskSecretInput:             s.MaskSecretInput,
+ 		ToolsExpanded:               s.ToolsExpanded,
++		ReduceCommandOutput:         s.ReduceCommandOutput,
+ 		ExtensionsAutoUpgrade:       s.ExtensionsAutoUpgrade,
+ 		ExtensionsTypescriptRuntime: s.ExtensionsTypescriptRuntime,
+ 		Theme:                       s.themeSetting(),
+@@ -1229,6 +1235,11 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
  			return errors.New("toolsExpanded must be a boolean")
  		}
  	}
@@ -191,10 +196,10 @@ index 3970c74..020a835 100644
 +			return errors.New("reduceCommandOutput must be a boolean")
 +		}
 +	}
- 	w, err := decodeSettingsWire(legacy)
+ 	extra, err := unmodeledSettings(data, legacy)
  	if err != nil {
  		return err
-@@ -1146,6 +1157,7 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
+@@ -1293,6 +1304,7 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
  		s.collapseChangelogSet = true
  	}
  	s.ToolsExpanded = w.ToolsExpanded
@@ -202,7 +207,19 @@ index 3970c74..020a835 100644
  	if w.ShowCacheMissNotices != nil {
  		s.ShowCacheMissNotices = *w.ShowCacheMissNotices
  		s.showCacheMissNoticesSet = true
-@@ -3101,6 +3113,9 @@ func mergeSettings(global, project Settings) Settings {
+@@ -3116,6 +3128,11 @@ func (sm *SettingsManager) SetMaskSecretInput(enabled bool) error {
+ 	return sm.UpdateGlobal(func(s *Settings) { s.MaskSecretInput = &enabled })
+ }
+ 
++// SetReduceCommandOutput persists the opt-in output reducer setting.
++func (sm *SettingsManager) SetReduceCommandOutput(enabled bool) error {
++	return sm.UpdateGlobal(func(s *Settings) { s.ReduceCommandOutput = &enabled })
++}
++
+ // SetDoubleEscapeAction sets the double-escape action.
+ func (sm *SettingsManager) SetDoubleEscapeAction(action string) error {
+ 	return sm.UpdateGlobal(func(s *Settings) { s.DoubleEscapeAction = action })
+@@ -3892,6 +3909,9 @@ func mergeSettings(global, project Settings) Settings {
  	if project.ToolsExpanded != nil {
  		m.ToolsExpanded = cloneBoolPtr(project.ToolsExpanded)
  	}
@@ -212,25 +229,128 @@ index 3970c74..020a835 100644
  	if project.showCacheMissNoticesSet {
  		m.ShowCacheMissNotices = project.ShowCacheMissNotices
  		m.showCacheMissNoticesSet = true
+diff --git a/internal/codingagent/settings_selector.go b/internal/codingagent/settings_selector.go
+index c0fe7bc..83307e7 100644
+--- a/internal/codingagent/settings_selector.go
++++ b/internal/codingagent/settings_selector.go
+@@ -58,7 +58,8 @@ type SettingsConfig struct {
+ 	Warnings                   WarningSettings
+ 	// MaskSecretInput feeds the PiG-only "Mask secret input" row.
+ 	// pig divergence (D80): configurable input privacy leaves the upstream setting order intact.
+-	MaskSecretInput bool
++	MaskSecretInput     bool
++	ReduceCommandOutput bool
+ }
+ 
+ // SettingsCallbacks is upstream's SettingsCallbacks. The selector skips a callback that is nil; upstream's TypeScript callers always supply every one.
+@@ -101,8 +102,9 @@ type SettingsCallbacks struct {
+ 	OnWarningsChange                   func(warnings WarningSettings)
+ 	// OnMaskSecretInputChange handles the PiG-only "Mask secret input" row.
+ 	// pig divergence (D80): configurable input privacy leaves the upstream setting order intact.
+-	OnMaskSecretInputChange func(enabled bool)
+-	OnCancel                func()
++	OnMaskSecretInputChange     func(enabled bool)
++	OnReduceCommandOutputChange func(enabled bool)
++	OnCancel                    func()
+ }
+ 
+ // defaultProjectTrustLabels is upstream's DEFAULT_PROJECT_TRUST_LABELS in its key order.
+@@ -557,6 +559,7 @@ func NewSettingsSelectorComponent(config SettingsConfig, callbacks SettingsCallb
+ 		cycle("tree-filter-mode", "Tree filter mode", "Default filter when opening /tree", config.TreeFilterMode, "default", "no-tools", "user-only", "labeled-only", "all"),
+ 		// pig divergence (D80): configurable input privacy leaves the upstream setting order intact.
+ 		toggle("mask-secret-input", "Mask secret input", "PiG default: hide secret input with a count and last four characters. Differs from Pi; false restores Pi's plain-text behavior.", config.MaskSecretInput),
++		toggle("reduce-command-output", "Reduce command output", "Reduce supported Bash output sent to the model (requires command-output extension)", config.ReduceCommandOutput),
+ 		tui.SettingItem{
+ 			ID: "warnings", Label: "Warnings", Description: "Enable or disable individual warnings", CurrentValue: "configure",
+ 			Submenu: func(_ string, doneWithOptions func(*string, *tui.SubmenuDoneOptions)) tui.Component {
+@@ -727,6 +730,10 @@ func (s *SettingsSelectorComponent) dispatch(callbacks SettingsCallbacks, id, ne
+ 		if callbacks.OnMaskSecretInputChange != nil {
+ 			callbacks.OnMaskSecretInputChange(newValue == "true")
+ 		}
++	case "reduce-command-output":
++		if callbacks.OnReduceCommandOutputChange != nil {
++			callbacks.OnReduceCommandOutputChange(newValue == "true")
++		}
+ 	case "show-hardware-cursor":
+ 		if callbacks.OnShowHardwareCursorChange != nil {
+ 			callbacks.OnShowHardwareCursorChange(newValue == "true")
+diff --git a/internal/codingagent/settings_selector_oracle_test.go b/internal/codingagent/settings_selector_oracle_test.go
+index 4eab877..6d27006 100644
+--- a/internal/codingagent/settings_selector_oracle_test.go
++++ b/internal/codingagent/settings_selector_oracle_test.go
+@@ -177,9 +177,10 @@ func settingsOracleCallbacks(record func(name string, args ...any)) SettingsCall
+ 				record("onFullscreenWheelScrollLinesChange", v.Lines)
+ 			}
+ 		},
+-		OnWarningsChange:        func(v WarningSettings) { record("onWarningsChange", json2(v)) },
+-		OnMaskSecretInputChange: func(v bool) { record("onMaskSecretInputChange", v) },
+-		OnCancel:                func() { record("onCancel") },
++		OnWarningsChange:            func(v WarningSettings) { record("onWarningsChange", json2(v)) },
++		OnMaskSecretInputChange:     func(v bool) { record("onMaskSecretInputChange", v) },
++		OnReduceCommandOutputChange: func(v bool) { record("onReduceCommandOutputChange", v) },
++		OnCancel:                    func() { record("onCancel") },
+ 	}
+ }
+ 
 diff --git a/internal/codingagent/slash_session_handlers.go b/internal/codingagent/slash_session_handlers.go
-index 20c9082..c77c9a5 100644
+index 0fe86d8..83ff063 100644
 --- a/internal/codingagent/slash_session_handlers.go
 +++ b/internal/codingagent/slash_session_handlers.go
-@@ -941,6 +941,17 @@ func settingsItems() []settingItem {
- 			get:    func(s Settings) string { return boolStr(s.GetMaskSecretInput()) },
- 			apply:  func(s *Settings, v string) { enabled := v == "true"; s.MaskSecretInput = &enabled },
- 		},
-+		{
-+			id: "reduce-command-output", label: "Reduce command output",
-+			desc:   "Reduce supported Bash output sent to the model (requires command-output extension)",
-+			values: []string{"false", "true"},
-+			get: func(s Settings) string {
-+				return boolStr(s.ReduceCommandOutput != nil && *s.ReduceCommandOutput)
+@@ -687,6 +687,7 @@ func settingsConfig(sc *SlashContext) (SettingsConfig, error) {
+ 		FullscreenWheelScrollLines: sm.GetFullscreenWheelScrollLines(),
+ 		Warnings:                   sm.GetWarnings(),
+ 		MaskSecretInput:            settings.GetMaskSecretInput(),
++		ReduceCommandOutput:        settings.ReduceCommandOutput != nil && *settings.ReduceCommandOutput,
+ 	}, nil
+ }
+ 
+@@ -831,6 +832,9 @@ func settingsHandlerTUI(sc *SlashContext, config SettingsConfig) error {
+ 			OnOutputPadChange: func(padding OutputPad) {
+ 				applied("output-padding", strconv.Itoa(int(padding)), sm.SetOutputPad(padding))
+ 			},
++			OnReduceCommandOutputChange: func(enabled bool) {
++				applied("reduce-command-output", boolSettingValue(enabled), sm.SetReduceCommandOutput(enabled))
 +			},
-+			apply: func(s *Settings, v string) {
-+				s.ReduceCommandOutput = new(v == "true")
-+			},
-+		},
- 		{
- 			id: "warnings", label: "Warnings",
- 			desc:   "Enable or disable individual warnings",
+ 			OnAutocompleteMaxVisibleChange: func(maxVisible int) {
+ 				applied("autocomplete-max-visible", strconv.Itoa(maxVisible), sm.SetAutocompleteMaxVisible(maxVisible))
+ 			},
+diff --git a/internal/codingagent/testdata/settings_selector.mjs b/internal/codingagent/testdata/settings_selector.mjs
+index 094bb80..b18e0e4 100644
+--- a/internal/codingagent/testdata/settings_selector.mjs
++++ b/internal/codingagent/testdata/settings_selector.mjs
+@@ -1,5 +1,5 @@
+-// Drive the installed Pi's SettingsSelectorComponent, never a translated oracle. Pi has no PiG "Mask secret input" row (D80), so the
+-// driver loads a copy of Pi's settings-selector.js with that one row and its callback inserted where Pig puts them. PiG's /share uploads
++// Drive the installed Pi's SettingsSelectorComponent, never a translated oracle. Pi lacks PiG's secret-input and distribution output-reducer rows,
++// so the driver inserts those rows and their callbacks where PiG puts them.
+ // only to pi-in-go.dev (D64), so /settings has no "Session share destination" row (Pi cea25743): the copy drops that row and its case.
+ import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+@@ -32,9 +32,19 @@ source = source.replace(rowAnchor, `            {
+                 currentValue: config.maskSecretInput ? "true" : "false",
+                 values: ["true", "false"],
+             },
++            {
++                id: "reduce-command-output",
++                label: "Reduce command output",
++                description: "Reduce supported Bash output sent to the model (requires command-output extension)",
++                currentValue: config.reduceCommandOutput ? "true" : "false",
++                values: ["true", "false"],
++            },
+ ` + rowAnchor).replace(caseAnchor, `                case "mask-secret-input":
+                     callbacks.onMaskSecretInputChange(newValue === "true");
+                     break;
++                case "reduce-command-output":
++                    callbacks.onReduceCommandOutputChange(newValue === "true");
++                    break;
+ ` + caseAnchor);
+ const shareRow = /            \{\n                id: "share-destination",\n[^]*?\n            \},\n/;
+ const shareCase = /                case "share-destination":\n                    callbacks\.onSessionShareDestinationChange\(newValue\);\n                    break;\n/;
+@@ -45,6 +55,7 @@ writeFileSync(patched, source);
+ const { SettingsSelectorComponent } = await import(url(patched));
+ 
+ const callbackNames = ["onAutoCompactChange", "onShowImagesChange", "onImageWidthCellsChange", "onAutoResizeImagesChange", "onBlockImagesChange", "onEnableSkillCommandsChange", "onSteeringModeChange", "onFollowUpModeChange", "onTransportChange", "onHttpIdleTimeoutMsChange", "onCacheWarmingModeChange", "onModelThinkingLevelChange", "onModelThinkingLevelRemove", "onThemeChange", "onThemePreview", "onHideThinkingBlockChange", "onMermaidRenderingModeChange", "onShowCacheMissNoticesChange", "onCollapseChangelogChange", "onEnableInstallTelemetryChange", "onDoubleEscapeActionChange", "onTreeFilterModeChange", "onShowHardwareCursorChange", "onEditorPaddingXChange", "onOutputPadChange", "onAutocompleteMaxVisibleChange", "onQuietStartupChange", "onDefaultProjectTrustChange", "onClearOnShrinkChange", "onShowTerminalProgressChange", "onTuiModeChange", "onFullscreenExitOutputChange", "onFullscreenScrollbarChange", "onFullscreenCopyOnSelectChange", "onFullscreenWheelScrollLinesChange", "onWarningsChange", "onMaskSecretInputChange", "onCancel"];
++callbackNames.push("onReduceCommandOutputChange");
+ let input = "";
+ process.stdin.setEncoding("utf8"); // decode across chunk boundaries: `input += chunk` on Buffers splits a multi-byte character at a 64 KiB edge
+ for await (const chunk of process.stdin) input += chunk;

@@ -1,22 +1,13 @@
---- a/internal/codingagent/interactive_session_test.go
-+++ b/internal/codingagent/interactive_session_test.go
-@@ -42,8 +42,8 @@
- 	}
- 	stream := ai.NewAssistantMessageEventStream()
- 	_ = stream.Push(ai.StartEvent{Partial: message})
--	if message.StopReason == ai.StopReasonError {
--		_ = stream.Push(ai.ErrorEvent{Reason: ai.StopReasonError, Error: message})
-+	if message.StopReason == ai.StopReasonError || message.StopReason == ai.StopReasonAborted {
-+		_ = stream.Push(ai.ErrorEvent{Reason: message.StopReason, Error: message})
- 	} else {
- 		_ = stream.Push(ai.DoneEvent{Reason: message.StopReason, Message: message})
- 	}
+diff --git a/internal/codingagent/diagnostic_input_test.go b/internal/codingagent/diagnostic_input_test.go
+new file mode 100644
+index 0000000..6ff1f57
 --- /dev/null
 +++ b/internal/codingagent/diagnostic_input_test.go
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,118 @@
 +package codingagent_test
 +
 +import (
++	"encoding/json"
 +	"strings"
 +	"testing"
 +	"time"
@@ -56,8 +47,22 @@
 +	pair.harness.Do(func() { pair.harness.Key("X"); pair.harness.Key("\r") })
 +	pair.harness.WaitIdle(t, 10*time.Second)
 +	requests := pair.provider.requestLog()
-+	if len(requests) != 3 || !strings.Contains(requests[2], "draft markXer") || strings.Contains(requests[2], "native OAuth credentials") || strings.Contains(requests[2], "fixture-rate-limit") {
++	if len(requests) != 3 || !strings.Contains(requests[2], "draft markXer") || strings.Contains(requests[2], "native OAuth credentials") {
 +		t.Fatalf("error injected or cursor moved: %v", requests)
++	}
++	// PiG 0.5.1 retains assistant ErrorMessage metadata in its runtime trace;
++	// it must not be flattened into the user input on the next request.
++	var messages []struct {
++		Role    string          `json:"role"`
++		Content json.RawMessage `json:"content"`
++	}
++	if err := json.Unmarshal([]byte(requests[2]), &messages); err != nil {
++		t.Fatal(err)
++	}
++	for _, message := range messages {
++		if strings.Contains(string(message.Content), "fixture-rate-limit") {
++			t.Fatalf("diagnostic injected into %s content: %s", message.Role, message.Content)
++		}
 +	}
 +}
 +
@@ -84,8 +89,8 @@
 +
 +func TestDiagnosticRoutingLateNoticeAfterSessionReplacement(t *testing.T) {
 +	t.Setenv("PIG_HOME", t.TempDir())
-+	build := func() (*coding.Services, *coding.Session) {
-+		services, err := coding.NewServices(coding.ServicesOptions{CWD: t.TempDir(), AgentDir: t.TempDir()})
++	build := func() (*coding.AgentSessionServices, *coding.Session) {
++		services, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{CWD: t.TempDir(), AgentDir: t.TempDir()})
 +		if err != nil {
 +			t.Fatal(err)
 +		}
@@ -98,7 +103,7 @@
 +		return services, session
 +	}
 +	firstServices, first := build()
-+	h := icodingagent.NewTestHarness(t, icodingagent.InteractiveOptions{
++	h := icodingagent.NewTestHarness(t, icodingagent.InteractiveModeOptions{
 +		CWD: firstServices.CWD(), AgentDir: firstServices.AgentDir(), SessionHandle: first,
 +		SettingsManager: firstServices.SettingsManager(), ModelRegistry: firstServices.Registry().ModelRegistry,
 +	}, nil)
@@ -117,3 +122,18 @@
 +		t.Fatalf("draft=%q chat=%s", h.EditorText(), h.Chat())
 +	}
 +}
+diff --git a/internal/codingagent/interactive_session_test.go b/internal/codingagent/interactive_session_test.go
+index 173b4ba..0373358 100644
+--- a/internal/codingagent/interactive_session_test.go
++++ b/internal/codingagent/interactive_session_test.go
+@@ -42,8 +42,8 @@ func (p *scriptedProvider) Stream(_ context.Context, request ai.TranscriptContex
+ 	}
+ 	stream := ai.NewAssistantMessageEventStream()
+ 	_ = stream.Push(ai.StartEvent{Partial: message})
+-	if message.StopReason == ai.StopReasonError {
+-		_ = stream.Push(ai.ErrorEvent{Reason: ai.StopReasonError, Error: message})
++	if message.StopReason == ai.StopReasonError || message.StopReason == ai.StopReasonAborted {
++		_ = stream.Push(ai.ErrorEvent{Reason: message.StopReason, Error: message})
+ 	} else {
+ 		_ = stream.Push(ai.DoneEvent{Reason: message.StopReason, Message: message})
+ 	}
