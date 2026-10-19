@@ -94,6 +94,24 @@ try:
         and has_preview(text),
         "both draft previews side by side after Ctrl+V",
     )
+    # Whole-prompt selection must preserve both image references on undo.
+    for replacement, expected in (
+        (b"T", "T"),
+        (b"\x1b[200~selection paste\x1b[201~", "selection paste"),
+        (b"\x7f", None),
+    ):
+        output.clear()
+        os.write(master, b"\x01" + replacement)
+        wait_for(
+            lambda text: b"\x1b[2K" + (expected or "").encode() + b"\x1b[7m " in output,
+            "selected prompt replacement/deletion",
+        )
+        output.clear()
+        os.write(master, b"\x1a")
+        wait_for(
+            lambda text: "inspect [Image #1] [Image #2]" in text,
+            f"undo after {replacement!r} restores selected prompt and image references",
+        )
     output.clear()
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 40, 0, 0))
     os.killpg(process.pid, signal.SIGWINCH)

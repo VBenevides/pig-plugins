@@ -56,6 +56,9 @@ func testBundledImageDraftTUI(t *testing.T, protocol, mode string) {
 	if err := os.WriteFile(filepath.Join(home.AgentDir(), "settings.json"), []byte(settings), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "keybindings.json"), []byte(`{"app.suspend":[],"tui.editor.undo":["ctrl+z"],"tui.editor.selectAll":["ctrl+a"],"tui.editor.cursorLineStart":["home"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
 	var data bytes.Buffer
 	if err := png.Encode(&data, image.NewNRGBA(image.Rect(0, 0, 16, 16))); err != nil {
 		t.Fatal(err)

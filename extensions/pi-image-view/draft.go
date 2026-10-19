@@ -29,6 +29,9 @@ type draftState struct {
 	// The editor owner clears text before emitting input. Keep one marker-keyed
 	// snapshot until input consumes it or a new nonempty draft supersedes it.
 	clearedEntries map[string]draftImage
+	// Undo restores payloads only after their markers return to the editor.
+	// Submission-only stale markers never gain access to this bounded cache.
+	undoEntries map[string]draftImage
 }
 
 func (d draftState) attachments(text string) []draftImage {
@@ -63,8 +66,14 @@ func (d *draftState) scan(editor draftEditor, cwd string, allocate func(string) 
 		return false, nil, nil
 	}
 	candidate := make(map[string]draftImage)
-	for _, entry := range d.attachments(text) {
-		candidate[entry.Label] = entry
+	for _, label := range images.Markers.FindAllString(text, -1) {
+		entry, ok := d.entries[label]
+		if !ok {
+			entry, ok = d.undoEntries[label]
+		}
+		if ok {
+			candidate[label] = entry
+		}
 	}
 	rendered := text
 	var notices []string
@@ -127,6 +136,22 @@ func (d *draftState) scan(editor draftEditor, cwd string, allocate func(string) 
 	} else {
 		d.clearedEntries = nil
 	}
+	// Active payloads take priority over removed ones in the bounded undo cache.
+	retained := make(map[string]draftImage, maxDraftImages)
+	for label, entry := range candidate {
+		retained[label] = entry
+	}
+	for _, entries := range []map[string]draftImage{d.entries, d.undoEntries} {
+		for label, entry := range entries {
+			if len(retained) >= maxDraftImages {
+				break
+			}
+			if _, exists := retained[label]; !exists {
+				retained[label] = entry
+			}
+		}
+	}
+	d.undoEntries = retained
 	d.entries, d.lastText = candidate, rendered
 	return changed, notices, nil
 }
