@@ -471,7 +471,7 @@ index 08e9424..1196800 100644
  			out = append(out, rpcField{"rawStopReason", assistant.RawStopReason})
  		}
 diff --git a/coding/cli/rpc_mode.go b/coding/cli/rpc_mode.go
-index c68ce9e..0a5c3d7 100644
+index c68ce9e..2d741c7 100644
 --- a/coding/cli/rpc_mode.go
 +++ b/coding/cli/rpc_mode.go
 @@ -275,16 +275,6 @@ func runRPCMode(ctx context.Context, flags Args, activePiglet *piglet.Piglet, re
@@ -491,7 +491,7 @@ index c68ce9e..0a5c3d7 100644
  	flags = initial.Flags
  
  	sessionDir, err := resolveSessionDir(flags.SessionDir, initial.Services.SettingsManager())
-@@ -569,6 +559,16 @@ func serveRPCMode(ctx context.Context, rt *coding.Runtime, options rpcModeOption
+@@ -569,6 +559,20 @@ func serveRPCMode(ctx context.Context, rt *coding.Runtime, options rpcModeOption
  		fmt.Fprintf(os.Stderr, "pig --rpc: %v\n", err)
  		return 1
  	}
@@ -502,6 +502,10 @@ index c68ce9e..0a5c3d7 100644
 +		registry.StartModelTask(ctx, func(taskContext context.Context) {
 +			refreshCtx, cancelRefresh := context.WithTimeout(taskContext, 15*time.Second)
 +			defer cancelRefresh()
++			if err := registry.WaitForRegistrationRefresh(refreshCtx); err != nil {
++				fmt.Fprintf(os.Stderr, "pig --rpc: await startup model registration: %v\n", err)
++				return
++			}
 +			registry.RefreshCatalogs(refreshCtx, codingagent.CatalogRefreshOptions{AllowNetwork: true})
 +		})
 +	}
@@ -909,3 +913,127 @@ index 7929aa9..7a2aa9b 100644
  		case "toolResult", "tool":
  			content, err := subprocessToolResultContent(message["content"])
  			if err != nil {
+diff --git a/internal/codingagent/model_refresh_background.go b/internal/codingagent/model_refresh_background.go
+index 365efbd..6833fae 100644
+--- a/internal/codingagent/model_refresh_background.go
++++ b/internal/codingagent/model_refresh_background.go
+@@ -25,6 +25,7 @@ type registrationRefresh struct {
+ 	mu        sync.Mutex
+ 	providers map[string]struct{}
+ 	holds     int
++	running   map[chan struct{}]struct{}
+ }
+ 
+ // deferRegistrationRefresh queues the local refresh of a registration or removal. It performs no work.
+@@ -134,15 +135,53 @@ func (r *ModelRegistry) launchRegistrationRefresh(ctx context.Context, respectHo
+ 		return nil
+ 	}
+ 	done := make(chan struct{})
++	state.mu.Lock()
++	if state.running == nil {
++		state.running = make(map[chan struct{}]struct{})
++	}
++	state.running[done] = struct{}{}
++	state.mu.Unlock()
++	finish := func() {
++		state.mu.Lock()
++		delete(state.running, done)
++		close(done)
++		state.mu.Unlock()
++	}
+ 	if !r.StartModelTask(context.Background(), func(task context.Context) {
+-		defer close(done)
++		defer finish()
+ 		r.runRegistrationRefresh(task)
+ 	}) {
++		finish()
+ 		return nil
+ 	}
+ 	return done
+ }
+ 
++// WaitForRegistrationRefresh is a startup barrier before a network catalog pass.
++// Unlike a normal runtime yield, it also waits for already launched local passes.
++// Never call it from a provider callback: the callback can belong to that pass.
++func (r *ModelRegistry) WaitForRegistrationRefresh(ctx context.Context) error {
++	r.YieldToRegistrationRefresh(ctx)
++	state := &r.registrationRefresh
++	for {
++		state.mu.Lock()
++		var pending chan struct{}
++		for done := range state.running {
++			pending = done
++			break
++		}
++		state.mu.Unlock()
++		if pending == nil {
++			return ctx.Err()
++		}
++		select {
++		case <-pending:
++		case <-ctx.Done():
++			return ctx.Err()
++		}
++	}
++}
++
+ // runRegistrationRefresh is the local refresh Pi starts after a registration: no network and no signal. Like every refresh it then notifies listeners, but on goroutines the listeners own, so Services.Close never waits for listener code.
+ func (r *ModelRegistry) runRegistrationRefresh(ctx context.Context) {
+ 	r.refreshModelRuntime(context.WithValue(ctx, backgroundRefreshKey{}, true), ai.ModelsRefreshOptions{AllowNetwork: new(false)})
+diff --git a/internal/codingagent/startup_registration_barrier_test.go b/internal/codingagent/startup_registration_barrier_test.go
+new file mode 100644
+index 0000000..38fe7ce
+--- /dev/null
++++ b/internal/codingagent/startup_registration_barrier_test.go
+@@ -0,0 +1,51 @@
++package codingagent
++
++import (
++	"context"
++	"errors"
++	"testing"
++	"time"
++)
++
++func TestStartupRegistrationBarrierWaitsForLaunchedPass(t *testing.T) {
++	registry := NewModelRegistry(t.TempDir())
++	t.Cleanup(registry.CloseModelTasks)
++	// Simulate a launched local registration pass whose goroutine has not yet
++	// reached the provider. A normal yield finds nothing queued and returns.
++	done := make(chan struct{})
++	registry.registrationRefresh.running = map[chan struct{}]struct{}{done: {}}
++	ctx, cancel := context.WithCancel(t.Context())
++	defer cancel()
++	finished := make(chan error, 1)
++	go func() { finished <- registry.WaitForRegistrationRefresh(ctx) }()
++	select {
++	case err := <-finished:
++		t.Fatalf("barrier skipped active registration: %v", err)
++	case <-time.After(20 * time.Millisecond):
++	}
++	registry.registrationRefresh.mu.Lock()
++	delete(registry.registrationRefresh.running, done)
++	close(done)
++	registry.registrationRefresh.mu.Unlock()
++	select {
++	case err := <-finished:
++		if err != nil {
++			t.Fatal(err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("barrier did not settle")
++	}
++}
++
++func TestStartupRegistrationBarrierHonorsCancellation(t *testing.T) {
++	registry := NewModelRegistry(t.TempDir())
++	t.Cleanup(registry.CloseModelTasks)
++	done := make(chan struct{})
++	defer close(done)
++	registry.registrationRefresh.running = map[chan struct{}]struct{}{done: {}}
++	ctx, cancel := context.WithCancel(t.Context())
++	cancel()
++	if err := registry.WaitForRegistrationRefresh(ctx); !errors.Is(err, context.Canceled) {
++		t.Fatalf("canceled barrier: %v", err)
++	}
++}
