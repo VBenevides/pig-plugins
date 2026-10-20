@@ -43,6 +43,7 @@ class BuildScriptsTest(unittest.TestCase):
         self.tools.mkdir()
         self.env = dict(os.environ, PATH=f"{self.tools}:{os.environ['PATH']}",
                         PIG_SOURCE_ROOT=str(self.root), SDK_FIXTURE=str(self.sdk),
+                        HOST_FIXTURE=str(self.root),
                         PIG_HOME=str(Path(self.tmp.name) / "home"),
                         PIG_PLUGINS_LINK_DIR=str(Path(self.tmp.name) / "bin"),
                         TOOL_LOG=str(Path(self.tmp.name) / "tool.log"))
@@ -68,7 +69,11 @@ case "$1" in
             python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dependencies"]["pig"]["version"])' "$3"
         fi
         ;;
-    list) echo "$SDK_FIXTURE" ;;
+    list)
+        case "$*" in
+            *PiG/extensions/sdk*) echo "$SDK_FIXTURE" ;;
+            *) echo "$HOST_FIXTURE" ;;
+        esac ;;
     build)
         for name in .git .agent-work build node_modules .ouro; do
             [ ! -e "$PWD/$name" ] || exit 42
@@ -95,6 +100,76 @@ chmod +x "$2"
     def run_script(self, name, *args):
         return subprocess.run([str(self.root / "scripts" / name), *map(str, args)],
                               env=self.env, capture_output=True, text=True, timeout=10)
+
+    def test_candidate_ignores_installed_pig_versions(self):
+        self.env.pop("PIG_SOURCE_ROOT")
+        self.env["PIG_BUILD_VERSION"] = "0.5.1"
+        marker = Path(self.tmp.name) / "pig-called"
+        for version in ("0.4.1", "0.5.1", "99.0.0"):
+            with self.subTest(version=version):
+                self.tool("pig", f'echo called > "{marker}"\necho "pig {version}"\n')
+                result = self.run_script("dev_build.sh")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(marker.exists())
+        log = Path(self.env["TOOL_LOG"]).read_text()
+        self.assertIn("mod download github.com/MichaelKinsy/PiG@v0.5.1", log)
+        self.assertIn("mod download github.com/MichaelKinsy/PiG/extensions/sdk@v0.5.1", log)
+        self.assertNotIn("@v0.4.1", log)
+
+    def test_build_without_pig_on_path(self):
+        self.without_system_ast_grep()
+        (self.tools / "pig").unlink()
+        self.env.pop("PIG_SOURCE_ROOT")
+        self.env["PIG_BUILD_VERSION"] = "0.5.1"
+        result = self.run_script("dev_build.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_invalid_source_override_preserves_existing_binary(self):
+        out = self.root / "build/result"
+        out.write_text("previous binary")
+        self.env["PIG_SOURCE_ROOT"] = str(self.root / "missing")
+        result = self.run_script("dev_build.sh", out)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a PiG source checkout", result.stderr)
+        self.assertEqual(out.read_text(), "previous binary")
+
+    def test_repeated_builds_publish_identical_fixture(self):
+        outputs = [self.root / "build/first", self.root / "build/second"]
+        for out in outputs:
+            result = self.run_script("dev_build.sh", out)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(outputs[0].read_bytes(), outputs[1].read_bytes())
+        self.assertFalse(list((self.root / "build").glob("dev-source.*")))
+
+    def test_upgrade_preserves_user_resources_and_accounts(self):
+        agent = Path(self.env["PIG_HOME"]) / "agent"
+        agent.mkdir(parents=True)
+        preserved = {
+            "keybindings.json": '{"custom":["ctrl+x"]}',
+            "settings.json": '{"reduceCommandOutput":true}',
+            "auth.json": '{"fixture":{"selectedAccountId":"kept"}}',
+            "skills/private/SKILL.md": "user skill",
+        }
+        for name, text in preserved.items():
+            path = agent / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        (agent / "SYSTEM.md").write_text("previous user prompt")
+        skill = agent / "skills/example/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("previous user skill")
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name, text in preserved.items():
+            self.assertEqual((agent / name).read_text(), text)
+        backups = list(agent.glob("SYSTEM.md.pig-plugins-backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), "previous user prompt")
+        skill_backups = list((agent / "skills-backup").glob("*/example/SKILL.md"))
+        self.assertEqual(len(skill_backups), 1)
+        self.assertEqual(skill_backups[0].read_text(), "previous user skill")
+        self.assertEqual((agent / "SYSTEM.md").read_text(), "fixture\n")
+        self.assertEqual(skill.read_text(), "fixture\n")
 
     def test_staging_progress_and_default_limits(self):
         out = self.root / "build/result"

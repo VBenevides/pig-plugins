@@ -1,8 +1,8 @@
 diff --git a/context.go b/context.go
-index d22db17..1dc29c0 100644
+index 25ce798..cd7405b 100644
 --- a/context.go
 +++ b/context.go
-@@ -1158,6 +1158,7 @@ type ModelEventStream struct {
+@@ -1294,6 +1294,7 @@ type ModelEventStream struct {
  	mu        sync.Mutex
  	delivery  sync.Mutex
  	queue     []map[string]any
@@ -10,7 +10,7 @@ index d22db17..1dc29c0 100644
  	changed   chan struct{}
  	done      chan struct{}
  	terminal  bool
-@@ -1230,6 +1231,10 @@ func (s *ModelEventStream) Events(ctx context.Context) <-chan map[string]any {
+@@ -1366,6 +1367,10 @@ func (s *ModelEventStream) Events(ctx context.Context) <-chan map[string]any {
  					s.mu.Lock()
  					s.queue[0] = nil
  					s.queue = s.queue[1:]
@@ -58,45 +58,19 @@ index 0000000..a14e9e9
 +	}
 +}
 diff --git a/provider.go b/provider.go
-index fab68a8..eabccb3 100644
+index 01c38f3..970ad43 100644
 --- a/provider.go
 +++ b/provider.go
-@@ -10,19 +10,21 @@ import (
- 
- // Provider is Pi's callable provider object. The ModelRegistry resolves credentials and normalizes transcripts separately from these methods.
- type Provider struct {
--	handle         string
--	ID             string
--	Name           string
--	BaseURL        *string
--	Headers        map[string]string
--	Auth           ProviderAuth
--	GetModels      func() ([]map[string]any, error)
--	FilterModels   func([]map[string]any, map[string]any) ([]map[string]any, error)
--	RefreshModels  func(RefreshModelsContext) error
--	Stream         ProviderStreamFunc
--	StreamSimple   ProviderStreamFunc
--	FetchDeferred  ProviderStreamFunc
--	CancelDeferred func(map[string]any, map[string]any, ProviderStreamOptions) error
-+	handle  string
-+	ID      string
-+	Name    string
-+	BaseURL *string
+@@ -29,6 +29,8 @@ type Provider struct {
+ 	StreamSimple    ProviderStreamFunc
+ 	FetchDeferred   ProviderStreamFunc
+ 	CancelDeferred  func(map[string]any, map[string]any, ProviderStreamOptions) error
 +	// ReplayProhibited vetoes automatic host generation replay, including summaries.
 +	ReplayProhibited bool
-+	Headers          map[string]string
-+	Auth             ProviderAuth
-+	GetModels        func() ([]map[string]any, error)
-+	FilterModels     func([]map[string]any, map[string]any) ([]map[string]any, error)
-+	RefreshModels    func(RefreshModelsContext) error
-+	Stream           ProviderStreamFunc
-+	StreamSimple     ProviderStreamFunc
-+	FetchDeferred    ProviderStreamFunc
-+	CancelDeferred   func(map[string]any, map[string]any, ProviderStreamOptions) error
  	// GenerateImages and Classify are the provider's image and classifier operations. The models they serve come from GetModels.
  	GenerateImages ProviderImagesFunc
  	Classify       ProviderClassifyFunc
-@@ -103,17 +105,18 @@ type providerObjectAuth struct {
+@@ -124,17 +126,18 @@ type providerObjectAuth struct {
  	OAuth  *providerObjectAuthMethod `json:"oauth,omitempty"`
  }
  type providerObjectDeclaration struct {
@@ -126,7 +100,7 @@ index fab68a8..eabccb3 100644
  }
  
  func providerDeclaration(provider *Provider, key string) (providerObjectDeclaration, error) {
-@@ -124,6 +127,7 @@ func providerDeclaration(provider *Provider, key string) (providerObjectDeclarat
+@@ -145,6 +148,7 @@ func providerDeclaration(provider *Provider, key string) (providerObjectDeclarat
  		return providerObjectDeclaration{}, errors.New("Provider requires getModels, stream and streamSimple")
  	}
  	decl := providerObjectDeclaration{ID: provider.ID, Key: key, Name: provider.Name, BaseURL: provider.BaseURL, Methods: []string{"getModels", "stream", "streamSimple"}}
@@ -255,10 +229,10 @@ index 0000000..9bc1184
 +	}
 +}
 diff --git a/provider_proxy.go b/provider_proxy.go
-index 344fa0d..61e7f22 100644
+index 2221dba..a3d0759 100644
 --- a/provider_proxy.go
 +++ b/provider_proxy.go
-@@ -189,7 +189,7 @@ func newProviderProxy(ctx Context, decl providerObjectDeclaration) (*Provider, e
+@@ -192,7 +192,7 @@ func newProviderProxy(ctx Context, decl providerObjectDeclaration) (*Provider, e
  	}
  	runtime.AddCleanup(lease, releaseProviderLease, *lease)
  	decl.lease = lease

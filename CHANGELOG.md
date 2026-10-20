@@ -2,6 +2,36 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.0] - 2026-10-19
+
+### Features
+
+- Support PiG 0.5.1 with matching patched host and SDK integrations for native OAuth accounts, Cursor, editor input, dialogs, image previews, compaction and settings.
+- Add `/goal resume` to continue stopped, blocked or idle restored goals without replacing their objective or saved progress. Busy agents, pending messages and repeated calls cannot queue duplicate continuations; reached or cleared goals cannot be resumed.
+- Select matching host and SDK sources from the compatibility pin, independently of `pig` on `PATH`. Support explicit `PIG_BUILD_VERSION` candidate builds and isolate builder homes from user models, MCP servers and discovery settings.
+
+### Bugfixes
+
+- Wait for startup extension binding and already launched registration refreshes before RPC catalog discovery, preventing intermittent missing Cursor models. Preserve replay vetoes across streaming, persistence, retries and compaction.
+- Restore image attachments after editor undo through a bounded payload cache without accepting submission-only stale image markers.
+- Preserve settings submenu selections when submitting search input, including Kitty keyboard input.
+- Adapt prompt consumers to lazy system-prompt resolution while preserving earlier contributions and propagating resolution errors. Retain diagnostic isolation, live output settings and ordered compaction on PiG 0.5.1.
+- Keep distribution self-update routes owned by the pig-plugins installer after the upstream CLI relocation; explicit extension-only updates remain separate.
+
+### Other
+
+- Consolidate fifteen host/SDK patches into nine system-grouped artifacts, update build and workspace application order, and verify byte-identical resulting source trees.
+- Expand real fused-bundle coverage for replay, goal resume, steering/queue delivery, literal commands, dialog cancellation and text ownership, images/undo, security boundaries, compaction/restart, raw-output recovery and diagnostics.
+- Add build-source selection, installer preservation, updater route/failure/cleanup and patch-inventory checks. Formatting checks include tracked and unignored Go files without scanning ignored scratch trees.
+- Document the 0.2.0 migration, qualification evidence and known upstream oracle/dependency limits in the README and `docs/pig-051-port.md`. Live external account and update testing was not performed.
+
+### Breaking Changes
+
+- PiG 0.5.1 and its matching patched SDK are required; older host compatibility is not promised. Rebuild with `pig-plugins update`.
+- Go extension authors must migrate to the PiG 0.5.1 SDK, including typed OAuth credentials and lazy `before_agent_start.systemPrompt` reads through `Get()`, preserving errors and prompt composition.
+- Custom model entries need an explicit `api` unless they replace a built-in. Library-only local packages without resource directories need `"pi": {}` to avoid extension discovery.
+- Supplied boolean extension flags are always enabled. Replace `--adhd false` with `/adhd off` to save a disabled choice.
+
 ## [0.1.6] - 2026-10-19
 
 ### Bugfixes

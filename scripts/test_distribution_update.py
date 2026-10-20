@@ -19,16 +19,18 @@ class DistributionUpdateTest(unittest.TestCase):
         self.tools = self.home / "tools"
         self.tools.mkdir()
         self.marker = self.home / "installed"
+        self.downloads = self.home / "downloads"
+        self.downloads.mkdir()
         self.env = dict(os.environ, HOME=str(self.home), PIG_HOME=str(self.home / ".pig"),
                         PIG_CODING_AGENT_DIR=str(self.home / ".pig/agent"),
                         PATH=f"{self.tools}:{os.environ['PATH']}", PI_OFFLINE="1",
-                        UPDATE_MARKER=str(self.marker))
+                        UPDATE_MARKER=str(self.marker), TMPDIR=str(self.downloads))
         self.binary = str(Path(os.environ["PIG_PLUGINS_TEST_BINARY"]).resolve())
         curl = self.tools / "curl"
         curl.write_text('''#!/bin/sh
 set -eu
 while [ "$1" != -o ]; do shift; done
-printf '%s\n' 'printf "%s|%s" "$PIG_PLUGINS_UPDATE" "$PIG_PLUGINS_HOST_VERSION" > "$UPDATE_MARKER"' > "$2"
+printf '%s\n' 'printf "%s|%s" "$PIG_PLUGINS_UPDATE" "$PIG_PLUGINS_HOST_VERSION" > "$UPDATE_MARKER"' 'exit "${INSTALL_EXIT:-0}"' > "$2"
 exit "${DOWNLOAD_EXIT:-0}"
 ''')
         curl.chmod(0o755)
@@ -39,7 +41,10 @@ exit "${DOWNLOAD_EXIT:-0}"
 
     def test_self_update_routes(self):
         for args in (("update",), ("--update",), ("update", "--self"),
-                     ("update", "pig"), ("update", "--force")):
+                     ("update", "pig"), ("update", "--force"),
+                     ("update", "--self", "--force"),
+                     ("update", "--self", "--extensions"),
+                     ("update", "--self", "--extensions", "--force")):
             with self.subTest(args=args):
                 self.marker.unlink(missing_ok=True)
                 result = self.run_binary(*args)
@@ -47,6 +52,19 @@ exit "${DOWNLOAD_EXIT:-0}"
                 marker = self.marker.read_text()
                 self.assertTrue(marker.startswith("1|"), marker)
                 self.assertGreater(len(marker), 2)
+                self.assertFalse(list(self.downloads.glob("pig-plugins-update.*")))
+
+    def test_installer_failure_cleans_up_and_can_retry(self):
+        self.env["INSTALL_EXIT"] = "9"
+        result = self.run_binary("update")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("update pig-plugins", result.stderr)
+        self.assertTrue(self.marker.exists())
+        self.assertFalse(list(self.downloads.glob("pig-plugins-update.*")))
+        self.env.pop("INSTALL_EXIT")
+        result = self.run_binary("update")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(list(self.downloads.glob("pig-plugins-update.*")))
 
     def test_partial_download_does_not_execute(self):
         self.env["DOWNLOAD_EXIT"] = "22"
@@ -54,6 +72,7 @@ exit "${DOWNLOAD_EXIT:-0}"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("download pig-plugins installer", result.stderr)
         self.assertFalse(self.marker.exists())
+        self.assertFalse(list(self.downloads.glob("pig-plugins-update.*")))
 
     def test_extensions_only_does_not_rebuild_distribution(self):
         result = self.run_binary("update", "--extensions")

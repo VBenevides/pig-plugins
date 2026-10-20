@@ -40,7 +40,7 @@ func TestDirectCatalogPublicationIsolationAndLogout(t *testing.T) {
 	}}
 	p := directProvider(defaultClient(), fixture)
 	for _, token := range []string{"account-a", "account-b"} {
-		if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: map[string]any{"access": token}, AllowNetwork: true, Publish: publication}); err != nil {
+		if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: sdk.NewCredential("access", token), AllowNetwork: true, Publish: publication}); err != nil {
 			t.Fatal(err)
 		}
 		models, _ := p.GetModels()
@@ -53,14 +53,14 @@ func TestDirectCatalogPublicationIsolationAndLogout(t *testing.T) {
 			t.Fatal("catalog aliasing")
 		}
 	}
-	if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: map[string]any{"access": "fail"}, AllowNetwork: true, Publish: publication}); err == nil {
+	if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: sdk.NewCredential("access", "fail"), AllowNetwork: true, Publish: publication}); err == nil {
 		t.Fatal("fetch failure concealed")
 	}
 	models, _ := p.GetModels()
 	if len(models) != 0 {
 		t.Fatal("previous account exposed")
 	}
-	if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: map[string]any{"access": "account-a"}, AllowNetwork: false, Publish: publication}); err != nil {
+	if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: sdk.NewCredential("access", "account-a"), AllowNetwork: false, Publish: publication}); err != nil {
 		t.Fatal(err)
 	}
 	if len(observed) != 3 {
@@ -73,7 +73,7 @@ func TestDirectCatalogPublicationIsolationAndLogout(t *testing.T) {
 	if len(models) != 0 {
 		t.Fatal("logout did not clear catalog")
 	}
-	if _, err := p.Auth.OAuth.ToAuth(map[string]any{}); err == nil {
+	if _, err := p.Auth.OAuth.ToAuth(sdk.NewCredential()); err == nil {
 		t.Fatal("empty credential accepted")
 	}
 }
@@ -107,13 +107,13 @@ func TestDirectSupersededRefreshCannotPublishAndMaxModeRetained(t *testing.T) {
 	}
 	finished := make(chan error, 1)
 	go func() {
-		finished <- p.RefreshModels(sdk.RefreshModelsContext{Credential: map[string]any{"access": "old"}, AllowNetwork: true, Publish: publish(0)})
+		finished <- p.RefreshModels(sdk.RefreshModelsContext{Credential: sdk.NewCredential("access", "old"), AllowNetwork: true, Publish: publish(0)})
 	}()
 	<-started
 	mu.Lock()
 	generation = 1
 	mu.Unlock()
-	if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: map[string]any{"access": "new"}, AllowNetwork: true, Publish: publish(1)}); err != nil {
+	if err := p.RefreshModels(sdk.RefreshModelsContext{Credential: sdk.NewCredential("access", "new"), AllowNetwork: true, Publish: publish(1)}); err != nil {
 		t.Fatal(err)
 	}
 	close(release)
@@ -132,7 +132,7 @@ func TestDirectSupersededRefreshCannotPublishAndMaxModeRetained(t *testing.T) {
 func TestDirectLoginCancellationAndNotificationFailure(t *testing.T) {
 	p := directProvider(defaultClient(), catalogFixture{})
 	sentinel := errors.New("notification unavailable")
-	_, err := p.Auth.OAuth.Login(sdk.AuthInteraction{Signal: context.Background(), Notify: func(map[string]any) error { return sentinel }})
+	_, err := p.Auth.OAuth.Login(sdk.AuthInteraction{Signal: context.Background(), Notify: func(map[string]any) error { return sentinel }}, sdk.LoginOptions{})
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("lost notification failure: %v", err)
 	}

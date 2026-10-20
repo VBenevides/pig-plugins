@@ -11,6 +11,7 @@ import json
 import os
 import pty
 import select
+import re
 import struct
 import subprocess
 import sys
@@ -132,8 +133,16 @@ def check(binary, work):
                 raise AssertionError(
                     f"TUI exited {process.returncode}: {transcript[-2000:]!r}"
                 )
+        text = re.sub(
+            r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))",
+            "",
+            transcript.decode("utf-8", errors="replace"),
+        )
+        visible = "\n".join(
+            dict.fromkeys(line.strip() for line in text.splitlines() if line.strip())
+        )
         raise AssertionError(
-            f"timeout waiting for {description}: {transcript[-2000:]!r}"
+            f"timeout waiting for {description}: {visible[-12000:]}"
         )
 
     try:
@@ -172,8 +181,16 @@ def check(binary, work):
         slave = None
         # Terminal capability negotiation may request replies before the editor starts.
         os.write(master, b"\x1b[?1;2c\x1b[1;1R")
-        pump_until(lambda: b"fake-claude" in transcript, "model/editor startup")
-        os.write(master, b"initial request\r")
+        # 0.5.1 paints the model before managed-tool setup finishes; Enter is
+        # deliberately rejected during that window. This badge is published
+        # by session_start after the normal submit handler is installed.
+        pump_until(
+            lambda: b"fake-claude" in transcript and b"smart-approve-lancet on" in transcript,
+            "session/editor startup",
+        )
+        os.write(master, b"initial request")
+        pump_until(lambda: b"initial request" in transcript, "initial draft rendering")
+        os.write(master, b"\r")
         pump_until(first_request.is_set, "initial loopback request")
         os.write(master, b"draft marker\x1b[D\x1b[D")
         # Drain an editor render before releasing the synchronized provider error.

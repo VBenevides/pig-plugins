@@ -136,7 +136,7 @@ func TestFusedCursorGenerationReplayVeto(t *testing.T) {
 			cmd.WaitDelay = 5 * time.Second
 			output, err := runReplayFixtureRPC(ctx, cmd)
 			if err != nil {
-				t.Fatalf("fused RPC fixture: %v: %s", err, output)
+				t.Fatalf("fused RPC fixture: %v (generation=%d catalogs=%d unexpected=%d): %s", err, requests.Load(), catalogs.Load(), unexpected.Load(), output)
 			}
 			if tc.name == "successful tool round trip" {
 				if requests.Load() != 2 || catalogs.Load() < 1 || unexpected.Load() != 0 || !strings.Contains(output, "approved fixture content") || !strings.Contains(output, "fixture final answer") || !strings.Contains(output, `"type":"tool_execution_end"`) {

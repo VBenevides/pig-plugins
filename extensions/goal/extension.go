@@ -3,6 +3,7 @@
 //
 //	/goal set <objective>   start; /skill:name tokens inside the objective are expanded
 //	/goal check             show the current goal and status
+//	/goal resume            continue the current unfinished goal
 //	/goal clear             forget the goal and stop continuing
 package goalext
 
@@ -15,6 +16,7 @@ import (
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
+	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/goal"
 )
@@ -30,9 +32,10 @@ type extension struct {
 	mu    sync.Mutex
 	state *goal.State
 	// toolCalls and lastStop describe the runs since the last settle.
-	toolCalls int
-	lastStop  string
-	idleRuns  int
+	toolCalls     int
+	lastStop      string
+	idleRuns      int
+	resumePending bool
 }
 
 // Extension returns the extension.
@@ -51,10 +54,10 @@ func Extension() *sdk.Extension {
 	e.OnEvent(sdk.EventAgentEnd, x.agentEnd)
 	e.OnEvent(sdk.EventAgentSettled, x.settled)
 	e.RegisterCommand("goal", sdk.CommandOptions{
-		Description: "Work on an objective until it is done (/goal set <objective>, /goal check, /goal clear)",
+		Description: "Work on an objective until it is done (/goal set <objective>, /goal resume, /goal check, /goal clear)",
 		GetArgumentCompletions: func(prefix string) ([]sdk.AutocompleteItem, error) {
 			var items []sdk.AutocompleteItem
-			for _, verb := range []string{"set", "check", "clear"} {
+			for _, verb := range []string{"set", "resume", "check", "clear"} {
 				if strings.HasPrefix(verb, prefix) {
 					items = append(items, sdk.AutocompleteItem{Value: verb, Label: verb})
 				}
@@ -93,12 +96,13 @@ func (x *extension) restore(ctx sdk.Context, _ map[string]any) (any, error) {
 	}
 	x.mu.Lock()
 	x.state, x.toolCalls, x.lastStop, x.idleRuns = state, 0, "", 0
+	x.resumePending = false
 	x.mu.Unlock()
 	announce(ctx, state)
 	return nil, nil
 }
 
-func announce(ctx sdk.Context, state *goal.State) {
+func announce(ctx footerstatus.Context, state *goal.State) {
 	text := ""
 	if state != nil && state.Status == goal.Working {
 		text = "GOAL"
@@ -109,13 +113,14 @@ func announce(ctx sdk.Context, state *goal.State) {
 func (x *extension) appendPrompt(_ sdk.Context, data map[string]any) (any, error) {
 	x.mu.Lock()
 	state := x.state
+	x.resumePending = false
 	x.mu.Unlock()
 	if state == nil || state.Status != goal.Working {
 		return nil, nil
 	}
-	base, ok := data["systemPrompt"].(string)
-	if !ok {
-		return nil, fmt.Errorf("%s: before_agent_start has no string systemPrompt", Name)
+	base, err := eventprompt.Read(Name, data)
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{"systemPrompt": base + goal.SystemPrompt(state.Objective)}, nil
 }
@@ -141,6 +146,8 @@ func (x *extension) command(ctx sdk.Context, args string) error {
 	switch strings.ToLower(verb) {
 	case "set":
 		return x.set(ctx, rest)
+	case "resume":
+		return x.resume(ctx)
 	case "check":
 		x.mu.Lock()
 		state := x.state
@@ -153,7 +160,7 @@ func (x *extension) command(ctx sdk.Context, args string) error {
 	case "clear":
 		return x.clear(ctx)
 	default:
-		ctx.Notify("usage: /goal set <objective> | /goal check | /goal clear", "warning")
+		ctx.Notify("usage: /goal set <objective> | /goal resume | /goal check | /goal clear", "warning")
 	}
 	return nil
 }
@@ -184,6 +191,69 @@ func (x *extension) set(ctx sdk.Context, objective string) error {
 		return fmt.Errorf("goal set: start: %w", err)
 	}
 	ctx.Notify("Goal set. It keeps working until it is reached or blocked; /goal check shows progress.", "info")
+	return nil
+}
+
+// resumeContext keeps the continuation boundary testable without a running host.
+type resumeContext interface {
+	footerstatus.Context
+	Notify(string, string)
+	IsIdle() (bool, error)
+	HasPendingMessages() (bool, error)
+	AppendEntry(string, any) error
+	SendUserMessage(any, string) error
+}
+
+func (x *extension) resume(ctx resumeContext) error {
+	x.mu.Lock()
+	state := x.state
+	if state == nil || state.Outcome == goal.Reached {
+		x.mu.Unlock()
+		ctx.Notify("No unfinished goal to resume. Use /goal set <objective>.", "info")
+		return nil
+	}
+	if x.resumePending {
+		x.mu.Unlock()
+		ctx.Notify("Goal continuation is already queued.", "info")
+		return nil
+	}
+	x.resumePending = true
+	x.mu.Unlock()
+	queued := false
+	defer func() {
+		if !queued {
+			x.mu.Lock()
+			x.resumePending = false
+			x.mu.Unlock()
+		}
+	}()
+	idle, err := ctx.IsIdle()
+	if err != nil {
+		return fmt.Errorf("goal resume: check idle: %w", err)
+	}
+	pending, err := ctx.HasPendingMessages()
+	if err != nil {
+		return fmt.Errorf("goal resume: check queue: %w", err)
+	}
+	if !idle || pending {
+		ctx.Notify("Goal resume requires an idle agent with no queued messages; wait for the current run to finish.", "info")
+		return nil
+	}
+	resumed := *state
+	resumed.Status, resumed.Outcome = goal.Working, ""
+	if err := ctx.AppendEntry(goal.EntryType, resumed); err != nil {
+		return fmt.Errorf("goal resume: save goal: %w", err)
+	}
+	x.mu.Lock()
+	x.state, x.toolCalls, x.lastStop, x.idleRuns = &resumed, 0, "", 0
+	x.mu.Unlock()
+	announce(ctx, &resumed)
+	if err := ctx.SendUserMessage(goal.ContinueMessage, "followUp"); err != nil {
+		x.finish(ctx, goal.Stopped, "could not resume: "+err.Error())
+		return fmt.Errorf("goal resume: continue: %w", err)
+	}
+	queued = true
+	ctx.Notify("Goal resumed.", "info")
 	return nil
 }
 
@@ -235,7 +305,7 @@ func (x *extension) clear(ctx sdk.Context) error {
 
 // finish ends a working goal. Persistence failure is reported but the in-memory
 // state still ends, so the loop cannot continue against the user's intent.
-func (x *extension) finish(ctx sdk.Context, outcome goal.Outcome, summary string) {
+func (x *extension) finish(ctx resumeContext, outcome goal.Outcome, summary string) {
 	x.mu.Lock()
 	if x.state == nil || x.state.Status != goal.Working {
 		x.mu.Unlock()
@@ -306,9 +376,9 @@ func (x *extension) settled(ctx sdk.Context, _ map[string]any) (any, error) {
 	x.mu.Unlock()
 	switch {
 	case stop == "aborted":
-		x.finish(ctx, goal.Stopped, "interrupted by you; use /goal set to start again")
+		x.finish(ctx, goal.Stopped, "interrupted by you; use /goal resume to continue")
 	case stop == "error":
-		x.finish(ctx, goal.Stopped, "the model request failed; use /goal set to start again")
+		x.finish(ctx, goal.Stopped, "the model request failed; use /goal resume to continue")
 	case idleRuns >= maxIdleRuns:
 		x.finish(ctx, goal.Stopped, fmt.Sprintf("no progress: %d runs in a row made no tool call and did not finish the goal", maxIdleRuns))
 	default:

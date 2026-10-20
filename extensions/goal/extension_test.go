@@ -129,8 +129,8 @@ func TestGoalCommandsWithoutGoal(t *testing.T) {
 	result, mock := run(t, nil, nil, "/goal check", "/goal clear", "/goal", "/goal set", "/goal bogus")
 	want := []string{
 		"No goal. Use /goal set <objective>.", "No goal to clear.",
-		"usage: /goal set <objective> | /goal check | /goal clear", "usage: /goal set <objective>",
-		"usage: /goal set <objective> | /goal check | /goal clear",
+		"usage: /goal set <objective> | /goal resume | /goal check | /goal clear", "usage: /goal set <objective>",
+		"usage: /goal set <objective> | /goal resume | /goal check | /goal clear",
 	}
 	if got := result.Notices(); !slices.Equal(got, want) {
 		t.Fatalf("notices = %q, want %q", got, want)

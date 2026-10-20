@@ -1,9 +1,275 @@
+diff --git a/coding/extension/host/subprocess/conditional_editor.go b/coding/extension/host/subprocess/conditional_editor.go
+new file mode 100644
+index 0000000..4e755bb
+--- /dev/null
++++ b/coding/extension/host/subprocess/conditional_editor.go
+@@ -0,0 +1,38 @@
++package subprocess
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++
++	"github.com/MichaelKinsy/PiG/coding/extension"
++)
++
++// Optional additive capability: compare and replacement must share the editor owner loop.
++type conditionalEditorUI interface {
++	CompareAndSetEditorText(context.Context, string, string) (bool, error)
++}
++
++func (b *UIBridge) handleCompareAndSetEditorText(ctx context.Context, ui extension.UIContext, args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Expected string `json:"expected"`
++		Text     string `json:"text"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse compareAndSetEditorText args: %w", err)
++	}
++	applied := false
++	if ui != extension.NoopUIContext {
++		conditional, ok := ui.(conditionalEditorUI)
++		if !ok {
++			return nil, fmt.Errorf("UI does not support atomic editor replacement")
++		}
++		var err error
++		applied, err = conditional.CompareAndSetEditorText(ctx, p.Expected, p.Text)
++		if err != nil {
++			return nil, fmt.Errorf("replace unchanged editor text: %w", err)
++		}
++	}
++	result, err := json.Marshal(map[string]bool{"applied": applied})
++	return &CallResultPayload{Result: result}, err
++}
+diff --git a/coding/extension/host/subprocess/conditional_editor_test.go b/coding/extension/host/subprocess/conditional_editor_test.go
+new file mode 100644
+index 0000000..3c8be71
+--- /dev/null
++++ b/coding/extension/host/subprocess/conditional_editor_test.go
+@@ -0,0 +1,51 @@
++package subprocess
++
++import (
++	"context"
++	"encoding/json"
++	"testing"
++)
++
++type conditionalEditorMock struct{ mockUIContext }
++
++func (u *conditionalEditorMock) CompareAndSetEditorText(_ context.Context, expected, text string) (bool, error) {
++	if u.editorText != expected {
++		return false, nil
++	}
++	u.editorText = text
++	return true, nil
++}
++
++func TestUIBridgeConditionalEditorReplacement(t *testing.T) {
++	ui := &conditionalEditorMock{mockUIContext: mockUIContext{editorText: "path"}}
++	bridge := newTestBridge(ui)
++	for _, want := range []bool{true, false} {
++		result, err := call(bridge, "ui.compareAndSetEditorText", `{"expected":"path","text":"marker"}`)
++		if err != nil || result.Error != nil {
++			t.Fatalf("result=%+v err=%v", result, err)
++		}
++		var out struct {
++			Applied bool `json:"applied"`
++		}
++		if err := json.Unmarshal(result.Result, &out); err != nil {
++			t.Fatal(err)
++		}
++		if out.Applied != want {
++			t.Fatalf("applied=%v want=%v", out.Applied, want)
++		}
++	}
++	if ui.editorText != "marker" {
++		t.Fatal(ui.editorText)
++	}
++}
++
++func TestUIBridgeConditionalEditorWithoutCapability(t *testing.T) {
++	ui := &mockUIContext{editorText: "new typing"}
++	_, err := call(newTestBridge(ui), "ui.compareAndSetEditorText", `{"expected":"path","text":"marker"}`)
++	if err == nil {
++		t.Fatal("unsupported UI silently accepted a transform")
++	}
++	if ui.editorText != "new typing" {
++		t.Fatal("unsupported UI changed editor")
++	}
++}
+diff --git a/coding/extension/host/subprocess/image_preview.go b/coding/extension/host/subprocess/image_preview.go
+new file mode 100644
+index 0000000..81e936e
+--- /dev/null
++++ b/coding/extension/host/subprocess/image_preview.go
+@@ -0,0 +1,53 @@
++package subprocess
++
++import (
++	"encoding/json"
++	"fmt"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++// Render through the host's configured image protocol and cell geometry, not
++// subprocess environment detection. Returned rows use the normal widget cache
++// and TUI image placement/cropping lifecycle.
++func (b *UIBridge) handleRenderImage(args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Data   string `json:"data"`
++		Width  int    `json:"width"`
++		Height int    `json:"height"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse renderImage args: %w", err)
++	}
++	if len(p.Data) > 8<<20 || p.Width < 1 || p.Width > 240 || p.Height < 1 || p.Height > 40 {
++		return nil, fmt.Errorf("renderImage exceeds preview bounds")
++	}
++	dimensions := tui.GetPNGDimensions(p.Data)
++	if dimensions == nil || dimensions.WidthPx <= 0 || dimensions.HeightPx <= 0 || dimensions.WidthPx > 24000000/dimensions.HeightPx {
++		return nil, fmt.Errorf("renderImage requires a bounded PNG")
++	}
++	supported := tui.GetCapabilities().Images != ""
++	var lines []string
++	if supported {
++		preview := tui.NewImage(p.Data, "image/png", tui.DefaultImageTheme(), tui.ImageOptions{MaxWidthCells: p.Width, MaxHeightCells: p.Height}, dimensions)
++		lines = preview.Render(p.Width + 2)
++	}
++	result, err := json.Marshal(map[string]any{"frame": map[string]any{"lines": lines, "supported": supported}})
++	return &CallResultPayload{Result: result}, err
++}
++
++func (b *UIBridge) handleSetPreviewWidget(extName string, args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Key   string   `json:"key"`
++		Lines []string `json:"lines"`
++		Width int      `json:"width"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse setPreviewWidget args: %w", err)
++	}
++	if len(args) > 24<<20 || len(p.Lines) > 200 || p.Width < 1 || p.Width > 10000 || p.Key == "" {
++		return nil, fmt.Errorf("setPreviewWidget exceeds preview bounds")
++	}
++	b.updateWidget(extName, p.Key, p.Lines, p.Width, "aboveEditor")
++	return &CallResultPayload{}, nil
++}
+diff --git a/coding/extension/host/subprocess/image_preview_test.go b/coding/extension/host/subprocess/image_preview_test.go
+new file mode 100644
+index 0000000..1956542
+--- /dev/null
++++ b/coding/extension/host/subprocess/image_preview_test.go
+@@ -0,0 +1,76 @@
++package subprocess
++
++import (
++	"bytes"
++	"encoding/base64"
++	"encoding/json"
++	"image"
++	"image/png"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestNativePreviewGraphicsAndFallback(t *testing.T) {
++	previous := tui.GetCapabilities()
++	defer tui.SetCapabilities(previous)
++	var buf bytes.Buffer
++	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 432, 240))); err != nil {
++		t.Fatal(err)
++	}
++	args, err := json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString(buf.Bytes()), "width": 36, "height": 10})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, protocol := range []tui.ImageProtocol{"", tui.ImageProtocolKitty, tui.ImageProtocolITerm2} {
++		tui.SetCapabilities(tui.TerminalCapabilities{Images: protocol})
++		result, err := (&UIBridge{}).handleRenderImage(args)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var value struct {
++			Frame struct {
++				Lines     []string
++				Supported bool
++			}
++		}
++		if err := json.Unmarshal(result.Result, &value); err != nil {
++			t.Fatal(err)
++		}
++		if value.Frame.Supported != (protocol != "") {
++			t.Fatalf("protocol %q: %+v", protocol, value)
++		}
++		if protocol != "" && (len(value.Frame.Lines) == 0 || !strings.Contains(strings.Join(value.Frame.Lines, ""), "\x1b")) {
++			t.Fatalf("missing graphics for %q", protocol)
++		}
++	}
++	if _, err := (&UIBridge{}).handleRenderImage(json.RawMessage(`{"data":"invalid","width":36,"height":10}`)); err == nil {
++		t.Fatal("invalid PNG accepted")
++	}
++}
++
++func TestPreviewWidgetKeepsAllRowsAndRejectsStaleWidth(t *testing.T) {
++	bridge := newTestBridge(&mockUIContext{})
++	lines := make([]string, 44)
++	for i := range lines {
++		lines[i] = "preview"
++	}
++	args, err := json.Marshal(map[string]any{"key": "gallery", "lines": lines, "width": 80})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := bridge.handleSetPreviewWidget("images", args); err != nil {
++		t.Fatal(err)
++	}
++	proxy := bridge.widgets["gallery"]
++	if proxy == nil || bridge.widgetOwners["gallery"] != "images" {
++		t.Fatal("missing gallery widget")
++	}
++	if got := proxy.Render(80); len(got) != len(lines) {
++		t.Fatalf("gallery truncated: %d rows", len(got))
++	}
++	if got := proxy.Render(40); len(got) != 0 {
++		t.Fatalf("stale frame painted: %v", got)
++	}
++}
+diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/host/subprocess/ui_bridge.go
+index f739835..f8cdbb9 100644
+--- a/coding/extension/host/subprocess/ui_bridge.go
++++ b/coding/extension/host/subprocess/ui_bridge.go
+@@ -1373,6 +1373,10 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
+ 		return b.handleSetHiddenThinkingLabel(ui, call.Args)
+ 	case "ui.setWidget":
+ 		return b.handleSetWidget(extName, owner, call.Args)
++	case "ui.renderImage":
++		return b.handleRenderImage(call.Args)
++	case "ui.setPreviewWidget":
++		return b.handleSetPreviewWidget(extName, call.Args)
+ 
+ 	// ── Category 2: User Interaction (blocking) ──────────────────────────
+ 	case "ui.select":
+@@ -1416,6 +1420,8 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
+ 		return b.handlePasteToEditor(ui, call.Args)
+ 	case "ui.setEditorText":
+ 		return b.handleSetEditorText(ui, call.Args)
++	case "ui.compareAndSetEditorText":
++		return b.handleCompareAndSetEditorText(ctx, ui, call.Args)
+ 	case "ui.getEditorText":
+ 		return b.handleGetEditorText(ui)
+ 	case "ui.getEditorComponent":
 diff --git a/internal/codingagent/autocomplete_command_order_test.go b/internal/codingagent/autocomplete_command_order_test.go
-index 5bfb4a9..f03a1e2 100644
+index c6cb264..b196b9e 100644
 --- a/internal/codingagent/autocomplete_command_order_test.go
 +++ b/internal/codingagent/autocomplete_command_order_test.go
-@@ -8,8 +8,8 @@ import (
- 	"github.com/MichaelKinsy/PiG/coding/extension/host/inproc"
+@@ -10,8 +10,8 @@ import (
+ 	"github.com/MichaelKinsy/PiG/tui"
  )
  
 -// Pi's createBaseAutocompleteProvider puts extension commands before skills (interactive-mode.ts:747-776). Fuzzy filtering strips skill: and preserves insertion order for equal scores (autocomplete.ts:335-341).
@@ -13,11 +279,11 @@ index 5bfb4a9..f03a1e2 100644
  	mode, _ := newCustomEditorDispatchMode(t)
  	mode.opts.AgentDir = t.TempDir()
  	mode.opts.Skills = []*SkillDef{{Name: "btw", Description: "Side-question skill"}}
-@@ -21,23 +21,33 @@ func TestExtensionCommandPrecedesSameNameSkillAutocomplete(t *testing.T) {
+@@ -23,23 +23,33 @@ func TestExtensionCommandPrecedesSameNameSkillAutocomplete(t *testing.T) {
  		},
  	}}, mode.opts.AgentDir)
  	provider := mode.buildAutocompleteProvider()
--	suggestions := provider.GetSuggestions([]string{"/btw"}, 0, len("/btw"))
+-	suggestions := provider.GetSuggestions(context.Background(), []string{"/btw"}, 0, len("/btw"), tui.AutocompleteSuggestionOptions{})
 -	if suggestions == nil || len(suggestions.Items) != 2 {
 -		t.Fatalf("suggestions = %#v, want the explicitly registered command and skill", suggestions)
 -	}
@@ -33,7 +299,7 @@ index 5bfb4a9..f03a1e2 100644
 +		{"draft /btw", []string{"skill:btw"}},
 +		{"draft //btw", []string{"btw"}},
 +	} {
-+		suggestions := provider.GetSuggestions([]string{tc.text}, 0, len(tc.text))
++		suggestions := provider.GetSuggestions(context.Background(), []string{tc.text}, 0, len(tc.text), tui.AutocompleteSuggestionOptions{})
 +		if suggestions == nil || len(suggestions.Items) != len(tc.want) {
 +			t.Fatalf("%q suggestions = %#v, want %v", tc.text, suggestions, tc.want)
 +		}
@@ -58,10 +324,10 @@ index 5bfb4a9..f03a1e2 100644
  }
  
 diff --git a/internal/codingagent/autocomplete_source_tag_test.go b/internal/codingagent/autocomplete_source_tag_test.go
-index f213a2e..b9d3ddd 100644
+index 7e16c99..829bf5d 100644
 --- a/internal/codingagent/autocomplete_source_tag_test.go
 +++ b/internal/codingagent/autocomplete_source_tag_test.go
-@@ -85,10 +85,10 @@ func TestAutocompleteProviderTagsResourceCommands(t *testing.T) {
+@@ -88,10 +88,10 @@ func TestAutocompleteProviderTagsResourceCommands(t *testing.T) {
  		return suggestions.Items[0].Description
  	}
  	for prefix, want := range map[string]string{
@@ -76,15 +342,58 @@ index f213a2e..b9d3ddd 100644
  	} {
  		if got := described(prefix); got != want {
  			t.Errorf("%s description = %q, want %q", prefix, got, want)
-@@ -109,7 +109,7 @@ func TestAutocompleteProviderTagsLoadedPromptTemplatesByPath(t *testing.T) {
+@@ -112,7 +112,7 @@ func TestAutocompleteProviderTagsLoadedPromptTemplatesByPath(t *testing.T) {
  		{Name: "extratmpl", Description: "Extra template", FilePath: extra, Scope: "extra"},
  	}
  	provider := mode.buildAutocompleteProvider()
 -	for prefix, want := range map[string]string{"/usertmpl": "[u] User template", "/extratmpl": "[t] Extra template"} {
 +	for prefix, want := range map[string]string{"//usertmpl": "[u] User template", "//extratmpl": "[t] Extra template"} {
- 		suggestions := provider.GetSuggestions([]string{prefix}, 0, len(prefix))
+ 		suggestions := provider.GetSuggestions(context.Background(), []string{prefix}, 0, len(prefix), tui.AutocompleteSuggestionOptions{})
  		if suggestions == nil || len(suggestions.Items) == 0 {
  			t.Fatalf("no suggestions for %q", prefix)
+diff --git a/internal/codingagent/builtin_slash_commands_oracle_test.go b/internal/codingagent/builtin_slash_commands_oracle_test.go
+index 4c80b4d..4027d5c 100644
+--- a/internal/codingagent/builtin_slash_commands_oracle_test.go
++++ b/internal/codingagent/builtin_slash_commands_oracle_test.go
+@@ -24,12 +24,28 @@ func TestBuiltinSlashCommandsMatchPi(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	divergent := map[string]bool{"share": true, "bug": true}
++	additions := map[string]string{
++		"accounts":   "List and select native OAuth accounts",
++		"clear":      "Discard the current input draft",
++		"send-queue": "Send the current draft as a follow-up",
++		"send-steer": "Send the current draft as steering input",
++	}
+ 	var got []BuiltinSlashCommand
+ 	for _, command := range BuiltinSlashCommands() {
++		if description, additive := additions[command.Name]; additive {
++			if command.Description != description {
++				t.Errorf("/%s: description = %q", command.Name, command.Description)
++			}
++			delete(additions, command.Name)
++			continue
++		}
+ 		if !command.Hidden {
+ 			got = append(got, command)
+ 		}
+ 	}
++	if len(additions) != 0 {
++		t.Fatalf("missing distribution commands: %v", additions)
++	}
+ 	for len(got) > 0 && len(got[len(got)-1].Name) > 6 && got[len(got)-1].Name[:6] == "probe-" {
+ 		got = got[:len(got)-1]
+ 	}
+@@ -52,6 +68,9 @@ func TestBuiltinSlashCommandsMatchPi(t *testing.T) {
+ 			// Pi's description is `Quit ${APP_NAME}`; PiG's application name is AppName.
+ 			want.Description = "Quit " + AppName
+ 		}
++		if want.Name == "logout" {
++			want.Description = "Remove the selected OAuth account or stored API key"
++		}
+ 		if command.Description != want.Description || command.ArgumentHint != want.ArgumentHint {
+ 			t.Errorf("/%s: PiG %q hint %q, Pi %q hint %q", want.Name, command.Description, command.ArgumentHint, want.Description, want.ArgumentHint)
+ 		}
 diff --git a/internal/codingagent/chat_command_line.go b/internal/codingagent/chat_command_line.go
 new file mode 100644
 index 0000000..58490c4
@@ -109,7 +418,7 @@ index 0000000..58490c4
 +}
 diff --git a/internal/codingagent/chat_commands_test.go b/internal/codingagent/chat_commands_test.go
 new file mode 100644
-index 0000000..4460685
+index 0000000..05c347b
 --- /dev/null
 +++ b/internal/codingagent/chat_commands_test.go
 @@ -0,0 +1,42 @@
@@ -126,7 +435,7 @@ index 0000000..4460685
 +	defer q.backgroundCancel()
 +	q.isCompacting = true
 +	calls := 0
-+	q.slashRegistry.Register(BuiltinSlashCommand{Name: "example", Handler: func(sc *SlashContext) error {
++	q.slashRegistry.Register(BuiltinSlashCommand{Name: "example", TakesArguments: true, Handler: func(sc *SlashContext) error {
 +		calls++
 +		if sc.Args != "argument" {
 +			t.Fatalf("args = %q", sc.Args)
@@ -177,11 +486,163 @@ index c4bac33..cc4023d 100644
  		t.Fatalf("editor after Enter = %q, want the accepted argument left in the editor", got)
  	}
  }
+diff --git a/internal/codingagent/ext_ui_conditional_editor.go b/internal/codingagent/ext_ui_conditional_editor.go
+new file mode 100644
+index 0000000..e60d91e
+--- /dev/null
++++ b/internal/codingagent/ext_ui_conditional_editor.go
+@@ -0,0 +1,62 @@
++package codingagent
++
++import (
++	"context"
++	"sync"
++	"time"
++)
++
++// CompareAndSetEditorText applies a background draft transform only if typing or
++// submission has not changed the expanded text. All editor access stays on its owner.
++func (u *ExtUIContext) CompareAndSetEditorText(ctx context.Context, expected, text string) (bool, error) {
++	// Bound cleanup even if the owner loop is shutting down or in a modal phase.
++	ctx, cancel := context.WithTimeout(ctx, time.Second)
++	defer cancel()
++	apply := func() bool {
++		if ctx.Err() != nil || u.m.editor == nil || u.m.editor.GetExpandedText() != expected {
++			return false
++		}
++		u.m.editor.SetText(text)
++		if u.m.tuiInst != nil {
++			u.m.requestRender()
++		}
++		return true
++	}
++	if err := ctx.Err(); err != nil {
++		return false, err
++	}
++	if u.m.runCtx == nil {
++		return apply(), nil
++	}
++	var mu sync.Mutex
++	applied, cancelled := false, false
++	result := make(chan struct{}, 1)
++	if err := u.m.postToMain(ctx, func() {
++		mu.Lock()
++		if !cancelled {
++			applied = apply()
++		}
++		mu.Unlock()
++		result <- struct{}{}
++	}); err != nil {
++		return false, err
++	}
++	var err error
++	select {
++	case <-result:
++	case <-ctx.Done():
++		err = ctx.Err()
++	case <-u.m.runCtx.Done():
++		err = context.Cause(u.m.runCtx)
++	}
++	mu.Lock()
++	defer mu.Unlock()
++	cancelled = true
++	if applied {
++		return true, nil
++	}
++	if err == nil {
++		err = ctx.Err()
++	}
++	return false, err
++}
+diff --git a/internal/codingagent/ext_ui_conditional_editor_test.go b/internal/codingagent/ext_ui_conditional_editor_test.go
+new file mode 100644
+index 0000000..ac55e34
+--- /dev/null
++++ b/internal/codingagent/ext_ui_conditional_editor_test.go
+@@ -0,0 +1,78 @@
++package codingagent
++
++import (
++	"context"
++	"errors"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestConditionalEditorReplacementRunsOnOwner(t *testing.T) {
++	for _, currText := range []string{"/tmp/paste.png", "new typing", ""} {
++		t.Run(currText, func(t *testing.T) {
++			m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++			m.editor.SetText("/tmp/paste.png")
++			ui := &ExtUIContext{m: m}
++			type result struct {
++				applied bool
++				err     error
++			}
++			done := make(chan result, 1)
++			go func() {
++				applied, err := ui.CompareAndSetEditorText(t.Context(), "/tmp/paste.png", "[Image #1]")
++				done <- result{applied, err}
++			}()
++			task := <-m.uiTaskCh
++			// Typing or submission can win before the owner accepts the transform.
++			m.editor.SetText(currText)
++			task()
++			got := <-done
++			wantApplied := currText == "/tmp/paste.png"
++			if got.err != nil || got.applied != wantApplied {
++				t.Fatalf("result=%+v", got)
++			}
++			want := currText
++			if wantApplied {
++				want = "[Image #1]"
++			}
++			if text := m.editor.GetExpandedText(); text != want {
++				t.Fatalf("text=%q want=%q", text, want)
++			}
++		})
++	}
++}
++
++func TestConditionalEditorReplacementCancellation(t *testing.T) {
++	m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++	m.editor.SetText("/tmp/paste.png")
++	ctx, cancel := context.WithCancel(t.Context())
++	done := make(chan error, 1)
++	go func() {
++		_, err := (&ExtUIContext{m: m}).CompareAndSetEditorText(ctx, "/tmp/paste.png", "[Image #1]")
++		done <- err
++	}()
++	task := <-m.uiTaskCh
++	cancel()
++	task()
++	if err := <-done; err == nil {
++		t.Fatal("cancelled transform succeeded")
++	}
++	if text := m.editor.Text(); text != "/tmp/paste.png" {
++		t.Fatalf("cancelled transform changed draft: %q", text)
++	}
++}
++
++func TestConditionalEditorReplacementTimeoutRejectsLateTask(t *testing.T) {
++	m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++	m.editor.SetText("/tmp/paste.png")
++	applied, err := (&ExtUIContext{m: m}).CompareAndSetEditorText(t.Context(), "/tmp/paste.png", "[Image #1]")
++	if applied || !errors.Is(err, context.DeadlineExceeded) {
++		t.Fatalf("applied=%v err=%v", applied, err)
++	}
++	// A queued task must not change the draft after its caller has abandoned it.
++	(<-m.uiTaskCh)()
++	if text := m.editor.Text(); text != "/tmp/paste.png" {
++		t.Fatalf("late task changed draft: %q", text)
++	}
++}
 diff --git a/internal/codingagent/interactive.go b/internal/codingagent/interactive.go
-index 8d25144..ab306bb 100644
+index 37c8454..5949e31 100644
 --- a/internal/codingagent/interactive.go
 +++ b/internal/codingagent/interactive.go
-@@ -351,13 +351,15 @@ type InteractiveMode struct {
+@@ -410,13 +410,15 @@ type InteractiveMode struct {
  	keybindings *KeybindingsManager
  
  	// toolByID holds only pending calls so completion updates the streaming card and releases its ID for later calls. toolOrder retains transcript order for Ctrl+O; toolsExpanded is the global expansion choice.
@@ -190,23 +651,23 @@ index 8d25144..ab306bb 100644
 -	toolStarts    map[string]time.Time
 -	toolFileCalls map[string]ai.ToolCall
 -	toolOrder     []*tui.ToolExecutionComponent
--	bashOrder     []*tui.BashExecutionBlock // row 2.8a: Ctrl+O drives bash blocks too
+-	bashOrder     []*tui.BashExecutionComponent // row 2.8a: Ctrl+O drives bash blocks too
 -	toolsExpanded bool
 +	toolMu                sync.Mutex
 +	toolByID              map[string]*tui.ToolExecutionComponent
 +	toolStarts            map[string]time.Time
 +	toolFileCalls         map[string]ai.ToolCall
 +	toolOrder             []*tui.ToolExecutionComponent
-+	bashOrder             []*tui.BashExecutionBlock // row 2.8a: Ctrl+O drives bash blocks too
++	bashOrder             []*tui.BashExecutionComponent // row 2.8a: Ctrl+O drives bash blocks too
 +	toolsExpanded         bool
 +	toolPreferenceSaving  bool
 +	toolPreferenceVersion uint64
  	// builtInHeaderExpanded starts from verbose || toolsExpanded, then follows explicit expansion and restoration. Guarded by toolMu.
  	builtInHeaderExpanded bool
  	// builtInHeaderLogo is the clickable logo of the built-in header as last rendered; the render loop writes it and the
-@@ -1183,6 +1185,10 @@ func NewInteractiveMode(opts InteractiveOptions) *InteractiveMode {
+@@ -1354,6 +1356,10 @@ func NewInteractiveMode(runtimeHost InteractiveRuntime, options InteractiveModeO
  	if opts.TuiMode == "" {
- 		opts.TuiMode = (&SettingsManager{merged: opts.Settings}).GetTuiMode()
+ 		opts.TuiMode = string((&SettingsManager{merged: opts.Settings}).GetTuiMode())
  	}
 +	toolPreference := opts.Settings.ToolsExpanded
 +	if opts.SettingsManager != nil {
@@ -214,55 +675,20 @@ index 8d25144..ab306bb 100644
 +	}
  
  	m := &InteractiveMode{
- 		opts:                 opts,
-@@ -1197,6 +1203,7 @@ func NewInteractiveMode(opts InteractiveOptions) *InteractiveMode {
- 		workingVisible:       true,
- 		spinnerIntervalCh:    make(chan time.Duration, 1),
- 		outputPad:            opts.Settings.GetOutputPad(),
+ 		autoTrustOnReloadCwd: opts.AutoTrustOnReloadCwd,
+@@ -1371,6 +1377,7 @@ func NewInteractiveMode(runtimeHost InteractiveRuntime, options InteractiveModeO
+ 		spinnerWakeCh:        make(chan struct{}, 1),
+ 		spinnerParkCh:        make(chan spinnerPark, 1),
+ 		outputPad:            int(opts.Settings.GetOutputPad()),
 +		toolsExpanded:        toolPreference != nil && *toolPreference,
  		installChanges:       installchange.Default(),
  	}
  	if opts.InitialThemeSetting != nil {
-diff --git a/internal/codingagent/interactive_chat.go b/internal/codingagent/interactive_chat.go
-index c2dc070..9528256 100644
---- a/internal/codingagent/interactive_chat.go
-+++ b/internal/codingagent/interactive_chat.go
-@@ -19,6 +19,30 @@ func (m *InteractiveMode) appendToChat(comp tui.Component) {
- 	m.chatContainer.Add(comp)
- }
- 
-+// appendUserMessage renders every leading skill block as a mounted expandable
-+// component, keeping the remaining prompt and the model's full input unchanged.
-+func (m *InteractiveMode) appendUserMessage(text string) {
-+	for {
-+		parsed := ParseSkillBlock(text)
-+		if parsed == nil {
-+			if text != "" {
-+				m.appendToChat(m.newUserMessageBlock(text))
-+			}
-+			return
-+		}
-+		component := tui.NewSkillInvocationMessage(tui.ParsedSkillBlock{
-+			Name: parsed.Name, Content: parsed.Content,
-+		})
-+		component.SetExpanded(m.toolsExpanded)
-+		m.appendToChat(component)
-+		text = parsed.UserMessage
-+		if text == "" {
-+			return
-+		}
-+		m.appendToChat(tui.NewSpacer(1))
-+	}
-+}
-+
- func (m *InteractiveMode) newUserMessageBlock(text string) *tui.UserMessageBlock {
- 	block := tui.NewUserMessageBlock(text)
- 	block.SetOutputPad(m.outputPad)
 diff --git a/internal/codingagent/interactive_commands.go b/internal/codingagent/interactive_commands.go
-index ab37ca6..85fb684 100644
+index 11ff598..ca79e5f 100644
 --- a/internal/codingagent/interactive_commands.go
 +++ b/internal/codingagent/interactive_commands.go
-@@ -19,7 +19,11 @@ import (
+@@ -20,7 +20,11 @@ import (
  	"github.com/MichaelKinsy/PiG/tui/widthx"
  )
  
@@ -276,8 +702,8 @@ index ab37ca6..85fb684 100644
  	// Mirror any extension-registered commands into the registry just
  	// before dispatch so a freshly loaded command resolves.
 @@ -28,14 +32,20 @@ func (m *InteractiveMode) dispatchSlash(ctx context.Context, line string) {
- 	if canonical, ok := m.slashRegistry.Resolve(name); ok && canonical == "model" && args != "" {
- 		m.findExactModelMatch(ctx, args, func(spec string, found bool) {
+ 	if match, ok := m.slashRegistry.Match(line); ok && match.Builtin != nil && match.Builtin.Name == "model" && match.Args != "" {
+ 		m.findExactModelMatch(ctx, match.Args, func(spec string, found bool) {
  			sc.ResolveModel = func(string) (string, bool) { return spec, found }
 -			m.dispatchSlashContext(sc, line)
 +			m.dispatchSlashContext(sc, line, afterDispatch...)
@@ -298,7 +724,7 @@ index ab37ca6..85fb684 100644
 +	}
  	extCtx := m.extCtx
  	if err := m.slashRegistry.Dispatch(sc, line, extCtx); err != nil {
- 		if errors.Is(err, ErrInteractiveCrashed) {
+ 		if errors.Is(err, ErrInteractiveCrashed) || errors.Is(err, errInteractiveShutdown) {
 @@ -48,7 +58,9 @@ func (m *InteractiveMode) dispatchSlashContext(sc *SlashContext, line string) {
  		}
  		m.showError(err.Error())
@@ -309,37 +735,39 @@ index ab37ca6..85fb684 100644
 +	}
  }
  
- // writeDebugLog dumps the current frame and message history to a debug log
-@@ -156,7 +168,7 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
+ // handleDebugCommand writes the debug log and confirms it in the transcript (interactive-mode.ts:6941), as /debug does: the TUI's debug key calls it.
+@@ -171,9 +183,8 @@ func (m *InteractiveMode) buildAutocompleteProvider() tui.AutocompleteProvider {
+ 	// <agentDir>/bin/fd when needed; LookupToolPath prefers that over PATH.
  	fdPath := tools.LookupToolPath("fd", filepath.Join(m.opts.AgentDir, "bin"))
  
- 	cwd, _ := os.Getwd()
--	prov := tui.NewCombinedProvider(cmds, cwd, fdPath)
-+	prov := tui.NewChatAutocompleteProvider(cmds, cwd, fdPath)
+-	// The base path is the session's cwd (this.sessionManager.getCwd(), interactive-mode.ts:820), which m.opts.CWD
+-	// tracks across session replacement; rebindCurrentSession rebuilds the provider, as Pi's rebind does.
+-	prov := tui.NewCombinedProvider(cmds, m.opts.CWD, fdPath)
++	// Resolve files relative to the current session, including after rebinding.
++	prov := tui.NewChatAutocompleteProvider(cmds, m.opts.CWD, fdPath)
  	// Defer the fd subprocess off the keystroke path (parity with upstream's
  	// async getFuzzyFileSuggestions); only meaningful when fd is present.
  	prov.SetAsyncFileSearch(true)
-@@ -226,6 +238,8 @@ func resolveModelFromItems(input string, items []tui.ModelSelectorItem) (string,
+@@ -237,6 +248,8 @@ func resolveModelFromItems(input string, items []tui.ModelSelectorItem) (string,
  func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
  	var sc *SlashContext
  	sc = &SlashContext{
-+		ClearEditor: m.editor.Clear,
-+		SendEditor:  func(queue bool) { m.sendEditorDraft(ctx, queue) },
- 		Append:      func(s string) { m.appendToChat(tui.NewMarkdown(s)) },
- 		AppendText:  func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 0, nil)) },
- 		AppendBlock: func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 1, nil)) },
++		ClearEditor:      m.editor.Clear,
++		SendEditor:       func(queue bool) { m.sendEditorDraft(ctx, queue) },
+ 		Append:           func(s string) { m.appendToChat(tui.NewMarkdown(s)) },
+ 		AppendText:       func(s string) { m.appendChatBlock(tui.NewPaddedText(s, 1, 0, nil)) },
+ 		AppendThemedText: func(build func() string) { m.appendChatBlock(tui.NewThemedText(build, 1, 0)) },
 diff --git a/internal/codingagent/interactive_draft_commands.go b/internal/codingagent/interactive_draft_commands.go
 new file mode 100644
-index 0000000..1e34e4a
+index 0000000..7430e4b
 --- /dev/null
 +++ b/internal/codingagent/interactive_draft_commands.go
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,86 @@
 +package codingagent
 +
 +import (
 +	"context"
 +	"fmt"
-+	"time"
 +
 +	"github.com/MichaelKinsy/PiG/coding/extension"
 +	"github.com/MichaelKinsy/PiG/tui/widthx"
@@ -406,7 +834,7 @@ index 0000000..1e34e4a
 +		// second slash token left in the draft.
 +		if m.isCompacting {
 +			m.compactionQueue = append(m.compactionQueue, compactionQueuedMessage{text: text, mode: compactionQueueSteer})
-+			m.statusLine.Flash("Queued message for after compaction", 2*time.Second)
++			m.showStatus("Queued message for after compaction")
 +			m.updatePendingMessagesDisplay()
 +			return
 +		}
@@ -415,7 +843,7 @@ index 0000000..1e34e4a
 +	}
 +	if m.isCompacting {
 +		m.compactionQueue = append(m.compactionQueue, compactionQueuedMessage{text: text, mode: compactionQueueFollowUp})
-+		m.statusLine.Flash("Queued message for after compaction", 2*time.Second)
++		m.showStatus("Queued message for after compaction")
 +		m.updatePendingMessagesDisplay()
 +		return
 +	}
@@ -423,10 +851,10 @@ index 0000000..1e34e4a
 +}
 diff --git a/internal/codingagent/interactive_draft_commands_test.go b/internal/codingagent/interactive_draft_commands_test.go
 new file mode 100644
-index 0000000..5125f68
+index 0000000..d9871a7
 --- /dev/null
 +++ b/internal/codingagent/interactive_draft_commands_test.go
-@@ -0,0 +1,183 @@
+@@ -0,0 +1,187 @@
 +package codingagent
 +
 +import (
@@ -447,7 +875,7 @@ index 0000000..5125f68
 +		q.editor.SetText("explain this //mode ask")
 +		q.editor.OnSubmit = func(string) { t.Fatal("local command submitted the draft") }
 +		calls := 0
-+		q.slashRegistry.Register(BuiltinSlashCommand{Name: "mode", Handler: func(sc *SlashContext) error {
++		q.slashRegistry.Register(BuiltinSlashCommand{Name: "mode", TakesArguments: true, Handler: func(sc *SlashContext) error {
 +			calls++
 +			if sc.Args != "ask" {
 +				t.Fatalf("args = %q", sc.Args)
@@ -576,7 +1004,11 @@ index 0000000..5125f68
 +			provider := captureStreamOptionsProvider{seen: make(chan capturedStreamRequest, 2)}
 +			model := &ai.Model{ID: "capture", Provider: provider}
 +			q.opts.Model = model
-+			q.agent = agent.NewAgent(agent.AgentOptions{Model: model})
++			var err error
++			q.agent, err = agent.NewAgent(agent.AgentOptions{Model: model, StreamFn: providerStreamFn})
++			if err != nil {
++				t.Fatal(err)
++			}
 +			q.isIdle = true
 +			loopDone := make(chan struct{})
 +			go q.drainLoop(q.runCtx, loopDone)
@@ -611,10 +1043,10 @@ index 0000000..5125f68
 +	}
 +}
 diff --git a/internal/codingagent/interactive_editor.go b/internal/codingagent/interactive_editor.go
-index f3b4b4e..e971cb6 100644
+index a935c6e..1c4652a 100644
 --- a/internal/codingagent/interactive_editor.go
 +++ b/internal/codingagent/interactive_editor.go
-@@ -77,6 +77,7 @@ func (m *InteractiveMode) toggleAllTools() {
+@@ -79,6 +79,7 @@ func (m *InteractiveMode) toggleAllTools() {
  	expanded := !m.toolsExpanded
  	m.toolMu.Unlock()
  	m.setAllToolsExpanded(expanded)
@@ -622,37 +1054,50 @@ index f3b4b4e..e971cb6 100644
  }
  
  // setAllToolsExpanded applies changed expansion state to the startup header and every mounted expandable child, not detached tracking-list entries. Extension UI calls share this owner-loop path with the default editor.
-diff --git a/internal/codingagent/interactive_events.go b/internal/codingagent/interactive_events.go
-index 8475be9..25a4938 100644
---- a/internal/codingagent/interactive_events.go
-+++ b/internal/codingagent/interactive_events.go
-@@ -149,7 +149,7 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
- 				if !m.chatContainer.IsEmpty() {
- 					m.appendToChat(tui.NewSpacer(1))
- 				}
--				m.appendToChat(m.newUserMessageBlock(text))
-+				m.appendUserMessage(text)
- 				m.tuiInst.RequestRender()
- 			}
- 			// A queued steering/follow-up message that just got injected as a
 diff --git a/internal/codingagent/interactive_hotkeys.go b/internal/codingagent/interactive_hotkeys.go
-index 99edeee..5c8f338 100644
+index 61bb267..32a4fee 100644
 --- a/internal/codingagent/interactive_hotkeys.go
 +++ b/internal/codingagent/interactive_hotkeys.go
-@@ -58,7 +58,7 @@ func hotkeysMarkdown() string {
+@@ -68,7 +68,7 @@ func hotkeysMarkdown(shortcuts []extension.ExtensionShortcut) string {
  	row("Queue follow-up message", "app.message.followUp")
  	row("Restore queued messages", "app.message.dequeue")
  	row("Paste files on macOS, images, or text from clipboard", "app.clipboard.pasteImage")
--	b.WriteString("| `/` | Slash commands |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n")
-+	b.WriteString("| `/` at line start | Commands, prompt templates and skills |\n| `/` after text | Skills only |\n| `//` | Commands and prompt templates |\n| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n")
- 	return strings.TrimSpace(b.String())
- }
- 
+-	b.WriteString("| `/` | Slash commands |\n")
++	b.WriteString("| `/` at line start | Commands, prompt templates and skills |\n| `/` after text | Skills only |\n| `//` | Commands and prompt templates |\n")
+ 	// pig additive (D92): `!` and `!!` run the user bash the bash tool owns.
+ 	if !pigstrip.Has(pigstrip.ListTools, "bash") {
+ 		b.WriteString("| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n")
 diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
-index e39065e..d52e300 100644
+index 93b1d85..fa3bdea 100644
 --- a/internal/codingagent/interactive_input.go
 +++ b/internal/codingagent/interactive_input.go
-@@ -784,6 +784,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
+@@ -616,6 +616,15 @@ func (m *InteractiveMode) dispatchKey(ctx context.Context, data string) error {
+ 	return m.dispatchInputChunk(ctx, data, nil)
+ }
+ 
++// dialogOwnsPageKey reports whether data is a page key that an open extension dialog handles itself.
++func (m *InteractiveMode) dialogOwnsPageKey(data string) bool {
++	if m.extensionDialog == nil {
++		return false
++	}
++	kb := tui.GetTUIKeybindings()
++	return kb.Matches(data, tui.KBSelectPageUp) || kb.Matches(data, tui.KBSelectPageDown)
++}
++
+ // dispatchInputChunk processes one keystroke routed with ticket. When a
+ // subprocess terminal-input listener must answer first, it returns before the
+ // keystroke is handled, and handling resumes on the main loop with the verdict.
+@@ -663,7 +672,8 @@ func (m *InteractiveMode) dispatchInputChunk(ctx context.Context, data string, t
+ 	// handled by the alt-screen renderer and must not reach the editor. Mirrors
+ 	// upstream's addInputListener(handleViewportInput) on the alt-screen, which
+ 	// the alt-screen renderer registers; the driver runs the renderer's listeners.
+-	if m.tuiInst != nil {
++	// A dialog retains its page keys instead of scrolling the transcript behind it.
++	if m.tuiInst != nil && !m.dialogOwnsPageKey(data) {
+ 		current, done := m.tuiInst.RunInputListeners(data)
+ 		if done {
+ 			return nil
+@@ -1013,6 +1023,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
  		return nil
  
  	case outcomeSubmit:
@@ -663,7 +1108,7 @@ index e39065e..d52e300 100644
  		text := widthx.JSTrim(m.editor.GetExpandedText())
  		if text == "" {
  			return nil
-@@ -805,6 +809,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
+@@ -1026,6 +1040,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
  		m.editor.HandleInput("\n")
  
  	case outcomeFollowUp:
@@ -674,7 +1119,7 @@ index e39065e..d52e300 100644
  		// Alt+Enter: if idle, act as regular submit; if working, enqueue
  		// as follow-up (delivered after the agent has no more tool calls
  		// or steering messages).
-@@ -915,7 +923,12 @@ func (m *InteractiveMode) expandSkillCommand(prompt string) (string, bool) {
+@@ -1152,7 +1170,12 @@ func (m *InteractiveMode) expandSkillCommand(prompt string) (string, bool) {
  	if len(m.opts.Skills) == 0 {
  		return "", false
  	}
@@ -688,7 +1133,7 @@ index e39065e..d52e300 100644
  	if err != nil && m.newRunner != nil {
  		m.newRunner.EmitError(err)
  	}
-@@ -966,10 +979,11 @@ func (m *InteractiveMode) syncExtensionSlashCommands() {
+@@ -1198,11 +1221,12 @@ func (m *InteractiveMode) syncExtensionSlashCommands() {
  // unresolved slashes are not resolvable here: they expand into model prompts
  // and stay queued during compaction.
  func (m *InteractiveMode) resolvableSlashCommand(prompt string) bool {
@@ -697,12 +1142,13 @@ index e39065e..d52e300 100644
 +	if line == "" {
  		return false
  	}
--	name, _ := parseSlashLine(prompt)
-+	name, _ := parseSlashLine(line)
  	m.syncExtensionSlashCommands()
- 	_, ok := m.slashRegistry.Resolve(name)
+-	_, ok := m.slashRegistry.Match(prompt)
++	_, ok := m.slashRegistry.Match(line)
  	return ok
-@@ -1080,10 +1094,11 @@ func (m *InteractiveMode) runStreaming() bool {
+ }
+ 
+@@ -1312,11 +1336,11 @@ func (m *InteractiveMode) runStreaming() bool {
  // isExtensionCommand reports whether text invokes an extension-registered
  // command. Mirrors upstream InteractiveMode.isExtensionCommand.
  func (m *InteractiveMode) isExtensionCommand(text string) bool {
@@ -711,13 +1157,14 @@ index e39065e..d52e300 100644
 +	if line == "" || m.newRunner == nil {
  		return false
  	}
+-	// interactive-mode.ts isExtensionCommand: the name is the text before the first space.
 -	name, _ := parseSlashLine(text)
 +	name, _ := parseSlashLine(line)
  	for _, command := range m.newRunner.Commands() {
  		if strings.TrimPrefix(command.InvocationName, "/") == name {
  			return true
 diff --git a/internal/codingagent/interactive_input_preflight.go b/internal/codingagent/interactive_input_preflight.go
-index 7d257d5..2784c83 100644
+index 220b5e2..16ce5b2 100644
 --- a/internal/codingagent/interactive_input_preflight.go
 +++ b/internal/codingagent/interactive_input_preflight.go
 @@ -169,8 +169,10 @@ func (m *InteractiveMode) finishPreflight(submission inputPreflight, result inpu
@@ -733,11 +1180,34 @@ index 7d257d5..2784c83 100644
  			}
  		}
  		// Upstream rechecks streaming after the input await (agent-session.ts
+diff --git a/internal/codingagent/interactive_layout.go b/internal/codingagent/interactive_layout.go
+index a50768b..f22a73d 100644
+--- a/internal/codingagent/interactive_layout.go
++++ b/internal/codingagent/interactive_layout.go
+@@ -31,7 +31,7 @@ const extensionDialogReservedLines = 3
+ // while an extension dialog is open. On a terminal too short for both, the
+ // dialog wins, but the transcript never renders empty and leaves the user
+ // answering with no context at all.
+-const minExtensionDialogChatLines = 3
++const minExtensionDialogChatLines = 1
+ 
+ // setExtensionDialogViewMode caps (or restores) the chat container so an open
+ // extension dialog has room without hiding the reasoning that motivated it
+@@ -67,6 +67,9 @@ func (m *InteractiveMode) extensionDialogLines(component tui.Component) int {
+ 	if width <= 0 || component == nil {
+ 		return 0
+ 	}
++	if sized, ok := component.(interface{ SetTerminalHeight(int) }); ok {
++		sized.SetTerminalHeight(m.tuiInst.Height())
++	}
+ 	return len(component.Render(width))
+ }
+ 
 diff --git a/internal/codingagent/interactive_prompt_routing_test.go b/internal/codingagent/interactive_prompt_routing_test.go
-index 53e1ccb..2552b4d 100644
+index 66763db..f57e5e0 100644
 --- a/internal/codingagent/interactive_prompt_routing_test.go
 +++ b/internal/codingagent/interactive_prompt_routing_test.go
-@@ -75,7 +75,7 @@ func TestInteractiveSlashTextWhileStreamingSteers(t *testing.T) {
+@@ -76,7 +76,7 @@ func TestInteractiveSlashTextWhileStreamingSteers(t *testing.T) {
  	onLoop(m, ctx, func() {
  		m.editor.SetText("/not-a-command also check X")
  		_ = m.dispatchKey(ctx, "\r")
@@ -747,10 +1217,10 @@ index 53e1ccb..2552b4d 100644
  	})
  	time.Sleep(200 * time.Millisecond)
 diff --git a/internal/codingagent/interactive_test.go b/internal/codingagent/interactive_test.go
-index dfb894d..29eccf1 100644
+index 3a6501d..e3dc454 100644
 --- a/internal/codingagent/interactive_test.go
 +++ b/internal/codingagent/interactive_test.go
-@@ -1179,7 +1179,7 @@ func TestInteractiveMode_CompactionLetsLocalSlashCommandsThrough(t *testing.T) {
+@@ -1289,7 +1289,7 @@ func TestInteractiveMode_CompactionLetsLocalSlashCommandsThrough(t *testing.T) {
  	}
  
  	// A resolvable local command runs now and is not queued.
@@ -760,57 +1230,84 @@ index dfb894d..29eccf1 100644
  		t.Error("a resolvable slash command must dispatch during compaction, not queue")
  	}
 diff --git a/internal/codingagent/interactive_transcript.go b/internal/codingagent/interactive_transcript.go
-index dbdb2e4..87b18f1 100644
+index 1fccaf7..0352231 100644
 --- a/internal/codingagent/interactive_transcript.go
 +++ b/internal/codingagent/interactive_transcript.go
-@@ -231,28 +231,7 @@ func (m *InteractiveMode) renderSessionEntryList(entries []SessionEntry, trim bo
- 				if !m.chatContainer.IsEmpty() {
- 					m.chatContainer.Add(tui.NewSpacer(1))
- 				}
--				// Parse skill blocks in user messages.
--				// Mirrors upstream addMessageToChat case "user" which calls
--				// parseSkillBlock(textContent) → SkillInvocationMessageComponent.
--				if parsed := ParseSkillBlock(text); parsed != nil {
--					comp := tui.NewSkillInvocationMessage(tui.ParsedSkillBlock{
--						Name:    parsed.Name,
--						Content: parsed.Content,
--					})
--					if m.toolsExpanded {
--						comp.SetExpanded(true)
--					}
--					m.chatContainer.Add(comp)
--					// Render trailing user message if present. Upstream #5371
--					// (interactive-mode.ts) inserts a Spacer(1) between the skill
--					// block and the user message.
--					if parsed.UserMessage != "" {
--						m.chatContainer.Add(tui.NewSpacer(1))
--						m.chatContainer.Add(m.newUserMessageBlock(parsed.UserMessage))
--					}
--				} else {
--					m.chatContainer.Add(m.newUserMessageBlock(text))
--				}
-+				m.appendUserMessage(text)
- 			}
+@@ -164,26 +164,26 @@ func (m *InteractiveMode) addUserMessageToChat(msg agent.AgentMessage, text stri
+ 	if !m.chatContainer.IsEmpty() {
+ 		m.chatContainer.Add(tui.NewSpacer(1))
+ 	}
+-	parsed := ParseSkillBlock(text)
+-	if parsed == nil {
+-		block := m.newUserMessageBlock(text)
+-		block.SetImages(userMessageImages(msg))
+-		m.chatContainer.Add(block)
+-		return
+-	}
+-	comp := tui.NewSkillInvocationMessageComponent(tui.ParsedSkillBlock{
+-		Name:    parsed.Name,
+-		Content: parsed.Content,
+-	}, m.markdownThemeWithSettings(), m.outputPad)
+-	if m.toolsExpanded {
+-		comp.SetExpanded(true)
+-	}
+-	m.chatContainer.Add(comp)
+-	if parsed.UserMessage != "" {
++	for {
++		parsed := ParseSkillBlock(text)
++		if parsed == nil {
++			if text != "" || len(userMessageImages(msg)) > 0 {
++				block := m.newUserMessageBlock(text)
++				block.SetImages(userMessageImages(msg))
++				m.chatContainer.Add(block)
++			}
++			return
++		}
++		comp := tui.NewSkillInvocationMessageComponent(tui.ParsedSkillBlock{
++			Name: parsed.Name, Content: parsed.Content,
++		}, m.markdownThemeWithSettings(), m.outputPad)
++		comp.SetExpanded(m.toolsExpanded)
++		m.chatContainer.Add(comp)
++		text = parsed.UserMessage
++		if text == "" && len(userMessageImages(msg)) == 0 {
++			return
++		}
+ 		m.chatContainer.Add(tui.NewSpacer(1))
+-		block := m.newUserMessageBlock(parsed.UserMessage)
+-		block.SetImages(userMessageImages(msg))
+-		m.chatContainer.Add(block)
+ 	}
+ }
  
- 		case msg.Assistant != nil:
-@@ -528,7 +507,7 @@ func (m *InteractiveMode) flushCompactionQueue(ctx context.Context, startTurn bo
+@@ -657,7 +657,7 @@ func (m *InteractiveMode) flushCompactionQueue(ctx context.Context, startTurn bo
  
  	firstIdx := -1
  	for i, msg := range queued {
--		if !strings.HasPrefix(msg.text, "/") {
+-		if !m.isExtensionCommand(msg.text) {
 +		if !m.resolvableSlashCommand(msg.text) {
  			firstIdx = i
  			break
  		}
-@@ -554,7 +533,7 @@ func (m *InteractiveMode) flushCompactionQueue(ctx context.Context, startTurn bo
- 	// still dispatch immediately. A message that finds the run already
+@@ -683,6 +683,10 @@ func (m *InteractiveMode) flushCompactionQueue(ctx context.Context, startTurn bo
+ 	// still dispatch immediately (deliverCompactionQueued). A message that finds the run already
  	// settled starts the next turn instead of waiting in a drained queue.
  	for _, msg := range queued[firstIdx+1:] {
--		if strings.HasPrefix(msg.text, "/") {
 +		if m.resolvableSlashCommand(msg.text) {
- 			m.handleSubmitWithImages(ctx, msg.text, msg.images)
- 			continue
- 		}
++			m.handleSubmitWithImages(ctx, msg.text, msg.images)
++			continue
++		}
+ 		m.deliverCompactionQueued(ctx, msg)
+ 	}
+ }
+@@ -691,7 +695,7 @@ func (m *InteractiveMode) flushCompactionQueue(ctx context.Context, startTurn bo
+ // active run with its queued mode, as upstream's flushCompactionQueue does
+ // through prompt() for extension commands and steer()/followUp() otherwise.
+ func (m *InteractiveMode) deliverCompactionQueued(ctx context.Context, msg compactionQueuedMessage) {
+-	if m.isExtensionCommand(msg.text) {
++	if m.resolvableSlashCommand(msg.text) {
+ 		m.dispatchSlash(ctx, msg.text)
+ 		return
+ 	}
 diff --git a/internal/codingagent/line_start_commands_test.go b/internal/codingagent/line_start_commands_test.go
 new file mode 100644
 index 0000000..4cfedb3
@@ -927,18 +1424,18 @@ index 0000000..4cfedb3
 +	}
 +}
 diff --git a/internal/codingagent/settings.go b/internal/codingagent/settings.go
-index cb2b00a..3970c74 100644
+index 567dec8..46fd434 100644
 --- a/internal/codingagent/settings.go
 +++ b/internal/codingagent/settings.go
-@@ -269,6 +269,7 @@ type settingsWire struct {
- 	LegacyCommandPrefix    string                   `json:"commandPrefix,omitempty"`
+@@ -347,6 +347,7 @@ type settingsWire struct {
+ 	ShellCommandPrefix     *string                  `json:"shellCommandPrefix,omitempty"`
  	NpmCommand             []string                 `json:"npmCommand,omitzero"`
  	CollapseChangelog      *bool                    `json:"collapseChangelog,omitempty"`
 +	ToolsExpanded          *bool                    `json:"toolsExpanded,omitempty"`
  	ShowCacheMissNotices   *bool                    `json:"showCacheMissNotices,omitempty"`
  	EnableInstallTelemetry *bool                    `json:"enableInstallTelemetry,omitempty"`
  	EnableAnalytics        *bool                    `json:"enableAnalytics,omitempty"`
-@@ -548,6 +549,9 @@ type Settings struct {
+@@ -642,6 +643,9 @@ type Settings struct {
  	CollapseChangelog    bool `json:"collapseChangelog,omitempty"`
  	collapseChangelogSet bool `json:"-"`
  
@@ -948,23 +1445,23 @@ index cb2b00a..3970c74 100644
  	// ShowCacheMissNotices controls transcript notices for significant prompt
  	// cache misses. Default: false. Mirrors upstream settings.showCacheMissNotices
  	// (settings-manager.ts:96).
-@@ -891,6 +895,7 @@ func cloneSettings(s Settings) Settings {
- 		MaskSecretInput:                cloneBoolPtr(s.MaskSecretInput),
+@@ -1021,6 +1025,7 @@ func cloneSettings(s Settings) Settings {
+ 		ExtensionsTypescriptRuntime:    cloneStringPtr(s.ExtensionsTypescriptRuntime),
  		CollapseChangelog:              s.CollapseChangelog,
  		collapseChangelogSet:           s.collapseChangelogSet,
 +		ToolsExpanded:                  cloneBoolPtr(s.ToolsExpanded),
  		ShowCacheMissNotices:           s.ShowCacheMissNotices,
  		showCacheMissNoticesSet:        s.showCacheMissNoticesSet,
  		EnableSkillCommands:            cloneBoolPtr(s.EnableSkillCommands),
-@@ -947,6 +952,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
- 		DeviceID:                   s.DeviceID,
- 		Codemode:                   s.Codemode,
- 		MaskSecretInput:            s.MaskSecretInput,
-+		ToolsExpanded:              s.ToolsExpanded,
- 		Theme:                      s.themeSetting(),
- 		Compaction:                 s.Compaction,
- 		Retry:                      s.Retry,
-@@ -1080,6 +1086,11 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
+@@ -1080,6 +1085,7 @@ func (s Settings) MarshalJSON() ([]byte, error) {
+ 		DeviceID:                    s.DeviceID,
+ 		Codemode:                    s.Codemode,
+ 		MaskSecretInput:             s.MaskSecretInput,
++		ToolsExpanded:               s.ToolsExpanded,
+ 		ExtensionsAutoUpgrade:       s.ExtensionsAutoUpgrade,
+ 		ExtensionsTypescriptRuntime: s.ExtensionsTypescriptRuntime,
+ 		Theme:                       s.themeSetting(),
+@@ -1218,6 +1224,11 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
  	// Decoding drops a mistyped theme, so record its presence first.
  	rawTheme, themePresent := legacy["theme"]
  	_, themeIsString := rawTheme.(string)
@@ -973,10 +1470,10 @@ index cb2b00a..3970c74 100644
 +			return errors.New("toolsExpanded must be a boolean")
 +		}
 +	}
- 	w, err := decodeSettingsWire(legacy)
+ 	extra, err := unmodeledSettings(data, legacy)
  	if err != nil {
  		return err
-@@ -1134,6 +1145,7 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
+@@ -1281,6 +1292,7 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
  		s.CollapseChangelog = *w.CollapseChangelog
  		s.collapseChangelogSet = true
  	}
@@ -984,7 +1481,7 @@ index cb2b00a..3970c74 100644
  	if w.ShowCacheMissNotices != nil {
  		s.ShowCacheMissNotices = *w.ShowCacheMissNotices
  		s.showCacheMissNoticesSet = true
-@@ -3086,6 +3098,9 @@ func mergeSettings(global, project Settings) Settings {
+@@ -3877,6 +3889,9 @@ func mergeSettings(global, project Settings) Settings {
  		m.CollapseChangelog = project.CollapseChangelog
  		m.collapseChangelogSet = true
  	}
@@ -996,7 +1493,7 @@ index cb2b00a..3970c74 100644
  		m.showCacheMissNoticesSet = true
 diff --git a/internal/codingagent/skill_inline_expansion_test.go b/internal/codingagent/skill_inline_expansion_test.go
 new file mode 100644
-index 0000000..482d35f
+index 0000000..295e0d9
 --- /dev/null
 +++ b/internal/codingagent/skill_inline_expansion_test.go
 @@ -0,0 +1,41 @@
@@ -1009,8 +1506,8 @@ index 0000000..482d35f
 +
 +func TestExpandInlineSkillCommands(t *testing.T) {
 +	skills := []*SkillDef{
-+		{Name: "alpha", Body: "alpha body", Path: "/skills/alpha.md", Dir: "/skills", SourceInfo: PiSourceInfo{Source: "inline"}},
-+		{Name: "beta", Body: "beta body", Path: "/skills/beta.md", Dir: "/skills", SourceInfo: PiSourceInfo{Source: "inline"}},
++		{Name: "alpha", Body: "alpha body", FilePath: "/skills/alpha.md", BaseDir: "/skills", SourceInfo: PiSourceInfo{Source: "inline"}},
++		{Name: "beta", Body: "beta body", FilePath: "/skills/beta.md", BaseDir: "/skills", SourceInfo: PiSourceInfo{Source: "inline"}},
 +	}
 +
 +	t.Run("expands each known skill once and keeps the text", func(t *testing.T) {
@@ -1109,10 +1606,10 @@ index 0000000..a0bf7a9
 +	}
 +}
 diff --git a/internal/codingagent/skills.go b/internal/codingagent/skills.go
-index d480d19..9a1e18c 100644
+index 9421344..13a6a3e 100644
 --- a/internal/codingagent/skills.go
 +++ b/internal/codingagent/skills.go
-@@ -312,6 +312,38 @@ func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extensi
+@@ -337,6 +337,38 @@ func ExpandSkillCommand(text string, skills []*SkillDef) (string, bool, *extensi
  	return block, true, nil
  }
  
@@ -1152,10 +1649,10 @@ index d480d19..9a1e18c 100644
  //
  //	/^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/
 diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash_commands.go
-index 4591e81..5d8aaea 100644
+index 8978fee..03e5660 100644
 --- a/internal/codingagent/slash_commands.go
 +++ b/internal/codingagent/slash_commands.go
-@@ -45,8 +45,7 @@ const (
+@@ -49,8 +49,7 @@ const (
  type SlashHandler func(sc *SlashContext) error
  
  // BuiltinSlashCommand is the canonical shape for every command exposed
@@ -1165,7 +1662,7 @@ index 4591e81..5d8aaea 100644
  type BuiltinSlashCommand struct {
  	Name        string
  	Aliases     []string
-@@ -122,6 +121,8 @@ type SlashContext struct {
+@@ -134,6 +133,8 @@ type SlashContext struct {
  	AppendBlock func(string)
  	Clear       func() // clear the chat transcript
  	Quit        func() // request session exit
@@ -1174,10 +1671,10 @@ index 4591e81..5d8aaea 100644
  	Reset       func() // /new: keep transcript visible but reset agent messages
  	// NewSession creates a fresh session file and resets agent state.
  	// Mirrors upstream runtimeHost.newSession(). May be nil in test contexts.
-@@ -591,7 +592,10 @@ func defaultBuiltins() []BuiltinSlashCommand {
- 		{Name: "compact", Description: "Manually compact the session context", Handler: compactHandler},
+@@ -684,7 +685,10 @@ func defaultBuiltins() []BuiltinSlashCommand {
+ 		{Name: "compact", Description: "Manually compact the session context", TakesArguments: true, Handler: compactHandler},
  		{Name: "resume", Description: "Resume a different session", Handler: resumeHandler},
- 		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", Handler: reloadHandler},
+ 		{Name: "reload", Description: "Reload keybindings, extensions, skills, prompts, themes, and context files", AdditiveArguments: func(rest string, _ bool) bool { return reloadExplainRequested(rest) }, Handler: reloadHandler},
 -		{Name: "quit", Description: "Quit " + AppName, Handler: quitHandler},
 +		{Name: "quit", Aliases: []string{"exit"}, Description: "Quit " + AppName, Handler: quitHandler},
 +		{Name: "clear", Description: "Discard the current input draft", Handler: clearEditorHandler},
@@ -1187,19 +1684,19 @@ index 4591e81..5d8aaea 100644
  		// upstream (handled inline in the submit handler, not in the canonical
  		// slash-commands.js completion list). /debug writes a debug log; it is
 diff --git a/internal/codingagent/slash_commands_test.go b/internal/codingagent/slash_commands_test.go
-index f64a193..0372942 100644
+index 6c1433d..a555447 100644
 --- a/internal/codingagent/slash_commands_test.go
 +++ b/internal/codingagent/slash_commands_test.go
-@@ -73,7 +73,7 @@ func TestSlashRegistryBuiltinsSeeded(t *testing.T) {
+@@ -79,7 +79,7 @@ func TestSlashRegistryBuiltinsSeeded(t *testing.T) {
  	if got := findDesc("login"); got != "Configure provider authentication" {
  		t.Fatalf("/login description = %q", got)
  	}
--	if got := findDesc("logout"); got != "Remove stored provider authentication" {
+-	if got := findDesc("logout"); got != "Remove provider authentication" {
 +	if got := findDesc("logout"); got != "Remove the selected OAuth account or stored API key" {
  		t.Fatalf("/logout description = %q", got)
  	}
  }
-@@ -84,10 +84,9 @@ func TestSlashRegistryResolves(t *testing.T) {
+@@ -90,10 +90,9 @@ func TestSlashRegistryResolves(t *testing.T) {
  	if !ok {
  		t.Fatal("/quit did not resolve")
  	}
@@ -1213,7 +1710,7 @@ index f64a193..0372942 100644
  	}
  }
  
-@@ -105,12 +104,14 @@ func TestSlashRegistryUnknownCommand(t *testing.T) {
+@@ -111,12 +110,14 @@ func TestSlashRegistryUnknownCommand(t *testing.T) {
  
  func TestSlashQuitInvokesQuit(t *testing.T) {
  	r := NewSlashRegistry()
@@ -1234,7 +1731,16 @@ index f64a193..0372942 100644
  	}
  }
  
-@@ -380,13 +381,13 @@ func TestBuiltinSlashCommands_MatchesRegistry(t *testing.T) {
+@@ -124,7 +125,7 @@ func TestSlashRemovedCommandsAreUnknown(t *testing.T) {
+ 	// F/B pass: these commands were removed because they don't exist
+ 	// in upstream pi. Verify they now return "unknown command".
+ 	r := NewSlashRegistry()
+-	for _, cmd := range []string{"/clear", "/agent", "/agents", "/tools", "/cost", "/save", "/help", "/models"} {
++	for _, cmd := range []string{"/agent", "/agents", "/tools", "/cost", "/save", "/help", "/models"} {
+ 		sc, _, _, _ := newTestSlashContext()
+ 		err := r.Dispatch(sc, cmd, nil)
+ 		if err == nil {
+@@ -388,13 +389,13 @@ func TestBuiltinSlashCommands_MatchesRegistry(t *testing.T) {
  	for _, c := range got {
  		names[c.Name] = true
  	}
@@ -1250,7 +1756,7 @@ index f64a193..0372942 100644
  		if names[removed] {
  			t.Errorf("BuiltinSlashCommands should NOT contain removed command %q", removed)
  		}
-@@ -745,8 +746,8 @@ func TestFormatNumber(t *testing.T) {
+@@ -753,8 +754,8 @@ func TestFormatNumber(t *testing.T) {
  func TestBuiltinSlashCommandsFollowUpstreamOrder(t *testing.T) {
  	want := []string{
  		"settings", "model", "tree", "thinking", "scoped-models", "export", "import", "share", "bug",
@@ -1312,7 +1818,7 @@ index 0000000..6925c9f
 +}
 diff --git a/internal/codingagent/tool_expansion_preference_test.go b/internal/codingagent/tool_expansion_preference_test.go
 new file mode 100644
-index 0000000..a43880b
+index 0000000..4be479a
 --- /dev/null
 +++ b/internal/codingagent/tool_expansion_preference_test.go
 @@ -0,0 +1,127 @@
@@ -1331,7 +1837,7 @@ index 0000000..a43880b
 +func TestToolExpansionPreferenceSurvivesNewSession(t *testing.T) {
 +	cwd, agentDir := t.TempDir(), t.TempDir()
 +	sm := NewSettingsManager(cwd, agentDir)
-+	mode := NewInteractiveMode(InteractiveOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
++	mode := NewInteractiveMode(nil, InteractiveModeOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
 +	if mode.toolsExpanded {
 +		t.Fatal("fresh tools must be collapsed")
 +	}
@@ -1352,14 +1858,14 @@ index 0000000..a43880b
 +		t.Fatalf("preference not persisted: %s", data)
 +	}
 +	sm = NewSettingsManager(cwd, agentDir)
-+	next := NewInteractiveMode(InteractiveOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
++	next := NewInteractiveMode(nil, InteractiveModeOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
 +	if !next.toolsExpanded {
 +		t.Fatal("new session lost expanded preference")
 +	}
 +	next.toggleAllTools()
 +	next.backgroundTasks.Wait()
 +	sm = NewSettingsManager(cwd, agentDir)
-+	last := NewInteractiveMode(InteractiveOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
++	last := NewInteractiveMode(nil, InteractiveModeOptions{CWD: cwd, AgentDir: agentDir, SettingsManager: sm, Settings: sm.Get()})
 +	if last.toolsExpanded {
 +		t.Fatal("collapsed preference did not survive restart")
 +	}
@@ -1367,7 +1873,7 @@ index 0000000..a43880b
 +
 +func TestToolExpansionPreferenceRapidTogglesPersistLatest(t *testing.T) {
 +	sm := NewSettingsManager(t.TempDir(), t.TempDir())
-+	mode := NewInteractiveMode(InteractiveOptions{SettingsManager: sm, Settings: sm.Get()})
++	mode := NewInteractiveMode(nil, InteractiveModeOptions{SettingsManager: sm, Settings: sm.Get()})
 +	for range 101 {
 +		mode.toggleAllTools()
 +	}
@@ -1390,7 +1896,7 @@ index 0000000..a43880b
 +	if err := os.Mkdir(filepath.Join(agentDir, "settings.json"), 0700); err != nil {
 +		t.Fatal(err)
 +	}
-+	mode := NewInteractiveMode(InteractiveOptions{SettingsManager: sm, Settings: sm.Get()})
++	mode := NewInteractiveMode(nil, InteractiveModeOptions{SettingsManager: sm, Settings: sm.Get()})
 +	mode.chatContainer = tui.NewContainer()
 +	mode.toggleAllTools()
 +	mode.backgroundTasks.Wait()
@@ -1444,7 +1950,7 @@ index 0000000..a43880b
 +	}
 +}
 diff --git a/internal/codingagent/tools_expansion_upstream_test.go b/internal/codingagent/tools_expansion_upstream_test.go
-index 9a7462e..58e457f 100644
+index f1cc8d3..a875937 100644
 --- a/internal/codingagent/tools_expansion_upstream_test.go
 +++ b/internal/codingagent/tools_expansion_upstream_test.go
 @@ -59,7 +59,7 @@ func TestToolsExpansionVisitsMountedChildrenOnce(t *testing.T) {
@@ -1456,11 +1962,24 @@ index 9a7462e..58e457f 100644
  	})
  	m.renderSessionEntryList([]SessionEntry{entry}, false)
  	if got := strings.Join(m.chatContainer.Render(120), "\n"); !strings.Contains(got, "[skill]") || strings.Contains(got, "SKILL_BODY_MARKER") {
+diff --git a/test/parity/known-gaps.toml b/test/parity/known-gaps.toml
+index 2932298..03be9da 100644
+--- a/test/parity/known-gaps.toml
++++ b/test/parity/known-gaps.toml
+@@ -18,3 +18,8 @@
+ 
+ pi_version = "1.3.0+1402973a"
+ 
++[[gap]]
++scope = "tui-keybindings"
++key = "keybinding:tui.editor.selectAll"
++tracking = "pig-plugins patches/pig/0009-editor-select-all-host.patch"
++why = "pig additive: whole-text selection in the prompt editor. It has no default key so ctrl+a keeps moving to the line start; a keybindings.json entry binds it."
 diff --git a/tui/autocomplete.go b/tui/autocomplete.go
-index 5ff4a6e..08eb5b2 100644
+index 2d69c39..0d34401 100644
 --- a/tui/autocomplete.go
 +++ b/tui/autocomplete.go
-@@ -74,7 +74,8 @@ type ForcefulAutocompleteProvider interface {
+@@ -85,7 +85,8 @@ type AutocompleteProvider interface {
  
  // SlashOnlyProvider serves command names and their immediate or awaited argument completions. It does not perform path or attachment completion.
  type SlashOnlyProvider struct {
@@ -1470,7 +1989,7 @@ index 5ff4a6e..08eb5b2 100644
  }
  
  // NewSlashOnlyProvider constructs a provider over the given command list.
-@@ -106,9 +107,16 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+@@ -117,9 +118,16 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string,
  		return nil
  	}
  
@@ -1488,18 +2007,18 @@ index 5ff4a6e..08eb5b2 100644
  		type item struct {
  			cmd  SlashCommand
  			text string
-@@ -116,7 +124,9 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+@@ -127,7 +135,9 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string,
  		}
  		all := make([]item, 0, len(p.Commands))
  		for i, c := range p.Commands {
--			all = append(all, item{cmd: c, text: c.Name, idx: i})
-+			if !p.chatInput || commandPrefix == "/" || !strings.HasPrefix(c.Name, skillCommandPrefix) {
-+				all = append(all, item{cmd: c, text: c.Name, idx: i})
+-			all = append(all, item{cmd: c, text: c.commandName(), idx: i})
++			if !p.chatInput || commandPrefix == "/" || !strings.HasPrefix(c.commandName(), skillCommandPrefix) {
++				all = append(all, item{cmd: c, text: c.commandName(), idx: i})
 +			}
  		}
  		// Upstream autocomplete.ts matches skill commands by their bare name
  		// first, then by their full skill: name, so `/skill` lists skills whose
-@@ -159,7 +169,10 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+@@ -170,7 +180,10 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string,
  	}
  
  	// `/<cmd> <args>`: argument completion path.
@@ -1509,9 +2028,9 @@ index 5ff4a6e..08eb5b2 100644
 +		return nil
 +	}
  	for _, c := range p.Commands {
- 		if c.Name != name {
+ 		if c.commandName() != name {
  			continue
-@@ -177,7 +190,7 @@ func (p *SlashOnlyProvider) GetSuggestions(lines []string, cursorLine, cursorCol
+@@ -188,7 +201,7 @@ func (p *SlashOnlyProvider) GetSuggestions(ctx context.Context, lines []string,
  }
  
  // slashArgumentPrefix splits `/<cmd> <args>` after leading whitespace into the command name and argument text.
@@ -1520,7 +2039,7 @@ index 5ff4a6e..08eb5b2 100644
  	before = widthx.JSTrimStart(before)
  	if !strings.HasPrefix(before, "/") {
  		return "", "", false
-@@ -186,7 +199,15 @@ func slashArgumentPrefix(before string) (string, string, bool) {
+@@ -197,7 +210,15 @@ func slashArgumentPrefix(before string) (string, string, bool) {
  	if space < 0 {
  		return "", "", false
  	}
@@ -1537,7 +2056,7 @@ index 5ff4a6e..08eb5b2 100644
  }
  
  // SuggestionTask captures a Promise-returning command callback without invoking it on the input loop.
-@@ -194,7 +215,7 @@ func (p *SlashOnlyProvider) SuggestionTask(lines []string, line, col int, _ bool
+@@ -205,7 +226,7 @@ func (p *SlashOnlyProvider) SuggestionTask(lines []string, line, col int, _ bool
  	if line < 0 || line >= len(lines) || col < 0 {
  		return "", nil, false
  	}
@@ -1546,7 +2065,7 @@ index 5ff4a6e..08eb5b2 100644
  	if !ok {
  		return "", nil, false
  	}
-@@ -241,13 +262,17 @@ func (p *SlashOnlyProvider) ApplyCompletion(lines []string, cursorLine, cursorCo
+@@ -252,13 +273,17 @@ func (p *SlashOnlyProvider) ApplyCompletion(lines []string, cursorLine, cursorCo
  	// Slash-name completion: `prefix` starts with `/` and contains no
  	// further `/` (i.e. it's `/foo` not `/foo/bar`), and the text
  	// before the prefix is empty/whitespace (line start).
@@ -1586,7 +2105,7 @@ index 0000000..51f5f72
 +}
 diff --git a/tui/chat_autocomplete_test.go b/tui/chat_autocomplete_test.go
 new file mode 100644
-index 0000000..8338a34
+index 0000000..7cdfdbe
 --- /dev/null
 +++ b/tui/chat_autocomplete_test.go
 @@ -0,0 +1,76 @@
@@ -1602,7 +2121,7 @@ index 0000000..8338a34
 +func TestChatAutocompleteNamespaces(t *testing.T) {
 +	p := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
 +	for _, text := range []string{"/", "//"} {
-+		got := p.GetSuggestionsForce([]string{text}, 0, len(text))
++		got := p.GetSuggestions(t.Context(), []string{text}, 0, len(text), AutocompleteSuggestionOptions{Force: true})
 +		if got == nil || len(got.Items) == 0 {
 +			t.Fatalf("forced %q lost namespace suggestions", text)
 +		}
@@ -1615,7 +2134,7 @@ index 0000000..8338a34
 +		}
 +	}
 +	for _, text := range []string{"//skill:", "///", "draft /hel"} {
-+		if got := p.GetSuggestions([]string{text}, 0, len(text)); got != nil {
++		if got := p.GetSuggestions(t.Context(), []string{text}, 0, len(text), AutocompleteSuggestionOptions{}); got != nil {
 +			for _, item := range got.Items {
 +				if p.slash.hasCommand(item.Value) {
 +					t.Fatalf("%q offered command %q", text, item.Value)
@@ -1627,7 +2146,7 @@ index 0000000..8338a34
 +		lines := strings.Split(text, "\n")
 +		row := len(lines) - 1
 +		col := len(lines[row])
-+		got := p.GetSuggestions(lines, row, col)
++		got := p.GetSuggestions(t.Context(), lines, row, col, AutocompleteSuggestionOptions{})
 +		if got == nil || len(got.Items) != 1 {
 +			t.Fatalf("%q suggestions=%+v", text, got)
 +		}
@@ -1651,7 +2170,7 @@ index 0000000..8338a34
 +	calls := 0
 +	p := NewChatAutocompleteProvider([]SlashCommand{{Name: "model", GetArgumentCompletions: func(string) []AutocompleteItem { calls++; return []AutocompleteItem{{Value: "test"}} }, AwaitArgumentCompletions: func(string) ([]AutocompleteItem, error) { calls++; return []AutocompleteItem{{Value: "test"}}, nil }}}, t.TempDir(), "")
 +	for _, text := range []string{"/model ", "//model "} {
-+		if got := p.GetSuggestions([]string{text}, 0, len(text)); got == nil {
++		if got := p.GetSuggestions(t.Context(), []string{text}, 0, len(text), AutocompleteSuggestionOptions{}); got == nil {
 +			t.Fatalf("%q missing argument completion", text)
 +		}
 +		_, task, ok := p.SuggestionTask([]string{text}, 0, len(text), false)
@@ -1667,32 +2186,62 @@ index 0000000..8338a34
 +	}
 +}
 diff --git a/tui/collapsible_message_upstream_test.go b/tui/collapsible_message_upstream_test.go
-index 4d043c1..92c0ff9 100644
+index b19c8f2..e0573c7 100644
 --- a/tui/collapsible_message_upstream_test.go
 +++ b/tui/collapsible_message_upstream_test.go
-@@ -13,7 +13,7 @@ func TestCollapsibleMessageClicksThroughTerminal(t *testing.T) {
+@@ -19,7 +19,7 @@ func TestCollapsibleMessageClicksThroughTerminal(t *testing.T) {
  	}{
- 		{"compaction", "compaction details", NewCompactionSummaryComponent("compaction details", 1234)},
- 		{"branch", "branch details", NewBranchSummaryComponent("branch details")},
--		{"skill", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: "skill details"})},
-+		{"skill", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: strings.Repeat("preview\n", 10) + "skill details"})},
+ 		{"compaction", "compaction details", NewCompactionSummaryMessageComponent(CompactionSummaryMessage{Summary: "compaction details", TokensBefore: 1234}, nil, 1)},
+ 		{"branch", "branch details", NewBranchSummaryMessageComponent(BranchSummaryMessage{Summary: "branch details"}, nil, 1)},
+-		{"skill", "skill details", NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "example-skill", Content: "skill details"}, nil, 1)},
++		{"skill", "skill details", NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "example-skill", Content: strings.Repeat("preview\n", 10) + "skill details"}, nil, 1)},
  	} {
  		t.Run(tc.name, func(t *testing.T) {
  			h := newAltHarness(t, 80, 24, TuiAltScreenOptions{})
-@@ -54,7 +54,7 @@ func TestCollapsibleMessageComponentsUpstream(t *testing.T) {
+@@ -60,7 +60,7 @@ func TestCollapsibleMessageComponentsUpstream(t *testing.T) {
  		// .upstream/v0.87.1/packages/coding-agent/test/collapsible-message-components.test.ts:55
- 		{"toggles a branch summary when clicked", "[branch]", "branch details", NewBranchSummaryComponent("branch details")},
+ 		{"toggles a branch summary when clicked", "[branch]", "branch details", NewBranchSummaryMessageComponent(BranchSummaryMessage{Summary: "branch details"}, nil, 1)},
  		// .upstream/v0.87.1/packages/coding-agent/test/collapsible-message-components.test.ts:71
--		{"toggles a skill invocation when clicked", "[skill]", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: "skill details"})},
-+		{"toggles a skill invocation when clicked", "[skill]", "skill details", NewSkillInvocationMessage(ParsedSkillBlock{Name: "example-skill", Content: strings.Repeat("preview\n", 10) + "skill details"})},
+-		{"toggles a skill invocation when clicked", "[skill]", "skill details", NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "example-skill", Content: "skill details"}, nil, 1)},
++		{"toggles a skill invocation when clicked", "[skill]", "skill details", NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "example-skill", Content: strings.Repeat("preview\n", 10) + "skill details"}, nil, 1)},
  	}
  	for _, tc := range cases {
  		t.Run(tc.name, func(t *testing.T) {
 diff --git a/tui/editor.go b/tui/editor.go
-index e52a6fa..1b52313 100644
+index ca688b9..548d8cd 100644
 --- a/tui/editor.go
 +++ b/tui/editor.go
-@@ -1123,7 +1123,7 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
+@@ -45,6 +45,8 @@ type Editor struct {
+ 	history    []editorState
+ 	killRing   KillRing
+ 	lastAction string // "kill" | "yank" | "type-word" | ""
++	// selectedAll marks the whole text as selected by tui.editor.selectAll (pig additive; see editor_select_all.go).
++	selectedAll bool
+ 
+ 	preferredVisualCol   *int
+ 	snappedFromCursorCol *int
+@@ -359,6 +361,7 @@ func (e *Editor) SetText(text string) {
+ 		e.remoteSetText(text)
+ 		return
+ 	}
++	e.selectedAll = false
+ 	e.AutocompleteCancel()
+ 	e.lastAction = ""
+ 	e.inputHistIdx = -1
+@@ -751,6 +754,12 @@ func (e *Editor) buildVisualLines(width, rowWidth int) []string {
+ 	out := e.visualScratch[:0]
+ 	defer func() { e.visualScratch = out[:0] }()
+ 	emitCursorMarker := e.Focused // upstream editor.ts: const emitCursorMarker = this.focused; the hardware cursor stays on the text while the autocomplete popup is open
++	if e.selectedAll {
++		for _, line := range e.layoutText(width) {
++			out = append(out, selectedRow(line.text))
++		}
++		return out
++	}
+ 	for _, line := range e.layoutText(width) {
+ 		if !line.hasCursor {
+ 			out = append(out, line.text)
+@@ -1311,7 +1320,7 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
  	// A prefix that starts with "/" falls through to submit; anything else
  	// (an argument completion) does not (upstream editor.ts
  	// tui.select.confirm).
@@ -1701,7 +2250,7 @@ index e52a6fa..1b52313 100644
  	e.AutocompleteCancel()
  	if !isSlashName && e.OnChange != nil {
  		e.OnChange(e.Text())
-@@ -1221,7 +1221,7 @@ func (e *Editor) naturalAutocompleteContext() bool {
+@@ -1408,7 +1417,7 @@ func (e *Editor) naturalAutocompleteContext() bool {
  	}
  	line := e.lines[e.cursor[0]]
  	before := jsstring.Slice(line, 0, e.cursor[1])
@@ -1710,8 +2259,29 @@ index e52a6fa..1b52313 100644
  		return true
  	}
  	previousBoundary := true
+@@ -1622,6 +1631,9 @@ func (e *Editor) handlePasteFlush(buf string) {
+ 	e.inputHistSaved = nil
+ 	e.lastAction = ""
+ 	e.saveHistory()
++	if e.selectedAll {
++		e.clearAllText() // The paste replaces the selection; one undo step restores the old text.
++	}
+ 	// Some terminals re-encode control bytes inside bracketed paste as
+ 	// CSI-u Ctrl+<letter> sequences (ESC [ <codepoint> ; 5 u). Decode
+ 	// those back to their literal byte before normalization so Ctrl+J
+@@ -1750,6 +1762,10 @@ func (e *Editor) HandleInput(data string) {
+ 		return
+ 	}
+ 
++	if e.handleSelectAll(data) {
++		return
++	}
++
+ 	// Completion selection precedes ordinary editing. Async application remains owned by the host's input ticket.
+ 	kb := GetTUIKeybindings()
+ 	// Upstream editor.ts handleInput: "Ctrl+C - let parent handle (exit/clear)".
 diff --git a/tui/editor_async_provider.go b/tui/editor_async_provider.go
-index 3887e4b..4a91a32 100644
+index 76a4c27..0fb015b 100644
 --- a/tui/editor_async_provider.go
 +++ b/tui/editor_async_provider.go
 @@ -81,6 +81,7 @@ func (e *Editor) acceptAsyncAutocomplete(done func(bool)) {
@@ -1742,17 +2312,587 @@ index 3887e4b..4a91a32 100644
  }
  
  func (e *Editor) requestAsyncAutocomplete(force, explicit bool) {
+diff --git a/tui/editor_select_all.go b/tui/editor_select_all.go
+new file mode 100644
+index 0000000..8eb01b0
+--- /dev/null
++++ b/tui/editor_select_all.go
+@@ -0,0 +1,79 @@
++package tui
++
++import (
++	"strings"
++	"unicode/utf8"
++)
++
++// Whole-text selection for the editor (pig additive). tui.editor.selectAll marks everything selected; typing or
++// pasting replaces it, a delete key removes it, and any other key (movement, Enter, Escape, ...) clears the mark
++// and acts normally. There is no partial selection and no clipboard action.
++
++// handleSelectAll reports whether it consumed data. It runs before autocomplete and ordinary editing.
++func (e *Editor) handleSelectAll(data string) bool {
++	kb := GetTUIKeybindings()
++	if kb.Matches(data, KBEditorSelectAll) {
++		if e.Text() != "" {
++			e.AutocompleteCancel()
++			e.lastAction = ""
++			e.selectedAll = true
++			e.Invalidate()
++		}
++		return true
++	}
++	if !e.selectedAll {
++		return false
++	}
++	switch {
++	case kb.Matches(data, KBEditorDeleteCharBack), kb.Matches(data, KBEditorDeleteCharForward),
++		kb.Matches(data, KBEditorDeleteWordBack), kb.Matches(data, KBEditorDeleteWordForward),
++		kb.Matches(data, KBEditorDeleteToLineStart), kb.Matches(data, KBEditorDeleteToLineEnd):
++		e.saveHistory()
++		e.clearAllText()
++		return true
++	case isTypedText(data):
++		e.saveHistory()
++		e.clearAllText()
++		e.lastAction = "type-word" // The undo state above already holds the replaced text.
++		return false
++	}
++	e.selectedAll = false
++	e.Invalidate()
++	return false
++}
++
++// clearAllText empties the editor without recording an undo state; callers record it first.
++func (e *Editor) clearAllText() {
++	e.AutocompleteCancel()
++	e.selectedAll = false
++	e.lastAction = ""
++	e.inputHistIdx = -1
++	e.inputHistSaved = nil
++	e.pastes = nil
++	e.pasteCounter = 0
++	e.lines = []string{""}
++	e.cursor = [2]int{0, 0}
++	e.Invalidate()
++}
++
++// isTypedText reports whether data is printable text rather than a control byte or an escape sequence.
++func isTypedText(data string) bool {
++	if data == "" || strings.HasPrefix(data, "\x1b") || !utf8.ValidString(data) {
++		return false
++	}
++	for _, r := range data {
++		if r < 0x20 || r == 0x7f {
++			return false
++		}
++	}
++	return true
++}
++
++// selectedRow draws one row of selected text in reverse video. An empty row still shows one selected cell so a
++// selected line break is visible.
++func selectedRow(text string) string {
++	if text == "" {
++		text = " "
++	}
++	return "\x1b[7m" + text + "\x1b[27m"
++}
+diff --git a/tui/editor_select_all_test.go b/tui/editor_select_all_test.go
+new file mode 100644
+index 0000000..351dc52
+--- /dev/null
++++ b/tui/editor_select_all_test.go
+@@ -0,0 +1,130 @@
++package tui
++
++import (
++	"strings"
++	"testing"
++)
++
++// selectAllKeys binds ctrl+a to select all and leaves home for the line start, as config/agent/keybindings.json does.
++func selectAllKeys(t *testing.T) {
++	t.Helper()
++	previous := globalTUIKeybindings
++	SetTUIKeybindings(NewTUIKeybindingsManager(map[string][]string{
++		string(KBEditorSelectAll):       {"ctrl+a"},
++		string(KBEditorCursorLineStart): {"home"},
++	}))
++	t.Cleanup(func() { globalTUIKeybindings = previous })
++}
++
++func newSelected(t *testing.T, text string) *Editor {
++	t.Helper()
++	selectAllKeys(t)
++	e := NewEditor()
++	e.SetText(text)
++	e.HandleInput("\x01")
++	return e
++}
++
++func plainRows(e *Editor, width int) string {
++	return stripANSI(strings.Join(e.Render(width), "\n"))
++}
++
++func TestSelectAllMarksTheWholeTextAndRendersItReversed(t *testing.T) {
++	e := newSelected(t, "alpha beta\ngamma")
++	if !e.selectedAll {
++		t.Fatal("ctrl+a must select all")
++	}
++	rendered := strings.Join(e.Render(40), "\n")
++	if strings.Count(rendered, "\x1b[7m") < 2 || !strings.Contains(plainRows(e, 40), "alpha beta") || !strings.Contains(plainRows(e, 40), "gamma") {
++		t.Fatalf("every text row must be drawn reversed: %q", rendered)
++	}
++	if e.Text() != "alpha beta\ngamma" {
++		t.Fatalf("selecting must not change the text: %q", e.Text())
++	}
++}
++
++func TestSelectAllOnAnEmptyEditorSelectsNothing(t *testing.T) {
++	selectAllKeys(t)
++	e := NewEditor()
++	e.HandleInput("\x01")
++	if e.selectedAll {
++		t.Fatal("there is nothing to select")
++	}
++	e.HandleInput("x")
++	if e.Text() != "x" {
++		t.Fatalf("typing still works: %q", e.Text())
++	}
++}
++
++func TestTypingOrPastingReplacesTheSelectionAndUndoRestoresIt(t *testing.T) {
++	e := newSelected(t, "old text")
++	e.HandleInput("N")
++	e.HandleInput("ew")
++	if e.Text() != "New" || e.selectedAll {
++		t.Fatalf("typing must replace the selection, got %q", e.Text())
++	}
++	e.HandleInput("\x1f") // ctrl+- undo: one step restores the replaced text.
++	if e.Text() != "old text" {
++		t.Fatalf("undo must bring the replaced text back, got %q", e.Text())
++	}
++
++	e = newSelected(t, "old text")
++	e.HandleInput("\x1b[200~pasted\nlines\x1b[201~")
++	if got := e.Text(); !strings.Contains(got, "pasted") || strings.Contains(got, "old") {
++		t.Fatalf("a paste must replace the selection, got %q", got)
++	}
++}
++
++func TestDeleteKeysRemoveTheSelectionAndOnlyThat(t *testing.T) {
++	for name, key := range map[string]string{"backspace": "\x7f", "delete": "\x1b[3~", "ctrl+w": "\x17", "ctrl+u": "\x15", "ctrl+k": "\x0b"} {
++		e := newSelected(t, "one two\nthree")
++		e.HandleInput(key)
++		if e.Text() != "" || e.selectedAll {
++			t.Errorf("%s must delete the selected text, got %q selected=%v", name, e.Text(), e.selectedAll)
++		}
++		e.HandleInput("\x1f")
++		if e.Text() != "one two\nthree" {
++			t.Errorf("%s: undo must restore the text, got %q", name, e.Text())
++		}
++	}
++}
++
++func TestOtherKeysClearTheSelectionWithoutChangingTheText(t *testing.T) {
++	for name, key := range map[string]string{"left": "\x1b[D", "right": "\x1b[C", "home": "\x1b[H", "end": "\x1b[F", "escape": "\x1b", "up": "\x1b[A"} {
++		e := newSelected(t, "keep me")
++		e.HandleInput(key)
++		if e.selectedAll || e.Text() != "keep me" {
++			t.Errorf("%s: selected=%v text=%q", name, e.selectedAll, e.Text())
++		}
++	}
++	e := newSelected(t, "submit me")
++	var submitted string
++	e.OnSubmit = func(text string) { submitted = text }
++	e.HandleInput("\r")
++	if submitted != "submit me" {
++		t.Fatalf("Enter must submit the whole text, got %q", submitted)
++	}
++}
++
++func TestSelectAllIsOffUntilBoundAndKeepsLineStartOnCtrlA(t *testing.T) {
++	previous := globalTUIKeybindings
++	SetTUIKeybindings(NewTUIKeybindingsManager(nil))
++	t.Cleanup(func() { globalTUIKeybindings = previous })
++	if keys := GetTUIKeybindings().GetKeys(string(KBEditorSelectAll)); len(keys) != 0 {
++		t.Fatalf("select all must have no default key, got %v", keys)
++	}
++	e := NewEditor()
++	e.SetText("hello")
++	e.HandleInput("\x01")
++	if e.selectedAll || e.cursor[1] != 0 {
++		t.Fatalf("by default ctrl+a still moves to the line start: selected=%v col=%d", e.selectedAll, e.cursor[1])
++	}
++}
++
++func TestSetTextClearsTheSelection(t *testing.T) {
++	e := newSelected(t, "first")
++	e.SetText("second")
++	if e.selectedAll {
++		t.Fatal("replacing the text must clear the selection")
++	}
++}
+diff --git a/tui/extension_selector.go b/tui/extension_selector.go
+index 12f83cf..a8c5f92 100644
+--- a/tui/extension_selector.go
++++ b/tui/extension_selector.go
+@@ -38,6 +38,10 @@ type ExtensionSelectorComponent struct {
+ 	onToggleToolsExpanded func()
+ 	onSelect              func(option string)
+ 	onCancel              func()
++	bodyScroll            int // first visible row of a long title/description (pig additive)
++	terminalHeight        int
++	bodyRows              int
++	bodyScrolls           bool
+ 
+ 	// The themed texts are built when they change, as upstream builds each Text with theme.fg: the title at
+ 	// construction and for a countdown tick, the description at construction, the hint at construction and the
+@@ -171,6 +175,15 @@ func (e *ExtensionSelectorComponent) SetPreview(preview func(selectedIndex int)
+ // longest row (wrapping only to keep the preview inside the dialog), the preview follows previewGapCells later,
+ // top-aligned with the first row, and the title, hint and borders keep the full width.
+ func (e *ExtensionSelectorComponent) Render(width int) []string {
++	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
++	if e.terminalHeight > 0 {
++		return e.renderHeight(width, text, NewDynamicBorder().Render(width))
++	}
++	body := append(e.titleText.Render(width), styledDescriptionLines(e.descriptionText, width)...)
++	e.bodyScrolls = len(body) > extensionSelectorBodyRows
++	if e.bodyScrolls {
++		return e.renderLongBody(width)
++	}
+ 	preview := e.previewLines(width)
+ 	if preview == nil {
+ 		return e.Container.Render(width)
+@@ -321,6 +334,58 @@ const extensionSelectorPageSize = 8
+ // CapturesSelectPageInput reports that the selector handles tui.select.pageUp and tui.select.pageDown.
+ func (e *ExtensionSelectorComponent) CapturesSelectPageInput() bool { return true }
+ 
++// Render mirrors upstream extension-selector.ts, whose rows are Text(…, 1, 0)
++// children between Spacer(1) and DynamicBorder rows:
++//
++//	DynamicBorder + Spacer + accent(bold(title)) + [Spacer + description] +
++//	Spacer + one Text per option ("→ " prefix on selected) + Spacer +
++//	navigate/select/cancel hint + Spacer + DynamicBorder.
++//
++// Every Text wraps within one cell of padding on each side and pads to width,
++// so no row is wider than the render width.
++func (e *ExtensionSelectorComponent) renderLongBody(width int) []string {
++	border := NewDynamicBorder()
++	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
++
++	var lines []string
++	lines = append(lines, border.Render(width)...)
++	lines = append(lines, "")
++	body := e.titleText.Render(width)
++	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
++	lines = append(lines, e.scrollBody(body, text)...)
++	lines = append(lines, "")
++
++	if preview := e.previewLines(width); preview != nil {
++		lines = append(lines, e.rowsBesidePreview(width, preview)...)
++	} else {
++		lines = append(lines, e.listContainer.Render(width)...)
++	}
++
++	lines = append(lines, "")
++	lines = append(lines, text(e.hintText)...)
++	lines = append(lines, "")
++	lines = append(lines, border.Render(width)...)
++	return lines
++}
++
++// extensionSelectorBodyRows is the most title and description rows shown at once (pig additive).
++// A longer body scrolls with the page keys instead of growing past the screen.
++const extensionSelectorBodyRows = 12
++
++// scrollBody shows at most extensionSelectorBodyRows rows of body, from e.bodyScroll, and a status row with the range.
++func (e *ExtensionSelectorComponent) scrollBody(body []string, text func(string) []string) []string {
++	if len(body) <= extensionSelectorBodyRows {
++		e.bodyScroll = 0
++		return body
++	}
++	e.bodyScroll = max(0, min(e.bodyScroll, len(body)-extensionSelectorBodyRows))
++	end := e.bodyScroll + extensionSelectorBodyRows
++	visible := append([]string(nil), body[e.bodyScroll:end]...)
++	status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) +
++		"  " + extKeyHint("pgup/pgdn", "scroll")
++	return append(visible, text(ActiveTheme().Fg("muted", status))...)
++}
++
+ // HandleInput resolves expansion, navigation, confirmation and cancellation in that order. Empty options do not complete the selector.
+ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 	if e.done {
+@@ -332,6 +397,10 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 		if e.onToggleToolsExpanded != nil {
+ 			e.onToggleToolsExpanded()
+ 		}
++	case kb.Matches(data, KBSelectPageUp) && e.bodyScrolls:
++		e.bodyScroll = max(0, e.bodyScroll-e.pageRows())
++	case kb.Matches(data, KBSelectPageDown) && e.bodyScrolls:
++		e.bodyScroll += e.pageRows() // Render clamps to the last page
+ 	case kb.Matches(data, KBSelectUp) || data == "k":
+ 		e.cursor = max(0, e.cursor-1)
+ 		e.updateList()
+@@ -348,7 +417,7 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 				e.onSelect(selected)
+ 			}
+ 		}
+-	case kb.Matches(data, KBSelectCancel):
++	case kb.Matches(data, KBSelectCancel) || data == "q": // No filter input here, so q is not text (pig additive).
+ 		e.done = true
+ 		e.cancel = true
+ 		if e.onCancel != nil {
+diff --git a/tui/extension_selector_height.go b/tui/extension_selector_height.go
+new file mode 100644
+index 0000000..689d52b
+--- /dev/null
++++ b/tui/extension_selector_height.go
+@@ -0,0 +1,73 @@
++package tui
++
++import "strconv"
++
++// SetTerminalHeight budgets the complete selector, not just its message body.
++func (e *ExtensionSelectorComponent) SetTerminalHeight(height int) {
++	e.terminalHeight = max(0, height)
++}
++
++func styledDescriptionLines(description string, width int) []string {
++	if description == "" {
++		return nil
++	}
++	return append([]string{""}, NewPaddedText(description, 1, 0, nil).Render(width)...)
++}
++
++func (e *ExtensionSelectorComponent) pageRows() int {
++	if e.terminalHeight > 0 {
++		return max(1, e.bodyRows)
++	}
++	return extensionSelectorBodyRows
++}
++
++func (e *ExtensionSelectorComponent) renderHeight(width int, text func(string) []string, border []string) []string {
++	budget := max(1, e.terminalHeight*7/10)
++	oneLine := func(value string) string {
++		rows := text(value)
++		if len(rows) == 0 {
++			return ""
++		}
++		return rows[0]
++	}
++	var lines []string
++	borders := 0
++	if budget >= 4 {
++		borders = 2 * len(border)
++		lines = append(lines, border...)
++	}
++	// Reserve body space, but keep every approval option visible whenever it
++	// physically fits. At extremely small heights, options follow the cursor.
++	optionRows := min(len(e.options), max(1, budget-borders-2))
++	remaining := max(0, budget-borders-optionRows)
++	hintRows := 0
++	if remaining >= 4 {
++		hintRows = 1
++	}
++	body := e.titleText.Render(width)
++	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
++	e.bodyRows = max(0, remaining-hintRows)
++	scrolling := len(body) > e.bodyRows
++	e.bodyScrolls = scrolling
++	if scrolling && e.bodyRows > 1 {
++		e.bodyRows-- // reserve a one-row scroll indicator
++	}
++	e.bodyScroll = max(0, min(e.bodyScroll, max(0, len(body)-e.bodyRows)))
++	end := min(len(body), e.bodyScroll+e.bodyRows)
++	lines = append(lines, body[e.bodyScroll:end]...)
++	if scrolling && remaining-hintRows > 1 {
++		status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) + "  pgup/pgdn scroll"
++		lines = append(lines, oneLine(ActiveTheme().Fg("muted", status)))
++	}
++	start := max(0, min(e.cursor, len(e.options)-optionRows))
++	for i := start; i < start+optionRows; i++ {
++		lines = append(lines, oneLine(e.rowText(i)))
++	}
++	if hintRows > 0 {
++		lines = append(lines, oneLine(e.hintText))
++	}
++	if borders > 0 {
++		lines = append(lines, border...)
++	}
++	return lines
++}
+diff --git a/tui/extension_selector_height_test.go b/tui/extension_selector_height_test.go
+new file mode 100644
+index 0000000..c058b3d
+--- /dev/null
++++ b/tui/extension_selector_height_test.go
+@@ -0,0 +1,50 @@
++package tui
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestExtensionSelectorHeightBudgetPreservesApprovalChoices(t *testing.T) {
++	for _, height := range []int{1, 6, 10, 12, 18, 24, 40, 80} {
++		for _, width := range []int{16, 40, 80} {
++			sel := NewExtensionSelectorComponent(strings.Repeat("long explanation\n", 100), []string{"Deny", "Allow", "Allow once"}, nil, nil)
++			sel.SetTerminalHeight(height)
++			rows := sel.Render(width)
++			if len(rows) > max(1, height*7/10) {
++				t.Fatalf("height %d width %d: got %d rows", height, width, len(rows))
++			}
++			if height >= 10 {
++				for _, choice := range []string{"Deny", "Allow", "Allow once"} {
++					if !strings.Contains(strings.Join(rows, "\n"), choice) {
++						t.Fatalf("height %d width %d: missing %s", height, width, choice)
++					}
++				}
++			}
++		}
++	}
++}
++
++func TestExtensionSelectorHeightResizeAndScrolling(t *testing.T) {
++	sel := NewExtensionSelectorComponent(strings.Repeat("explanation\n", 100), []string{"Deny", "Allow", "Allow once"}, nil, nil)
++	sel.SetTerminalHeight(40)
++	before := sel.Render(80)
++	sel.HandleInput("\x1b[6~")
++	if sel.bodyScroll == 0 || sel.Done() {
++		t.Fatal("page down must scroll without approving")
++	}
++	sel.SetTerminalHeight(12)
++	shrunk := sel.Render(80)
++	if len(shrunk) > 8 || len(shrunk) >= len(before) {
++		t.Fatal("resize did not shrink dialog", len(before), len(shrunk))
++	}
++	sel.SetTerminalHeight(80)
++	if len(sel.Render(80)) <= len(shrunk) {
++		t.Fatal("resize did not grow dialog")
++	}
++	sel.HandleInput("\x1b[B")
++	sel.HandleInput("\r")
++	if !sel.Done() || sel.SelectedValue() != "Allow" {
++		t.Fatal("approval navigation changed")
++	}
++}
+diff --git a/tui/extension_selector_oracle_test.go b/tui/extension_selector_oracle_test.go
+index 57b5a39..4257205 100644
+--- a/tui/extension_selector_oracle_test.go
++++ b/tui/extension_selector_oracle_test.go
+@@ -124,7 +124,17 @@ func TestExtensionSelectorMatchesPi(t *testing.T) {
+ 			func(option string) { events = append(events, "select:"+option) },
+ 			func() { events = append(events, "cancel") },
+ 			ExtensionSelectorOptions{Description: probe.Description})
+-		got := showImagesResult{Steps: [][]string{}, Frames: [][]string{selector.Render(probe.Width)}}
++		// Compare the native child composition with Pi. The distribution adds bounded
++		// body scrolling; dedicated height/scroll tests cover that intentional divergence.
++		renderFrame := func() []string {
++			native := selector.Container.Render(probe.Width)
++			actual := selector.Render(probe.Width)
++			if !selector.bodyScrolls && !reflect.DeepEqual(actual, native) {
++				t.Errorf("probe %d: short dialog diverged from its native composition", i)
++			}
++			return native
++		}
++		got := showImagesResult{Steps: [][]string{}, Frames: [][]string{renderFrame()}}
+ 		// The host removes the component as soon as a callback runs, so Pi's never sees a key after one; Pig's host polls Done and ignores later keys.
+ 		keys := probe.Keys
+ 		if completed := firstCompletedStep(expected[i].Steps); completed >= 0 {
+@@ -134,7 +144,7 @@ func TestExtensionSelectorMatchesPi(t *testing.T) {
+ 		for _, key := range keys {
+ 			selector.HandleInput(key)
+ 			got.Steps = append(got.Steps, append([]string{}, events...))
+-			got.Frames = append(got.Frames, selector.Render(probe.Width))
++			got.Frames = append(got.Frames, renderFrame())
+ 		}
+ 		if !reflect.DeepEqual(got.Steps, expected[i].Steps) || !reflect.DeepEqual(got.Frames, expected[i].Frames) {
+ 			if failures++; failures <= 3 {
+diff --git a/tui/extension_selector_test.go b/tui/extension_selector_test.go
+index 757edee..db8bcec 100644
+--- a/tui/extension_selector_test.go
++++ b/tui/extension_selector_test.go
+@@ -7,6 +7,7 @@ package tui
+ 
+ import (
+ 	"slices"
++	"strconv"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -77,6 +78,21 @@ func TestExtensionSelectorHandleInput_CancelStillWins(t *testing.T) {
+ 	}
+ }
+ 
++// q cancels like Escape: this selector has no filter input, so q is never text (pig additive).
++func TestExtensionSelectorQCancelsLikeEscape(t *testing.T) {
++	sel := NewExtensionSelectorComponent("Pick one", []string{"a", "b"}, nil, nil)
++	sel.HandleInput("q")
++	if !sel.Done() || !sel.Cancelled() {
++		t.Fatal("q must cancel the selector")
++	}
++	other := NewExtensionSelectorComponent("Pick one", []string{"a", "b"}, nil, nil)
++	other.HandleInput("j")
++	other.HandleInput("\r")
++	if !other.Done() || other.Cancelled() || other.SelectedValue() != "b" {
++		t.Fatal("navigation and confirmation must be unchanged")
++	}
++}
++
+ // Upstream extension-selector.ts and extension-editor.ts render an optional
+ // description between the title and the body, after a blank spacer, wrapped
+ // with one cell of padding.
+@@ -410,3 +426,37 @@ func TestExtensionSelectorComponentHasNoPreviewWithoutOptionsAndCapturesThePageK
+ 		t.Error("the selector must capture tui.select.pageUp and pageDown")
+ 	}
+ }
++
++func TestExtensionSelectorLongBodyHasFixedHeightAndScrolls(t *testing.T) {
++	var rows []string
++	for i := 1; i <= 40; i++ {
++		rows = append(rows, "row"+strconv.Itoa(i)+"x")
++	}
++	sel := NewExtensionSelectorComponent(strings.Join(rows, "\n"), []string{"Deny", "Allow once"}, nil, nil)
++	first := sel.Render(80)
++	joined := strings.Join(first, "\n")
++	if !strings.Contains(joined, "row1x") || strings.Contains(joined, "row13x") || !strings.Contains(joined, "of 40") {
++		t.Fatalf("first page wrong:\n%s", joined)
++	}
++	sel.HandleInput("\x1b[6~") // pageDown
++	next := sel.Render(80)
++	if len(next) != len(first) {
++		t.Fatalf("height changed: %d -> %d", len(first), len(next))
++	}
++	if j := strings.Join(next, "\n"); !strings.Contains(j, "row13x") || strings.Contains(j, "row1x") {
++		t.Fatalf("second page wrong:\n%s", j)
++	}
++	for i := 0; i < 10; i++ {
++		sel.HandleInput("\x1b[6~")
++	}
++	if j := strings.Join(sel.Render(80), "\n"); !strings.Contains(j, "row40x") || !strings.Contains(j, "29-40 of 40") {
++		t.Fatalf("last page wrong:\n%s", j)
++	}
++	sel.HandleInput("\x1b[5~") // pageUp
++	if j := strings.Join(sel.Render(80), "\n"); !strings.Contains(j, "17-28 of 40") {
++		t.Fatalf("pageUp wrong:\n%s", j)
++	}
++	if sel.Done() {
++		t.Fatal("scrolling must not complete the selector")
++	}
++}
 diff --git a/tui/file_autocomplete.go b/tui/file_autocomplete.go
-index 884ea19..0067dcc 100644
+index cf5265a..12e7901 100644
 --- a/tui/file_autocomplete.go
 +++ b/tui/file_autocomplete.go
-@@ -113,8 +113,17 @@ func (p *CombinedProvider) getSuggestions(lines []string, cursorLine, cursorCol
+@@ -118,8 +118,17 @@ func (p *CombinedProvider) getSuggestions(ctx context.Context, lines []string, c
  		return &AutocompleteSuggestions{Items: items, Prefix: atPrefix}
  	}
  
 +	// A "/" after prompt text lists skills only. Without a skill match it falls through to path completion.
 +	midPromptSlash := false
-+	if token, ok := midPromptSlashToken(lines, cursorLine, cursorCol); ok {
++	if token, ok := midPromptSlashToken(lines, cursorLine, cursorCol); p.slash.chatInput && ok {
 +		if suggestions := p.slash.midPromptSkillSuggestions(token); suggestions != nil {
 +			return suggestions
 +		}
@@ -1762,10 +2902,10 @@ index 884ea19..0067dcc 100644
  	// Slash-command branch, after leading whitespace (autocomplete.ts:338-339).
 -	if !force && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
 +	if (!force || p.slash.chatInput) && !midPromptSlash && strings.HasPrefix(widthx.JSTrimStart(before), "/") {
- 		return p.slash.GetSuggestions(lines, cursorLine, cursorCol)
+ 		return p.slash.GetSuggestions(ctx, lines, cursorLine, cursorCol, AutocompleteSuggestionOptions{})
  	}
  
-@@ -190,9 +199,13 @@ func (p *CombinedProvider) ApplyCompletion(lines []string, cursorLine, cursorCol
+@@ -195,9 +204,17 @@ func (p *CombinedProvider) ApplyCompletion(lines []string, cursorLine, cursorCol
  		afterCursor = afterCursor[1:]
  	}
  	out := slices.Clone(lines)
@@ -1773,10 +2913,14 @@ index 884ea19..0067dcc 100644
 -		out[cursorLine] = beforePrefix + "/" + item.Value + " " + afterCursor
 -		return out, cursorLine, len(beforePrefix) + len(item.Value) + 2
 +	commandPrefix := "/"
-+	if strings.HasPrefix(prefix, "//") {
++	if p.slash.chatInput && strings.HasPrefix(prefix, "//") {
 +		commandPrefix = "//"
 +	}
-+	if strings.HasPrefix(prefix, "/") && p.slash.hasCommand(item.Value) && !strings.Contains(prefix[len(commandPrefix):], "/") {
++	isCommand := p.slash.chatInput && p.slash.hasCommand(item.Value)
++	if !p.slash.chatInput {
++		isCommand = widthx.JSTrim(beforePrefix) == ""
++	}
++	if strings.HasPrefix(prefix, "/") && isCommand && !strings.Contains(prefix[len(commandPrefix):], "/") {
 +		out[cursorLine] = beforePrefix + commandPrefix + item.Value + " " + afterCursor
 +		return out, cursorLine, len(beforePrefix) + len(commandPrefix) + len(item.Value) + 1
  	}
@@ -1872,10 +3016,10 @@ index 0000000..ed36ee3
 +}
 diff --git a/tui/input_demands_test.go b/tui/input_demands_test.go
 new file mode 100644
-index 0000000..83a382d
+index 0000000..56c151e
 --- /dev/null
 +++ b/tui/input_demands_test.go
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,137 @@
 +package tui
 +
 +import (
@@ -1946,7 +3090,7 @@ index 0000000..83a382d
 +func TestMidPromptCommandCompletionPreservesSuffix(t *testing.T) {
 +	provider := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
 +	lines := []string{"fix it //hel later"}
-+	got := provider.GetSuggestions(lines, 0, len("fix it //hel"))
++	got := provider.GetSuggestions(t.Context(), lines, 0, len("fix it //hel"), AutocompleteSuggestionOptions{})
 +	if got == nil || len(got.Items) != 1 {
 +		t.Fatalf("suggestions = %+v", got)
 +	}
@@ -1962,7 +3106,7 @@ index 0000000..83a382d
 +		body = append(body, fmt.Sprintf("skill row %02d", i))
 +	}
 +	content := strings.Join(body, "\n")
-+	component := NewSkillInvocationMessage(ParsedSkillBlock{Name: "demo", Content: content})
++	component := NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "demo", Content: content}, nil, 1)
 +	collapsed := stripANSI(strings.Join(component.Render(80), "\n"))
 +	if strings.Count(collapsed, "skill row") != 10 || !strings.Contains(collapsed, "5 more lines") {
 +		t.Fatalf("collapsed = %q", collapsed)
@@ -1973,14 +3117,25 @@ index 0000000..83a382d
 +	}
 +	component.SetExpanded(false)
 +	component.skillBlock.Content = strings.Repeat("long skill content ", 30)
++	component.Invalidate()
 +	rows := component.Render(12)
 +	allRows := wrapText(component.skillBlock.Content, 10)
-+	for i := 0; i < 10; i++ {
-+		if !strings.HasPrefix(stripANSI(rows[i+2]), " "+allRows[i]) {
-+			t.Fatalf("preview row %d = %q, want %q", i, rows[i+2], allRows[i])
++	bodyStart := -1
++	for i, row := range rows {
++		if strings.HasPrefix(stripANSI(row), " "+allRows[0]) {
++			bodyStart = i
++			break
 +		}
 +	}
-+	if strings.Contains(stripANSI(strings.Join(rows[12:], "\n")), "skill") {
++	if bodyStart < 0 {
++		t.Fatal("skill preview body not rendered")
++	}
++	for i := 0; i < 10; i++ {
++		if !strings.HasPrefix(stripANSI(rows[i+bodyStart]), " "+allRows[i]) {
++			t.Fatalf("preview row %d = %q, want %q", i, rows[i+bodyStart], allRows[i])
++		}
++	}
++	if strings.Contains(stripANSI(strings.Join(rows[bodyStart+10:], "\n")), "skill") {
 +		t.Fatal("skill body continued past the tenth visual row")
 +	}
 +}
@@ -2002,61 +3157,89 @@ index 0000000..83a382d
 +		t.Fatal("delayed command overwrote newer typing")
 +	}
 +}
+diff --git a/tui/keybindings.go b/tui/keybindings.go
+index 74cb993..ef9296a 100644
+--- a/tui/keybindings.go
++++ b/tui/keybindings.go
+@@ -34,6 +34,7 @@ const (
+ 	KBEditorCursorLineEnd     TUIKeybinding = "tui.editor.cursorLineEnd"
+ 	KBEditorJumpForward       TUIKeybinding = "tui.editor.jumpForward"
+ 	KBEditorJumpBackward      TUIKeybinding = "tui.editor.jumpBackward"
++	KBEditorSelectAll         TUIKeybinding = "tui.editor.selectAll"
+ 	KBEditorPageUp            TUIKeybinding = "tui.editor.pageUp"
+ 	KBEditorPageDown          TUIKeybinding = "tui.editor.pageDown"
+ 	KBEditorDeleteCharBack    TUIKeybinding = "tui.editor.deleteCharBackward"
+@@ -180,6 +181,7 @@ func TUIKeybindingDefinitionsFor(platform KeybindingPlatform) KeybindingDefiniti
+ 		KBEditorCursorLineEnd:     {DefaultKeys: []string{"end", "ctrl+e"}, Description: "Move to line end"},
+ 		KBEditorJumpForward:       {DefaultKeys: []string{"ctrl+]"}, Description: "Jump forward to character"},
+ 		KBEditorJumpBackward:      {DefaultKeys: []string{"ctrl+alt+]"}, Description: "Jump backward to character"},
++		KBEditorSelectAll:         {DefaultKeys: []string{}, Description: "Select all text in the editor"},
+ 		KBEditorPageUp:            {DefaultKeys: []string{"pageUp", "ctrl+pageUp"}, Description: "Page up"},
+ 		KBEditorPageDown:          {DefaultKeys: []string{"pageDown", "ctrl+pageDown"}, Description: "Page down"},
+ 		KBEditorDeleteCharBack:    {DefaultKeys: []string{"backspace"}, Description: "Delete character backward"},
 diff --git a/tui/skill_invocation.go b/tui/skill_invocation.go
-index 7a63c6e..07c9a90 100644
+index 82a3523..162431f 100644
 --- a/tui/skill_invocation.go
 +++ b/tui/skill_invocation.go
-@@ -5,8 +5,6 @@ package tui
- // Ports upstream skill-invocation-message.ts (55 LOC).
- // Renders a skill block with collapsed/expanded state.
- 
--import "strings"
--
- // ParsedSkillBlock holds the parsed skill invocation data.
- // Mirrors upstream's ParsedSkillBlock.
- type ParsedSkillBlock struct {
-@@ -49,33 +47,13 @@ func (s *SkillInvocationMessageComponent) Render(width int) []string {
- 	t := ActiveTheme()
- 	customMsgBgOpen := t.CustomMessageBg
- 
--	if s.expanded {
--		var lines []string
--		// paddingY top
--		lines = append(lines, paintBgWith(customMsgBgOpen, "", width))
--		label := t.CustomMessageLabel + "\x1b[1m[skill]\x1b[22m\x1b[0m"
--		lines = append(lines, paintBgWith(customMsgBgOpen, " "+label, width))
--		// Header: bold skill name.
--		header := "\x1b[1m" + s.skillBlock.Name + "\x1b[22m"
--		lines = append(lines, paintBgWith(customMsgBgOpen, " "+t.CustomMessageText+header+"\x1b[0m", width))
--		lines = append(lines, paintBgWith(customMsgBgOpen, "", width))
--		// Content lines.
--		for line := range strings.SplitSeq(s.skillBlock.Content, "\n") {
--			lines = append(lines, paintBgWith(customMsgBgOpen, " "+t.CustomMessageText+line+"\x1b[0m", width))
--		}
--		// paddingY bottom
--		lines = append(lines, paintBgWith(customMsgBgOpen, "", width))
--		return lines
--	}
--
--	// Collapsed: single line: [skill] name (hint to expand).
--	// Upstream Box paddingY=1 adds 1 blank row above and below.
--	line := t.CustomMessageLabel + "\x1b[1m[skill]\x1b[22m\x1b[0m " +
--		t.CustomMessageText + s.skillBlock.Name + "\x1b[0m" +
--		t.Dim + " (ctrl+o to expand)" + "\x1b[0m"
--	return []string{
--		paintBgWith(customMsgBgOpen, "", width), // paddingY top
--		paintBgWith(customMsgBgOpen, " "+line, width),
--		paintBgWith(customMsgBgOpen, "", width), // paddingY bottom
-+	lines := []string{paintBgWith(customMsgBgOpen, "", width)}
-+	label := t.CustomMessageLabel + "\x1b[1m[skill]\x1b[22m\x1b[0m " +
-+		t.CustomMessageText + s.skillBlock.Name + "\x1b[0m"
-+	lines = append(lines, paintBgWith(customMsgBgOpen, " "+label, width))
-+	rows := collapsedPreviewRows(wrapText(s.skillBlock.Content, max(1, width-2)), width-2, !s.expanded)
-+	for _, row := range rows {
-+		lines = append(lines, paintBgWith(customMsgBgOpen, " "+t.CustomMessageText+row+"\x1b[0m", width))
+@@ -49,18 +49,21 @@ func (s *SkillInvocationMessageComponent) updateDisplay() {
+ 	s.Clear()
+ 	theme := ActiveTheme()
+ 	content := NewContainer()
++	label := theme.Fg("customMessageLabel", "\x1b[1m[skill]\x1b[22m")
++	bodyText := s.skillBlock.Content
+ 	if s.expanded {
+-		label := theme.Fg("customMessageLabel", "\x1b[1m[skill]\x1b[22m")
+-		content.Add(NewText(label))
+-		header := "**" + s.skillBlock.Name + "**\n\n"
+-		content.Add(NewMarkdownWithOptions(header+s.skillBlock.Content, 0, 0, s.markdownTheme, &DefaultTextStyle{
+-			Color: func(text string) string { return ActiveTheme().Fg("customMessageText", text) },
+-		}, nil))
++		bodyText = "**" + s.skillBlock.Name + "**\n\n" + bodyText
+ 	} else {
+-		line := theme.Fg("customMessageLabel", "\x1b[1m[skill]\x1b[22m ") +
+-			theme.Fg("customMessageText", s.skillBlock.Name) +
+-			theme.Fg("dim", " ("+AppKeyText("app.tools.expand", "ctrl+o")+" to expand)")
+-		content.Add(NewText(line))
++		label += " " + theme.Fg("customMessageText", s.skillBlock.Name)
++	}
++	content.Add(NewText(label))
++	body := NewMarkdownWithOptions(bodyText, 0, 0, s.markdownTheme, &DefaultTextStyle{
++		Color: func(text string) string { return ActiveTheme().Fg("customMessageText", text) },
++	}, nil)
++	if s.expanded {
++		content.Add(body)
++	} else {
++		content.Add(&skillInvocationPreview{Component: body})
  	}
-+	return append(lines, paintBgWith(customMsgBgOpen, "", width))
+ 	s.AddChild(NewMouseRegion(content, func(event TuiMouseEvent) *TuiMouseEventResult {
+ 		if event.Type != MouseClick || event.Button != MouseButtonLeft {
+@@ -75,3 +78,9 @@ func (s *SkillInvocationMessageComponent) updateDisplay() {
+ func (c *SkillInvocationMessageComponent) SetOutputPad(outputPad int) {
+ 	c.SetPaddingX(outputPad)
  }
++
++type skillInvocationPreview struct{ Component }
++
++func (p *skillInvocationPreview) Render(width int) []string {
++	return collapsedPreviewRows(flattenVisualRows(p.Component.Render(width)), width, true)
++}
+diff --git a/tui/skill_invocation_expand_test.go b/tui/skill_invocation_expand_test.go
+index 96647a5..5cd10a3 100644
+--- a/tui/skill_invocation_expand_test.go
++++ b/tui/skill_invocation_expand_test.go
+@@ -5,10 +5,9 @@ import (
+ 	"testing"
+ )
+ 
+-// Upstream skill-invocation-message.ts setExpanded(expanded) stores the flag and rebuilds the display: collapsed shows
+-// "[skill] name" with an expand hint, expanded adds the skill name header and the whole content.
++// The distribution previews ten visual rows and retains full expandable content.
+ func TestSkillInvocationSetExpandedSwitchesTheDisplay(t *testing.T) {
+-	c := NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "example-skill", Content: "line one\nline two"}, nil, 1)
++	c := NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "example-skill", Content: strings.Repeat("preview\n", 10) + "line one\nline two"}, nil, 1)
+ 	text := func() string { return stripANSI(strings.Join(c.Render(80), "\n")) }
+ 	if got := text(); !strings.Contains(got, "[skill] example-skill") || strings.Contains(got, "line one") {
+ 		t.Fatalf("collapsed display: %q", got)
 diff --git a/tui/skill_slash_autocomplete.go b/tui/skill_slash_autocomplete.go
 new file mode 100644
 index 0000000..2161b44
@@ -2194,7 +3377,7 @@ index 0000000..2161b44
 +}
 diff --git a/tui/skill_slash_autocomplete_test.go b/tui/skill_slash_autocomplete_test.go
 new file mode 100644
-index 0000000..8a80106
+index 0000000..3e3fd79
 --- /dev/null
 +++ b/tui/skill_slash_autocomplete_test.go
 @@ -0,0 +1,142 @@
@@ -2249,7 +3432,7 @@ index 0000000..8a80106
 +	}
 +	for _, tt := range tests {
 +		t.Run(tt.name, func(t *testing.T) {
-+			got := provider.GetSuggestions(tt.lines, tt.row, tt.col)
++			got := provider.GetSuggestions(t.Context(), tt.lines, tt.row, tt.col, AutocompleteSuggestionOptions{})
 +			if !slices.Equal(suggestionValues(got), tt.want) {
 +				t.Fatalf("values = %v, want %v", suggestionValues(got), tt.want)
 +			}
@@ -2262,14 +3445,14 @@ index 0000000..8a80106
 +
 +func TestMidPromptSlashLeavesPathsAndLeadingCommands(t *testing.T) {
 +	provider := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
-+	if got := provider.GetSuggestions([]string{"see /tmp/x"}, 0, 10); got != nil {
++	if got := provider.GetSuggestions(t.Context(), []string{"see /tmp/x"}, 0, 10, AutocompleteSuggestionOptions{}); got != nil {
 +		for _, item := range got.Items {
 +			if len(item.Value) >= 6 && item.Value[:6] == "skill:" {
 +				t.Errorf("path token produced skill %q", item.Value)
 +			}
 +		}
 +	}
-+	got := provider.GetSuggestions([]string{"//hel"}, 0, 5)
++	got := provider.GetSuggestions(t.Context(), []string{"//hel"}, 0, 5, AutocompleteSuggestionOptions{})
 +	if want := []string{"help"}; !slices.Equal(suggestionValues(got), want) {
 +		t.Errorf("leading command values = %v, want %v", suggestionValues(got), want)
 +	}
@@ -2278,7 +3461,7 @@ index 0000000..8a80106
 +func TestMidPromptSkillCompletionInsertsTokenWithoutSubmit(t *testing.T) {
 +	provider := NewChatAutocompleteProvider(skillTestCommands(), t.TempDir(), "")
 +	lines := []string{"fix it /hum later"}
-+	got := provider.GetSuggestions([]string{"fix it /hum"}, 0, 11)
++	got := provider.GetSuggestions(t.Context(), []string{"fix it /hum"}, 0, 11, AutocompleteSuggestionOptions{})
 +	if got == nil {
 +		t.Fatal("no suggestions")
 +	}
@@ -2341,30 +3524,54 @@ index 0000000..8a80106
 +	}
 +}
 diff --git a/tui/tool_execution.go b/tui/tool_execution.go
-index 477d9c6..6e394ab 100644
+index 6757c89..3c269c2 100644
 --- a/tui/tool_execution.go
 +++ b/tui/tool_execution.go
-@@ -625,9 +625,7 @@ func (c *ToolExecutionComponent) Render(width int) []string {
- 		c.saveCachedRender(width, out)
- 		return out
+@@ -774,7 +774,7 @@ func (c *ToolExecutionComponent) renderToolImages(width int) []string { return c
+ // renderLegacyHeader draws the call header, wrapped across rows like upstream's Text.
+ func (c *ToolExecutionComponent) renderLegacyHeader(width int) []string {
+ 	if c.isUnregisteredTool() {
+-		return wrapText(c.formatToolExecution(), width)
++		return wrapText(c.formatToolExecution(width), width)
+ 	}
+ 	return wrapText(c.renderHeaderInner(width), width)
+ }
+@@ -787,7 +787,7 @@ func (c *ToolExecutionComponent) isUnregisteredTool() bool {
+ 
+ // formatToolExecution is upstream formatToolExecution (tool-execution.ts:394-406): the tool name in toolTitle, its arguments as JSON.stringify(args, null, 2)
+ // after a blank line, and the result text on the next line, stripped of ANSI sequences, binary control characters and carriage returns (render-utils.ts getTextOutput).
+-func (c *ToolExecutionComponent) formatToolExecution() string {
++func (c *ToolExecutionComponent) formatToolExecution(width int) string {
+ 	out := toolTitleText(c.Name)
+ 	if len(c.argumentsRaw) > 0 {
+ 		if canonical, err := jsonstringify.Canonicalize(c.argumentsRaw); err == nil {
+@@ -798,7 +798,7 @@ func (c *ToolExecutionComponent) formatToolExecution() string {
+ 		}
+ 	}
+ 	if output := strings.ReplaceAll(text.SanitizeBinaryOutput(text.StripANSIString(c.Output)), "\r", ""); output != "" {
+-		out += "\n" + output
++		out += "\n" + strings.Join(c.collapsedToolRows(wrapText(output, width), width), "\n")
+ 	}
+ 	return out
+ }
+@@ -816,13 +816,10 @@ func (c *ToolExecutionComponent) renderLegacyBody(width int) []string {
+ 		// first-ten-lines fallback and can be expanded by click or Ctrl+O.
+ 		return append(append([]string{""}, c.renderCollapsedPreview(width)...), c.runningElapsedRows(width)...)
  	}
 -	// Per-tool BodyRenderers receive the expanded flag and always own their
 -	// preview-to-full transition. This preserves upstream tool-execution.ts
 -	// behavior and keeps the collapsed bash preview visible.
-+	// Body renderers receive the expansion state; the host caps collapsed previews.
- 
- 	// Separator line between call header and result body.
- 	// Upstream's result components (bash, read, write, edit) all start
-@@ -640,7 +638,7 @@ func (c *ToolExecutionComponent) Render(width int) []string {
- 	// or a renderShell:"self" extension renderer with no lines), skip the
- 	// separator so the empty body doesn't leave a stray blank row inside
- 	// the box: mirrors upstream #5299 (read.ts collapsed returns "").
--	body := c.renderResultBody(width - 2)
-+	body := c.collapsedToolRows(c.renderResultBody(width-2), width-2)
- 	footer := c.runningElapsedRows(width - 2)
- 	if len(body) > 0 {
- 		out = append(out, paintBgWith(bgOpen, "", width))
-@@ -796,35 +794,16 @@ func (c *ToolExecutionComponent) autoCollapseThreshold() int {
+-	//
+-	// Upstream's result components (bash, read, write, edit) all start their output with a leading empty line, which separates the call header from the body. When the body renderer emits nothing (a collapsed read card, or a renderShell:"self" renderer with no lines), skip the separator so the empty body leaves no stray blank row: upstream #5299 (read.ts collapsed returns "").
++	// Body renderers receive expansion state; cap collapsed output at visual rows.
++	// Empty bodies leave no separator row.
+ 	var out []string
+-	if body := c.renderResultBody(width); len(body) > 0 {
++	if body := c.collapsedToolRows(c.renderResultBody(width), width); len(body) > 0 {
+ 		out = append(append(out, ""), body...)
+ 	}
+ 	return append(out, c.runningElapsedRows(width)...)
+@@ -952,35 +949,16 @@ func (c *ToolExecutionComponent) autoCollapseThreshold() int {
  	return 8
  }
  
@@ -2392,20 +3599,20 @@ index 477d9c6..6e394ab 100644
  	var out []string
 -	for _, line := range displayLines {
 -		out = append(out, wrapText(fg(ActiveTheme().ToolOutput, line), width)...)
--	}
--	if remaining > 0 {
--		hint := fmt.Sprintf("... (%d more line%s, ctrl+o to expand)", remaining, plural(remaining))
--		out = append(out, wrapText(fg(ActiveTheme().Muted, hint), width)...)
 +	for _, line := range lines {
 +		out = append(out, wrapText(fg(ActiveTheme().ToolOutput, line), max(1, width))...)
  	}
+-	if remaining > 0 {
+-		hint := fmt.Sprintf("... (%d more line%s, ctrl+o to expand)", remaining, plural(remaining))
+-		out = append(out, wrapText(fg(ActiveTheme().Muted, hint), width)...)
+-	}
 -	return out
 +	return c.collapsedToolRows(out, width)
  }
  
  func (c *ToolExecutionComponent) bodyMaxLines() int {
 diff --git a/tui/tool_execution_definition.go b/tui/tool_execution_definition.go
-index ecdd6e1..76203ff 100644
+index fa5d056..188b3ed 100644
 --- a/tui/tool_execution_definition.go
 +++ b/tui/tool_execution_definition.go
 @@ -6,7 +6,6 @@ package tui
@@ -2416,7 +3623,7 @@ index ecdd6e1..76203ff 100644
  	"strings"
  
  	"github.com/MichaelKinsy/PiG/tui/widthx"
-@@ -46,8 +45,6 @@ type rendererDirtyReporter interface {
+@@ -59,8 +58,6 @@ type rendererDirtyReporter interface {
  	IsDirty() bool
  }
  
@@ -2425,7 +3632,7 @@ index ecdd6e1..76203ff 100644
  // SetDefinition makes the card draw a registered tool definition as upstream
  // does, instead of the built-in or generic presentation. args are the call's
  // current arguments. A nil definition returns the card to that presentation.
-@@ -135,7 +132,7 @@ func (c *ToolExecutionComponent) updateDefinition() {
+@@ -178,7 +175,7 @@ func (c *ToolExecutionComponent) updateDefinition() {
  			if fallback, ok := component.(RendererFallback); ok {
  				fallback.SetRendererFallback(func(width int) []string {
  					if preview := c.resultFallback(); preview != nil {
@@ -2434,7 +3641,7 @@ index ecdd6e1..76203ff 100644
  					}
  					return nil
  				})
-@@ -163,27 +160,18 @@ func (c *ToolExecutionComponent) resultFallback() Component {
+@@ -219,28 +216,19 @@ func (c *ToolExecutionComponent) resultFallback() Component {
  	}
  	theme := ActiveTheme()
  	lines := strings.Split(output, "\n")
@@ -2446,18 +3653,19 @@ index ecdd6e1..76203ff 100644
 -	for i, line := range display {
 +	styled := make([]string, len(lines))
 +	for i, line := range lines {
- 		styled[i] = theme.FgText("toolOutput", line)
+ 		styled[i] = theme.Fg("toolOutput", line)
  	}
 -	text := strings.Join(styled, "\n")
 -	if remaining := len(lines) - len(display); remaining > 0 {
--		text += theme.FgText("muted", "\n... ("+strconv.Itoa(remaining)+" more lines,") + " " +
--			theme.FgText("dim", AppKeyText("app.tools.expand", "ctrl+o")) + theme.FgText("muted", " to expand") +
--			theme.FgText("muted", ")")
+-		text += theme.Fg("muted", "\n... ("+strconv.Itoa(remaining)+" more lines,") + " " +
+-			theme.Fg("dim", AppKeyText("app.tools.expand", "ctrl+o")) + theme.Fg("muted", " to expand") +
+-			theme.Fg("muted", ")")
 -	}
 -	return NewPaddedText(text, 0, 0, nil)
 +	return NewPaddedText(strings.Join(styled, "\n"), 0, 0, nil)
  }
  
+ // definitionComponents wraps the call and result components in the regions that toggle the card on click (createResultRegion).
  func (c *ToolExecutionComponent) definitionComponents() []Component {
  	components := []Component{NewMouseRegion(c.definitionCall, c.handleResultMouse)}
  	if c.definitionResultComponent != nil {
@@ -2469,7 +3677,7 @@ index ecdd6e1..76203ff 100644
  }
 diff --git a/tui/tool_preview.go b/tui/tool_preview.go
 new file mode 100644
-index 0000000..fb70da5
+index 0000000..64bdd1a
 --- /dev/null
 +++ b/tui/tool_preview.go
 @@ -0,0 +1,49 @@
@@ -2500,7 +3708,7 @@ index 0000000..fb70da5
 +	if strings.Contains(strings.Join(rows, ""), "to expand") {
 +		hint = "... (" + AppKeyText("app.tools.expand", "ctrl+o") + " to expand)"
 +	}
-+	return append(out, wrapText(ActiveTheme().FgText("muted", hint), max(1, width))...)
++	return append(out, wrapText(ActiveTheme().Fg("muted", hint), max(1, width))...)
 +}
 +
 +type toolResultPreview struct {
@@ -2524,7 +3732,7 @@ index 0000000..fb70da5
 +}
 diff --git a/tui/tool_preview_limit_test.go b/tui/tool_preview_limit_test.go
 new file mode 100644
-index 0000000..a016ea5
+index 0000000..db170d6
 --- /dev/null
 +++ b/tui/tool_preview_limit_test.go
 @@ -0,0 +1,59 @@
@@ -2540,7 +3748,7 @@ index 0000000..a016ea5
 +	for _, width := range []int{20, 80} {
 +		for _, definition := range []bool{false, true} {
 +			for _, size := range []int{9, 10, 15} {
-+				card := NewToolExecutionComponent("custom", "test")
++				card := NewToolExecutionComponent("custom", "test", nil, ToolExecutionOptions{}, nil, nil, "")
 +				var lines []string
 +				for i := 1; i <= size; i++ {
 +					lines = append(lines, fmt.Sprintf("row-%02d", i))
@@ -2571,7 +3779,7 @@ index 0000000..a016ea5
 +
 +func TestCollapsedToolOutputCapsWrappedFallbackRows(t *testing.T) {
 +	for _, definition := range []bool{false, true} {
-+		card := NewToolExecutionComponent("custom", "test")
++		card := NewToolExecutionComponent("custom", "test", nil, ToolExecutionOptions{}, nil, nil, "")
 +		if definition {
 +			card.SetDefinition(&ToolDefinitionRenderers{}, nil)
 +		}

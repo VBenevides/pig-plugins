@@ -7,7 +7,7 @@ curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts
 ```
 
 Requires `git`, `go`, and `curl`. If `pig` is not on `PATH`, the script first installs
-the PiG version declared in `COMPATIBILITY.json` (currently `0.4.1`; override with
+the PiG version declared in `COMPATIBILITY.json` (currently `0.5.1`; override with
 `PIG_VERSION`) into `~/.local/bin`.
 The installer also provides `ast-grep`. It preserves any existing version on `PATH`.
 If none exists, it downloads the latest official native release into `~/.pig/bin`.
@@ -20,20 +20,20 @@ Only after that build succeeds does it copy the plugins, prompts and skills into
 
 ## Versions and updates
 
-`VERSION` starts at `0.1.0` and is embedded in the plugin build. At session startup,
+`VERSION` is `0.2.0` and is embedded in the plugin build. At session startup,
 the bundled `check-update` extension shows `PiG - XXX | PiG Plugins - YYY`.
 The fused executable supplies its PiG version; when loaded
 separately, the extension falls back to `pig --version` on `PATH`.
 
 `COMPATIBILITY.json` lists each dependency's repository path and latest supported
-version. Its initial PiG entry is:
+version. Its supported PiG entry is:
 
 ```json
 {
   "dependencies": {
     "pig": {
       "path": "github.com/MichaelKinsy/PiG",
-      "version": "0.4.1"
+      "version": "0.5.1"
     }
   }
 }
@@ -60,13 +60,28 @@ pig-plugins --update
 
 This downloads the official plugin installer completely before executing it.
 The installer refreshes PiG through its official curl installer to the version
-declared in the newly cloned `COMPATIBILITY.json` (currently `0.4.1`), then
+declared in the newly cloned `COMPATIBILITY.json` (currently `0.5.1`), then
 rebuilds the latest plugins. `--update` does not force incompatible upstream
 upgrades. An explicit `PIG_VERSION`
 override remains available at your own compatibility risk.
 The existing native executable survives a failed rebuild. Updates are never
 installed automatically, and the check preference survives reinstalls.
 Both `pig-plugins update` and `pig-plugins --update` use this installer, including in development builds. Explicit extension-update commands keep PiG's package-update behavior.
+
+### Upgrade to 0.2.0
+
+This release targets PiG 0.5.1 and its matching patched SDK. Older host compatibility is not promised.
+Use `pig-plugins update` to rebuild the single executable. A failed build preserves the previous executable.
+Change legacy `pig-plugins-native` or `pig-plugins-raw` shortcuts to `pig-plugins`.
+
+Custom `models.json` entries need an explicit `api` unless they replace a built-in model.
+Go extensions must read lazy `before_agent_start.systemPrompt` through `Get()` and preserve errors.
+Library-only local packages without resource directories need `"pi": {}` to avoid extension discovery.
+PiG treats every supplied boolean extension flag as enabled. Replace `--adhd false` with `/adhd off`.
+
+Existing agent prompts and matching bundled skills are backed up before replacement.
+User keybindings, settings, unrelated skills and account selections remain unchanged.
+See [port evidence and upstream limitations](docs/pig-051-port.md) for tested boundaries and SDK changes.
 
 ## About
 
@@ -102,7 +117,7 @@ The recovery allowance survives successful replies and tool continuations; only 
 In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.
 Differences from upstream: only OAuth credentials are used, quota requests have a timeout, size limit, and no redirects, and persistence errors are reported, not ignored.
 Native account storage and quota integration received a read-only security review with no material findings.
-Display-only diagnostics use native notifications rather than conversation messages or raw live-TUI logs; headless failures retain sanitized logs. `patches/pig/0013-diagnostic-routing-host.patch` tests draft, cursor, queued-input and model-history isolation.
+Display-only diagnostics use native notifications rather than conversation messages or raw live-TUI logs; headless failures retain sanitized logs. `patches/pig/0008-settings-diagnostics-host.patch` tests draft, cursor, queued-input and model-history isolation.
 
 ### better-footer
 
@@ -134,16 +149,16 @@ from being attributed to another.
 
 ### Native multi-account Codex
 
-The bundled build applies pinned PiG 0.4.1 host and SDK patches under `patches/pig/`.
+The bundled build applies pinned PiG 0.5.1 host and SDK patches under `patches/pig/`.
 It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.
 
-In the bundled chat input, `/` at the start of any line (after optional whitespace) completes commands, prompt templates and skills. After other text on the same line, `/` completes only skills and non-skill commands require `//`. For example, `/model` works at line start, `explain /model` stays prompt text, and `explain //model` invokes the command. `//` remains available for non-skill commands at line start too. Keyboard shortcuts and programmatic command APIs are unchanged. This is provided by `patches/pig/0003-chat-input-and-previews-host.patch`.
+In the bundled chat input, `/` at the start of any line (after optional whitespace) completes commands, prompt templates and skills. After other text on the same line, `/` completes only skills and non-skill commands require `//`. For example, `/model` works at line start, `explain /model` stays prompt text, and `explain //model` invokes the command. `//` remains available for non-skill commands at line start too. Keyboard shortcuts and programmatic command APIs are unchanged. This is provided by `patches/pig/0003-editor-images-host.patch`.
 Skill matching supports the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting a mid-text completion inserts the token without submitting.
 On Enter, a registered command runs from its slash token through the cursor: use `/command` at line start or `//command` anywhere a command token may start. Text before the command and after the cursor stays in the input box, including compact paste contents. Place the cursor immediately after the command's arguments to keep later prose. At line start, `/clear` discards only the input, `/exit` closes the session, `/send-steer` submits the remaining draft as steering input, and `/send-queue` submits it as a follow-up. After prose, use `//clear`, `//exit`, `//send-steer` or `//send-queue`. Both send commands take no arguments; the old `/send [queue]` syntax is removed. During compaction, sends queue with the selected delivery mode.
 Submitting a prompt with `/skill:name` tokens still adds each known skill's full block once, before the unchanged text.
-`patches/pig/0004-extension-dialogs-host.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows, or fewer when needed to fit the terminal. PageUp and PageDown scroll the rest, and a status row shows the visible range.
+`patches/pig/0003-editor-images-host.patch` limits the title and description of a select dialog (such as the smart-approve prompt) to 12 rows, or fewer when needed to fit the terminal. PageUp and PageDown scroll the rest, and a status row shows the visible range.
 
 The same dialog patch lets an open dialog receive PageUp and PageDown before the full-screen chat viewport, which used to consume them.
 Select `openai-codex/gpt-6.1-sol` with `/model`; `/usage` shows the actual active
@@ -161,11 +176,11 @@ upstream TypeScript comparison packages cannot run unless those packages are
 installed; targeted native lifecycle, refresh, cancellation and bridge tests
 are covered independently.
 
-Cursor generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. Cursor streams use cancellable backpressure to bound unread events; native compaction drains them before awaiting results. These integration controls require `0011-cursor-provider-host.patch` and `0012-cursor-provider-sdk.patch`, applied by the bundled build.
+Cursor generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. Cursor streams use cancellable backpressure to bound unread events; native compaction drains them before awaiting results. These integration controls require `0005-provider-recovery-host.patch` and `0006-provider-recovery-sdk.patch`, applied by the bundled build.
 
 ### Tool output previews
 
-`patches/pig/0003-chat-input-and-previews-host.patch` defaults tool output to collapsed previews of at most 10 output rows. Ctrl+O expands or collapses tools and saves the preference as `toolsExpanded` in the global `settings.json`. New and resumed sessions restore that preference; full tool results remain available to the model and in session history. Headers, expansion hints, and image previews are separate from the output-row limit.
+`patches/pig/0003-editor-images-host.patch` defaults tool output to collapsed previews of at most 10 output rows. Ctrl+O expands or collapses tools and saves the preference as `toolsExpanded` in the global `settings.json`. New and resumed sessions restore that preference; full tool results remain available to the model and in session history. Headers, expansion hints, and image previews are separate from the output-row limit.
 
 Skill invocation previews use the same 10-output-row limit, including wrapped lines. The same patch applies this to live and resumed messages, including multiple skills in one prompt. Ctrl+O or a click reveals the complete skill; only the display is collapsed, not the content sent to the model. Skills follow the saved `toolsExpanded` preference, which defaults to collapsed.
 
@@ -294,7 +309,7 @@ Tests that start `pig` skip when it is not on `PATH`.
 Copies (no symlinks) the tracked repository, including every extension and `prompts/`, to `~/.pig/pig-plugins`.
 Copies `prompts/agent/SYSTEM.md`, `prompts/agent/APPEND_SYSTEM.md` and `prompts/agent/AGENTS.md` into `~/.pig/agent/`; an existing different file is first saved as `<file>.pig-plugins-backup-<timestamp>`.
 Copies `config/agent/keybindings.json` to `~/.pig/agent/keybindings.json` only when that file is absent (it maps `ctrl+z` to undo and frees it from suspend, and binds `ctrl+a` to select all in the prompt editor with `home` left as line start); an existing file is never overwritten, and the installer prints a notice when it differs. PiG has no redo action, so `ctrl+r` still renames sessions.
-Select all comes from `patches/pig/0009-editor-select-all-host.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
+Select all comes from `patches/pig/0003-editor-images-host.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
 Builds the fused executable at `~/.pig/bin/pig-plugins` and symlinks it as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Successful installs remove the old managed `pig-plugins-native` and `pig-plugins-raw` payloads. Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
@@ -449,7 +464,7 @@ Compression is opt-in: open `/settings` and set **Reduce command output** to
 restart and are saved as `"reduceCommandOutput": true` in global `settings.json`.
 Trusted project settings can override the global value. `PI_RTK` is no longer
 used. The settings row requires the bundled host patch
-`0014-command-output-settings-host.patch`; rebuild the bundle to get it.
+`0008-settings-diagnostics-host.patch`; rebuild the bundle to get it.
 The standalone extension also requires that patched host to expose the setting.
 It post-processes the original Bash result;
 it does not rewrite the approved command, execute it again, or alter exit/error
@@ -543,7 +558,7 @@ Redirects, substitutions, executable hooks, wrappers, and mixed read/write comma
 `rg` with `RIPGREP_CONFIG_PATH` set also retains scoring because its config can supply executable hooks.
 Hard-block rules still take precedence.
 
-The confirmation shows the `Command:` first, then the `Risk Description:`, then `Affected items:` with one `- type: name - effect` entry per known target, so a long analysis scrolls below the command. Long dialogs scroll with the page keys when the host carries `patches/pig/0004-extension-dialogs-host.patch`; a stock host shows them unscrolled. Simple commands
+The confirmation shows the `Command:` first, then the `Risk Description:`, then `Affected items:` with one `- type: name - effect` entry per known target, so a long analysis scrolls below the command. Long dialogs scroll with the page keys when the host carries `patches/pig/0003-editor-images-host.patch`; a stock host shows them unscrolled. Simple commands
 name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
 Implicit targets, shell expressions, compound commands and unsupported options show an unknown scope instead of
 guessing. For an unknown-scope confirmation, the current session model receives only the command and working
@@ -854,7 +869,7 @@ The extension checks when an agent run has settled, and starts the same compacti
 ## Closing menus
 
 Every menu this repository draws closes with both `Esc` and `q`: the `/todos` viewer, the auto-models dashboard and pickers, and the `ask_user_question` questionnaire (also `Ctrl+C`). Where `q` is a letter it stays a letter: the auto-models pickers that have a search box, the questionnaire's typed-answer row, and its note editor. There `Esc` is the only key, and the hint line names `q` only where it works.
-Select and confirm dialogs the host draws (the Smart Approve question, the `/pi-curator` and footer settings) close with `q` as well as `Esc` and `Ctrl+C` when the host is built with `patches/pig/0004-extension-dialogs-host.patch`, which `scripts/dev_build.sh` applies. Those dialogs have no text input, so `q` is never a typed letter there. The hint line is unchanged, because a host test pins the upstream wording. Host lists that do have a search box, such as the model selector, keep `Esc` only. A stock host without the patch closes these dialogs with `Esc` and `Ctrl+C`. This repository does not change your keybindings.
+Select and confirm dialogs the host draws (the Smart Approve question, the `/pi-curator` and footer settings) close with `q` as well as `Esc` and `Ctrl+C` when the host is built with `patches/pig/0003-editor-images-host.patch`, which `scripts/dev_build.sh` applies. Those dialogs have no text input, so `q` is never a typed letter there. The hint line is unchanged, because a host test pins the upstream wording. Host lists that do have a search box, such as the model selector, keep `Esc` only. A stock host without the patch closes these dialogs with `Esc` and `Ctrl+C`. This repository does not change your keybindings.
 
 ## ask-mode
 
@@ -869,6 +884,7 @@ In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, an
 `/goal check` shows `Current goal` and `Current status`: `working`, or `finished` with how it ended (`reached`, `blocked`, or `stopped`) and the model's summary. `/goal clear` forgets the goal and stops continuing; a run in progress is not interrupted. `/goal set` replaces an earlier goal.
 While the goal works, the footer shows `GOAL` and the objective is added to the system prompt of every run, so it survives compaction. When a run ends and the goal is not finished, the extension sends a short continuation message. The model ends the goal by calling `goal_finish` with `reached` or `blocked` and a summary; it is told to verify the result first and to keep working on any part that is not blocked.
 The goal also ends as `stopped` when you press Esc, when a model request fails, or when three runs in a row make no tool call and do not finish it.
+`/goal resume` continues the current unfinished goal without replacing its objective or saved progress. Use it after an interruption, request failure, no-progress stop, or when a blocked goal can proceed. It also starts an idle restored goal. Wait until the agent is idle and its message queue is empty; repeated calls do not queue duplicate continuations. Reached or cleared goals cannot be resumed.
 The goal is stored in the session, so it survives a restart: a resumed `working` goal continues after your next message. The model reports `reached` itself; there is no independent verifier, so check important results yourself. The goal runs with your normal permissions and approvals, and `goal_finish` is blocked in ASK mode.
 
 ## adhd-output
