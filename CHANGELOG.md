@@ -2,6 +2,31 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.0]
+
+### Features
+
+- Target PiG 0.5.1 with matching host and SDK patches and explicit, reproducible candidate selection.
+- Add `/goal resume` to continue an unfinished objective without replacing its saved progress.
+
+### Bugfixes
+
+- Order RPC model discovery after startup registration, including already launched refreshes. Preserve Cursor replay vetoes and exactly-once tool effects.
+- Preserve selected image payloads through editor undo with bounded retention.
+- Preserve live output settings, compaction order, diagnostic isolation and Kitty submenu selection.
+
+### Other
+
+- Qualify the real fused bundle with replay, editor/dialog, image, security, settings/restart and updater fixtures.
+- Keep a single `pig-plugins` executable and preserve the previous binary when a build or install fails.
+
+### Breaking Changes
+
+- PiG 0.5.1 and its matching patched SDK are required. Older host compatibility is not promised.
+- Read lazy `before_agent_start.systemPrompt` through `Get()`. Custom model entries need an explicit `api` unless they replace a built-in.
+- Supplied boolean extension flags are always enabled. Replace `--adhd false` with `/adhd off` to save a disabled choice.
+- See the README upgrade section and `docs/pig-051-port.md` for migration and known upstream test limits.
+
 ## [0.1.6] - 2026-10-19
 
 ### Bugfixes

@@ -3,9 +3,9 @@
 ## Status and inputs
 
 Target: pig-plugins 0.2.0 on upstream PiG and extension SDK v0.5.1, tag commit
-`1a987d690b62ee3bfb6e4944bf8a8b6968cec170`. The supported manifest remains
-0.4.1 until release activation. Candidate acceptance now passes the full repository
-suite and fused smoke tests. The known upstream-only oracle limitation is below.
+`1a987d690b62ee3bfb6e4944bf8a8b6968cec170`. The supported manifest is now 0.5.1.
+Candidate acceptance passed the full repository suite and fused smoke tests.
+The known upstream-only oracle limitation is below.
 
 Compare the official tagged source and SDK, not the installed CLI. Upstream moved
 the implementation of `cmd/pig` into `coding/cli`; the executable is now a thin

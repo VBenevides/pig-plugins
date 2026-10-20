@@ -141,6 +141,36 @@ chmod +x "$2"
         self.assertEqual(outputs[0].read_bytes(), outputs[1].read_bytes())
         self.assertFalse(list((self.root / "build").glob("dev-source.*")))
 
+    def test_upgrade_preserves_user_resources_and_accounts(self):
+        agent = Path(self.env["PIG_HOME"]) / "agent"
+        agent.mkdir(parents=True)
+        preserved = {
+            "keybindings.json": '{"custom":["ctrl+x"]}',
+            "settings.json": '{"reduceCommandOutput":true}',
+            "auth.json": '{"fixture":{"selectedAccountId":"kept"}}',
+            "skills/private/SKILL.md": "user skill",
+        }
+        for name, text in preserved.items():
+            path = agent / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        (agent / "SYSTEM.md").write_text("previous user prompt")
+        skill = agent / "skills/example/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("previous user skill")
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name, text in preserved.items():
+            self.assertEqual((agent / name).read_text(), text)
+        backups = list(agent.glob("SYSTEM.md.pig-plugins-backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(), "previous user prompt")
+        skill_backups = list((agent / "skills-backup").glob("*/example/SKILL.md"))
+        self.assertEqual(len(skill_backups), 1)
+        self.assertEqual(skill_backups[0].read_text(), "previous user skill")
+        self.assertEqual((agent / "SYSTEM.md").read_text(), "fixture\n")
+        self.assertEqual(skill.read_text(), "fixture\n")
+
     def test_staging_progress_and_default_limits(self):
         out = self.root / "build/result"
         result = self.run_script("dev_build.sh", out)

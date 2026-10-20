@@ -7,7 +7,7 @@ curl -fsSL https://raw.githubusercontent.com/VBenevides/pig-plugins/main/scripts
 ```
 
 Requires `git`, `go`, and `curl`. If `pig` is not on `PATH`, the script first installs
-the PiG version declared in `COMPATIBILITY.json` (currently `0.4.1`; override with
+the PiG version declared in `COMPATIBILITY.json` (currently `0.5.1`; override with
 `PIG_VERSION`) into `~/.local/bin`.
 The installer also provides `ast-grep`. It preserves any existing version on `PATH`.
 If none exists, it downloads the latest official native release into `~/.pig/bin`.
@@ -20,20 +20,20 @@ Only after that build succeeds does it copy the plugins, prompts and skills into
 
 ## Versions and updates
 
-`VERSION` starts at `0.1.0` and is embedded in the plugin build. At session startup,
+`VERSION` is `0.2.0` and is embedded in the plugin build. At session startup,
 the bundled `check-update` extension shows `PiG - XXX | PiG Plugins - YYY`.
 The fused executable supplies its PiG version; when loaded
 separately, the extension falls back to `pig --version` on `PATH`.
 
 `COMPATIBILITY.json` lists each dependency's repository path and latest supported
-version. Its initial PiG entry is:
+version. Its supported PiG entry is:
 
 ```json
 {
   "dependencies": {
     "pig": {
       "path": "github.com/MichaelKinsy/PiG",
-      "version": "0.4.1"
+      "version": "0.5.1"
     }
   }
 }
@@ -60,13 +60,28 @@ pig-plugins --update
 
 This downloads the official plugin installer completely before executing it.
 The installer refreshes PiG through its official curl installer to the version
-declared in the newly cloned `COMPATIBILITY.json` (currently `0.4.1`), then
+declared in the newly cloned `COMPATIBILITY.json` (currently `0.5.1`), then
 rebuilds the latest plugins. `--update` does not force incompatible upstream
 upgrades. An explicit `PIG_VERSION`
 override remains available at your own compatibility risk.
 The existing native executable survives a failed rebuild. Updates are never
 installed automatically, and the check preference survives reinstalls.
 Both `pig-plugins update` and `pig-plugins --update` use this installer, including in development builds. Explicit extension-update commands keep PiG's package-update behavior.
+
+### Upgrade to 0.2.0
+
+This release targets PiG 0.5.1 and its matching patched SDK. Older host compatibility is not promised.
+Use `pig-plugins update` to rebuild the single executable. A failed build preserves the previous executable.
+Change legacy `pig-plugins-native` or `pig-plugins-raw` shortcuts to `pig-plugins`.
+
+Custom `models.json` entries need an explicit `api` unless they replace a built-in model.
+Go extensions must read lazy `before_agent_start.systemPrompt` through `Get()` and preserve errors.
+Library-only local packages without resource directories need `"pi": {}` to avoid extension discovery.
+PiG treats every supplied boolean extension flag as enabled. Replace `--adhd false` with `/adhd off`.
+
+Existing agent prompts and matching bundled skills are backed up before replacement.
+User keybindings, settings, unrelated skills and account selections remain unchanged.
+See [port evidence and upstream limitations](docs/pig-051-port.md) for tested boundaries and SDK changes.
 
 ## About
 
@@ -134,7 +149,7 @@ from being attributed to another.
 
 ### Native multi-account Codex
 
-The bundled build applies pinned PiG 0.4.1 host and SDK patches under `patches/pig/`.
+The bundled build applies pinned PiG 0.5.1 host and SDK patches under `patches/pig/`.
 It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.

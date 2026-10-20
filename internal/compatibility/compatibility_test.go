@@ -14,7 +14,7 @@ func TestRepositoryManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pig.Path != "github.com/MichaelKinsy/PiG" || pig.Version != "0.4.1" {
+	if pig.Path != "github.com/MichaelKinsy/PiG" || pig.Version != "0.5.1" {
 		t.Fatalf("PiG = %+v", pig)
 	}
 }
