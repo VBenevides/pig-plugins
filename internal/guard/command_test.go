@@ -45,7 +45,10 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{t: t, file: filepath.Join(t.TempDir(), SettingsFileName), lancet: &fakeLancet{}}
 	h.gate = NewGate(Settings{Mode: Interactive}, h.lancet)
-	h.ctl = &Controller{Gate: h.gate, Lancet: h.lancet, Settings: h.file}
+	h.ctl = &Controller{Gate: h.gate, Lancet: h.lancet, Settings: h.file, Modes: &ModeStore{Path: SharedModeFile(filepath.Dir(h.file))}}
+	if _, err := h.ctl.RefreshShared(nil); err != nil {
+		t.Fatal(err)
+	}
 	return h
 }
 
@@ -59,53 +62,68 @@ func (h *harness) run(args string) string {
 	return h.notices[len(h.notices)-1]
 }
 
-func TestNoArgumentTogglesTheModeAndPersistsIt(t *testing.T) {
+func TestModeCommandAndBareStatus(t *testing.T) {
 	h := newHarness(t)
-	if got := h.run(""); got != "smart-approve-lancet: on - auto - lancet off" {
-		t.Errorf("first toggle: %q", got)
+	for _, arg := range []string{"", "status"} {
+		if got := h.run(arg); !strings.Contains(got, "smart-approve-lancet lax - lancet off") {
+			t.Fatal(got)
+		}
 	}
-	if h.gate.Mode() != Strict || LoadSettings(h.file).Mode != Strict {
-		t.Error("strict was not applied and saved")
+	if _, err := os.Stat(h.ctl.Modes.Path); !os.IsNotExist(err) {
+		t.Fatal("status mutated mode")
 	}
-	if got := h.run(""); got != "smart-approve-lancet: on - interactive - lancet off" || h.gate.Mode() != Interactive {
-		t.Errorf("second toggle: %q mode=%s", got, h.gate.Mode())
+	for _, mode := range []string{"off", "strict", "lax"} {
+		if got := h.run("mode " + mode); got != "smart-approve-lancet "+mode+" - lancet off" {
+			t.Fatal(got)
+		}
+		saved, err := h.ctl.Modes.Load()
+		if err != nil || string(saved.Mode) != mode {
+			t.Fatalf("%+v %v", saved, err)
+		}
 	}
-	h.run("AUTO")
-	if h.gate.Mode() != Strict || h.announce != 3 {
-		t.Errorf("explicit mode: mode=%s announces=%d", h.gate.Mode(), h.announce)
+	if h.announce != 3 {
+		t.Fatal(h.announce)
 	}
 }
 
 func TestUnknownOptionChangesNothing(t *testing.T) {
 	h := newHarness(t)
-	got := h.run("bogus")
-	want := `smart-approve-lancet: unknown option "bogus"; ` + CommandHelp
-	if got != want || h.levels[0] != "error" {
-		t.Errorf("got %q (%s)", got, h.levels[0])
+	for _, arg := range []string{"bogus", "on", "off", "auto", "interactive", "strict", "mode", "mode bad", "mode off extra", "status extra"} {
+		got := h.run(arg)
+		if !strings.Contains(got, CommandHelp) || h.levels[len(h.levels)-1] != "error" {
+			t.Fatal(got)
+		}
 	}
-	if _, err := os.Stat(h.file); err == nil || h.gate.Mode() != Interactive || h.announce != 0 {
-		t.Error("an unknown option changed state")
+	if _, err := os.Stat(h.ctl.Modes.Path); !os.IsNotExist(err) || h.announce != 0 {
+		t.Fatal("invalid selector changed state")
 	}
 }
 
 func TestModeIsNotChangedWhenTheFileCannotBeSaved(t *testing.T) {
 	h := newHarness(t)
-	if err := os.WriteFile(h.file, []byte("[1]"), 0o600); err != nil {
+	if err := os.WriteFile(h.file, []byte(`{}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	got := h.run("strict")
-	if !strings.Contains(got, "mode not changed; cannot save "+h.file) || h.gate.Mode() != Interactive || h.announce != 0 {
-		t.Errorf("got %q mode=%s", got, h.gate.Mode())
+	h.ctl.Modes.Path = filepath.Join(h.file, "mode.json")
+	got := h.run("mode off")
+	if !strings.Contains(got, "mode save failed") || h.gate.access != ModeLax || h.announce != 0 {
+		t.Fatal(got)
 	}
 }
 
-func TestStatusMentionsModeAndTheOmittedFeatures(t *testing.T) {
+func TestStatusMentionsModeAndAdvice(t *testing.T) {
 	h := newHarness(t)
 	got := h.run("status")
-	for _, want := range []string{"smart-approve-lancet: on - interactive - lancet off", "LLM risk analysis is not part of this port", "settings: " + h.file} {
+	for _, want := range []string{"lax - lancet off", "advisory only", "shared mode: " + h.ctl.Modes.Path, "profile scoring settings: " + h.file} {
 		if !strings.Contains(got, want) {
-			t.Errorf("status lacks %q:\n%s", want, got)
+			t.Fatalf("status lacks %q: %s", want, got)
 		}
+	}
+	if err := h.ctl.Modes.Save(ModeStrict); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.run("status"); !strings.Contains(got, "strict - lancet off") {
+		t.Fatal(got)
 	}
 }
 
@@ -232,7 +250,7 @@ func TestCompletions(t *testing.T) {
 		}
 		return out
 	}
-	if got := values(""); !slices.Equal(got, []string{"on", "off", "interactive", "auto", "status", "lancet"}) {
+	if got := values(""); !slices.Equal(got, []string{"mode", "status", "lancet"}) {
 		t.Errorf("empty: %v", got)
 	}
 	if got := values("st"); !slices.Equal(got, []string{"status"}) {
@@ -247,11 +265,17 @@ func TestCompletions(t *testing.T) {
 	if got := values("lancet on "); len(got) != 0 {
 		t.Errorf("third word: %v", got)
 	}
+	if got := values("mode "); !slices.Equal(got, []string{"mode off", "mode lax", "mode strict"}) {
+		t.Fatal(got)
+	}
+	if got := values("mode s"); !slices.Equal(got, []string{"mode strict"}) {
+		t.Fatal(got)
+	}
 }
 
 func TestChip(t *testing.T) {
 	h := newHarness(t)
-	if got := h.ctl.Chip(); got != "smart-approve-lancet on - interactive - lancet off" {
+	if got := h.ctl.Chip(); got != "smart-approve-lancet lax - lancet off" {
 		t.Errorf("chip = %q", got)
 	}
 }

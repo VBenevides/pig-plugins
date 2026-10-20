@@ -43,6 +43,9 @@ type ModeState struct {
 type ModeStore struct{ Path string }
 
 func (s ModeStore) Load() (ModeState, error) {
+	if !filepath.IsAbs(s.Path) {
+		return ModeState{}, fmt.Errorf("shared mode path must be absolute")
+	}
 	file, err := os.Open(s.Path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return ModeState{Mode: ModeLax, Revision: "missing"}, nil
@@ -72,6 +75,9 @@ func (s ModeStore) Load() (ModeState, error) {
 // fsync, success means both the content and rename have been synced. An error
 // after rename explicitly reports that the choice may already be visible.
 func (s ModeStore) Save(mode AccessMode) (err error) {
+	if !filepath.IsAbs(s.Path) {
+		return fmt.Errorf("shared mode path must be absolute")
+	}
 	if _, ok := ParseAccessMode(string(mode)); !ok {
 		return fmt.Errorf("invalid guard mode %q", mode)
 	}

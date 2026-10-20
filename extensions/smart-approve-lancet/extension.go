@@ -1,13 +1,7 @@
-// Package smartapprovelancet is the PiG extension "smart-approve-lancet": the safety layer that gates bash, write
-// and edit through tool_call. It registers no tool. The policy lives in internal/guard.
-//
-//   - hard-blocked bash behaviors (rm -rf /, fork bomb, curl|sh, ...) are always blocked;
-//   - with LANCET on (/smart-approve-lancet lancet on), every other bash command is scored by the local model: risky
-//     is blocked, review needs confirmation, not_flagged continues, and an unavailable model blocks;
-//   - other dangerous bash behaviors and protected write/edit paths need confirmation, and are blocked when no UI
-//     exists or the mode is auto. Turning the guard off bypasses all these checks.
-//
-// Unknown-scope confirmation dialogs use the current session LLM for advisory risk and target descriptions.
+// Package smartapprovelancet gates mutations and reviewed local reads before
+// tool execution. A shared per-user access mode selects off, lax or strict;
+// profile-local LANCET scoring is independent. Unknown-scope model advice is
+// display-only and can never approve a call.
 package smartapprovelancet
 
 import (
@@ -31,20 +25,36 @@ func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	getenv := os.Getenv
 	settingsFile := guard.SettingsFile(getenv)
-	settings := guard.LoadSettings(settingsFile)
+	settings := guard.Settings{Mode: guard.Interactive}
 	service := guard.NewLocal(agentdir.Dir(getenv), getenv, lancet.InstallOptions{})
 	gate := guard.NewGate(settings, service)
 	gate.UseAllowlist(guard.NewAllowlist(guard.AllowlistFile(getenv)))
-	controller := &guard.Controller{Gate: gate, Lancet: service, Settings: settingsFile}
+	home, homeErr := os.UserHomeDir()
+	modePath := ""
+	if homeErr == nil {
+		modePath = guard.SharedModeFile(home)
+	}
+	controller := &guard.Controller{Gate: gate, Lancet: service, Settings: settingsFile, Modes: &guard.ModeStore{Path: modePath}}
 
 	announce := func(ctx sdk.Context) { footerstatus.Set(ctx, Name, controller.Chip()) }
 
 	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
-		if settings.Problem != "" {
-			fmt.Fprintf(os.Stderr, "%s%s\n", guard.Prefix, settings.Problem)
-			ctx.Notify(guard.Prefix+settings.Problem, "warning")
+		note, err := controller.RefreshShared(nil)
+		if err != nil {
+			note = "Cannot load guard mode: " + err.Error()
+		}
+		if note != "" {
+			fmt.Fprintf(os.Stderr, "%s%s\n", guard.Prefix, note)
+			ctx.Notify(guard.Prefix+note, "warning")
 		}
 		announce(ctx)
+		return nil, nil
+	})
+	e.OnEvent(sdk.EventBeforeAgentStart, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		if _, err := controller.RefreshShared(func() { announce(ctx) }); err != nil {
+			announce(ctx)
+			ctx.Notify(guard.Prefix+"Guard settings unavailable: "+err.Error(), "warning")
+		}
 		return nil, nil
 	})
 	e.OnSessionShutdown(func(_ sdk.Context, _ map[string]any) (any, error) {
@@ -55,7 +65,7 @@ func Extension() *sdk.Extension {
 	})
 
 	e.RegisterCommand(guard.CommandName, sdk.CommandOptions{
-		Description: "Turn the guard on/off, set its approval mode (interactive|auto), and manage local LANCET scoring (lancet ...)",
+		Description: "Set shared guard mode (mode off|lax|strict), inspect status and manage local LANCET scoring (lancet ...)",
 		GetArgumentCompletions: func(prefix string) ([]sdk.AutocompleteItem, error) {
 			var items []sdk.AutocompleteItem
 			for _, c := range guard.Completions(prefix) {

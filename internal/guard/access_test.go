@@ -165,7 +165,17 @@ func TestSharedAdmissionReloadAndRevalidation(t *testing.T) {
 	gate.scorer = scoringFunc(func(context.Context, string) (lancet.Result, error) {
 		return verdict(lancet.NotFlagged, 0.1, ""), store.Save(ModeLax)
 	})
-	if got := ctl.Check(context.Background(), Call{Tool: "bash", Input: bash("echo fixture")}, nil); !got.Block || !strings.Contains(got.Reason, "changed during admission") {
+	if got := ctl.Check(context.Background(), Call{Tool: "bash", Input: bash("echo fixture"), HasUI: true, Confirm: func(string, string) (bool, error) { return true, nil }}, nil); !got.Block || !strings.Contains(got.Reason, "changed during admission") {
 		t.Fatal(got)
+	}
+}
+
+func TestStrictUnprovenShellCannotEvadeReadChecks(t *testing.T) {
+	gate := NewGate(Settings{}, nil)
+	for _, command := range []string{"cat $HOME/.env", "python -c 'print(open(\".env\").read())'", "cat ~/.ssh/*", "env cat .env"} {
+		got := gate.CheckAccess(context.Background(), Call{Tool: "bash", Input: bash(command)}, ModeStrict)
+		if !got.Block || !strings.Contains(got.Reason, "no UI") {
+			t.Fatalf("%s: %+v", command, got)
+		}
 	}
 }

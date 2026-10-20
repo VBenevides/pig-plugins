@@ -253,9 +253,15 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 	if readOnlyCommand(command) && g.access != ModeStrict {
 		return allow, nil
 	}
-	if g.access == ModeStrict && readOnlyCommand(command) {
-		if risk := g.shellReadRisk(command, call.Cwd); risk != "" {
-			labels = append(append([]string(nil), labels...), "Read risk: "+risk)
+	scopeRisk := ""
+	if g.access == ModeStrict {
+		if readOnlyCommand(command) {
+			scopeRisk = g.shellReadRisk(command, call.Cwd)
+		} else if len(labels) == 0 {
+			scopeRisk = "shell scope cannot be verified; it may read sensitive data or change state"
+		}
+		if scopeRisk != "" {
+			labels = append(append([]string(nil), labels...), "Unknown or protected shell scope: "+scopeRisk)
 		}
 	}
 	if g.LancetOn() {
@@ -298,6 +304,9 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 		return block("blocked dangerous command (%s); %s.", joined, why), nil
 	}
 	risk := describeRisk(analysis.Behaviors, analysis.Labels, lancetNote)
+	if scopeRisk != "" {
+		risk += "\n- " + scopeRisk
+	}
 	body := func() string {
 		affected := describeAffected(command, analysis, items)
 		if len(commandAffectedItems(command, analysis, items)) == 0 && call.ExplainUnknown != nil {

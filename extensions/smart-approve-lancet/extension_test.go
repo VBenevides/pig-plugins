@@ -15,7 +15,7 @@ import (
 
 const (
 	confirmable = "kill -9 99999999 2>&1" // dangerous, not hard-blocked
-	chipOff     = "smart-approve-lancet on - interactive - lancet off"
+	chipOff     = "smart-approve-lancet lax - lancet off"
 )
 
 func extensionPath(t *testing.T) string {
@@ -46,6 +46,13 @@ func mustWrite(t *testing.T, file, content string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setSharedMode(t *testing.T, home *pigtest.Home, mode guard.AccessMode) {
+	t.Helper()
+	if err := (guard.ModeStore{Path: guard.SharedModeFile(home.Dir)}).Save(mode); err != nil {
 		t.Fatal(err)
 	}
 }

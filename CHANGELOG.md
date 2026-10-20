@@ -2,6 +2,18 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.1] - 2026-10-19
+
+### Features
+
+- Add shared Smart Approve modes: `off`, `lax` (the new-install default) and risk-based `strict`. Strict checks protected and unknown local read scopes as well as mutations; lax exempts verified reads.
+- Persist the mode outside agent profiles, reload it across instances, and reject admissions when the mode changes during approval or scoring. LANCET settings remain profile-local.
+
+### Breaking Changes
+
+- Replace standalone Smart Approve on/off and interactive/auto selectors with `/smart-approve-lancet mode {off,lax,strict}`. The bare command now shows status. Legacy-only profiles use conservative strict checks until an explicit shared choice; old per-profile disabling is not promoted globally.
+- Strict now means risk-based read/write checking, not the former automatic rejection of every flagged call. See the Smart Approve migration section in `README.md`.
+
 ## [0.2.0] - 2026-10-19
 
 ### Features

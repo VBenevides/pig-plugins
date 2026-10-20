@@ -13,11 +13,15 @@ import (
 func Extension() *sdk.Extension {
 	e := sdk.New("settings-writer")
 	e.RegisterCommand("persist-guard-mode", sdk.CommandOptions{Handler: func(ctx sdk.Context, args string) error {
-		mode, ok := guard.ParseMode(args)
+		mode, ok := guard.ParseAccessMode(args)
 		if !ok {
 			return fmt.Errorf("invalid test mode %q", args)
 		}
-		if err := guard.SaveSettings(guard.SettingsFile(os.Getenv), guard.Change{Mode: &mode}); err != nil {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		if err := (guard.ModeStore{Path: guard.SharedModeFile(home)}).Save(mode); err != nil {
 			return err
 		}
 		ctx.Notify("test writer saved "+string(mode), "info")
