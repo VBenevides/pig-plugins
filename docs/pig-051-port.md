@@ -4,8 +4,8 @@
 
 Target: pig-plugins 0.2.0 on upstream PiG and extension SDK v0.5.1, tag commit
 `1a987d690b62ee3bfb6e4944bf8a8b6968cec170`. The supported manifest remains
-0.4.1 until the candidate passes acceptance. This inventory is not a claim of
-build or runtime compatibility.
+0.4.1 until release activation. Candidate acceptance now passes the full repository
+suite and fused smoke tests. The known upstream-only oracle limitation is below.
 
 Compare the official tagged source and SDK, not the installed CLI. Upstream moved
 the implementation of `cmd/pig` into `coding/cli`; the executable is now a thin
@@ -98,5 +98,27 @@ at the target before modifying callers:
    clean install plus previous-layout migration. Compact patches last and compare
    pre/post patched source trees byte-for-byte before rerunning acceptance.
 
-Baseline for this work: 16 build/install fixture tests and Go tests for distribution,
-hashline, askmode and guard passed. No 0.5.1 runtime tests have yet passed.
+Candidate verification passed with matching patched 0.5.1 host and SDK:
+
+- Full `go test ./... -count=1`, `make fmt-check vet` and `go build ./...`.
+- Twenty installer/build fixtures and five fused updater tests, including combined routes and failed-installer cleanup.
+- Fused diagnostics, fifty repeated Cursor replay cases, compaction/restart, goal resume and same-session raw-output recovery.
+- Fused readmap/security, steering/queue, literal slash and questionnaire ownership tests.
+- All four image/TUI protocol variants, selection undo and bounded image payload retention. Focused safety and image race suites passed.
+
+### Upstream test limitations
+
+`TestRPCModelObjectsCarryTheRegistryModelType` fails on eight Radius catalog entries
+whose Go objects include `promptCache` fields absent from the pinned JavaScript oracle.
+The same eight mismatches occur in a pristine 0.5.1 source copy with identical Node dependencies.
+This is not a distribution-patch regression. The test remains unchanged.
+
+Broader upstream Node image tests need vendored chalk files omitted from the Go module archive.
+Native image and fused terminal fixtures pass. No live external account or update test was run.
+
+### Boolean launch flags
+
+PiG 0.5.1 treats supplied boolean extension flags as enabled, regardless of their value.
+`--adhd false` therefore no longer disables ADHD output. Remove the flag and use `/adhd off`.
+That command saves the disabled choice and the default for new sessions.
+See [ADHD migration details](adhd-plugin.md).
