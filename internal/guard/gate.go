@@ -57,7 +57,9 @@ func block(format string, args ...any) Decision {
 }
 
 // Gated reports whether the gate judges calls of this tool.
-func Gated(tool string) bool { return tool == "bash" || tool == "write" || tool == "edit" }
+func Gated(tool string) bool {
+	return tool == "bash" || tool == "write" || tool == "edit" || readTools[tool]
+}
 
 // Gate is the safety policy for bash, write and edit. It is safe for concurrent use.
 type Gate struct {
@@ -68,6 +70,7 @@ type Gate struct {
 	mode     Mode
 	lancetOn bool
 	disabled bool
+	access   AccessMode // nonempty only for the new shared access policy
 	// allowlist keeps the "Always allow" answers; nil turns that choice off.
 	allowlist *Allowlist
 }
@@ -149,6 +152,9 @@ func (g *Gate) Check(ctx context.Context, call Call) (decision Decision) {
 	if !Gated(call.Tool) || !g.Enabled() {
 		return allow
 	}
+	if readTools[call.Tool] && g.access != ModeStrict {
+		return allow
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			decision = block("blocked %s; policy evaluation failed: %v.", call.Tool, r)
@@ -157,6 +163,8 @@ func (g *Gate) Check(ctx context.Context, call Call) (decision Decision) {
 	var err error
 	if call.Tool == "bash" {
 		decision, err = g.checkBash(ctx, call)
+	} else if readTools[call.Tool] {
+		decision, err = g.checkRead(call)
 	} else {
 		decision, err = g.checkWrite(call)
 	}
@@ -183,10 +191,11 @@ func confirm(call Call, title, body string) bool {
 	return err == nil && approved
 }
 
-// Answers offered by the select dialog. Deny comes first so that a reflex Enter never grants anything.
+// Answers are ordered as requested. With the host's default selection, Enter
+// now allows once; cancellation and invalid responses still deny.
 const (
 	choiceDeny   = "Deny"
-	choiceOnce   = "Allow once"
+	choiceOnce   = "Allow"
 	choiceAlways = "Always allow this command and item"
 )
 
@@ -208,7 +217,7 @@ func (g *Gate) ask(call Call, title string, body func() string, grant Grant) boo
 	if call.Select == nil {
 		return confirm(call, title, text)
 	}
-	options := []string{choiceDeny, choiceOnce}
+	options := []string{choiceOnce, choiceDeny}
 	if list != nil {
 		options = append(options, choiceAlways)
 	}
@@ -220,6 +229,9 @@ func (g *Gate) ask(call Call, title string, body func() string, grant Grant) boo
 	case choiceOnce:
 		return true
 	case choiceAlways:
+		if list == nil {
+			return false
+		}
 		if err := list.Add(grant); err != nil {
 			fmt.Fprintf(os.Stderr, "%scannot save the allow list entry: %v\n", Prefix, err)
 		}
@@ -242,8 +254,19 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 	if analysis.HardBlocked {
 		return block("blocked hard-blocked command (%s). This operation is never allowed.", strings.Join(labels, ", ")), nil
 	}
-	if readOnlyCommand(command) {
+	if readOnlyCommand(command) && g.access != ModeStrict {
 		return allow, nil
+	}
+	scopeRisk := ""
+	if g.access == ModeStrict {
+		if readOnlyCommand(command) {
+			scopeRisk = g.shellReadRisk(command, call.Cwd)
+		} else if len(labels) == 0 {
+			scopeRisk = "shell scope cannot be verified; it may read sensitive data or change state"
+		}
+		if scopeRisk != "" {
+			labels = append(append([]string(nil), labels...), "Unknown or protected shell scope: "+scopeRisk)
+		}
 	}
 	if g.LancetOn() {
 		if g.scorer == nil {
@@ -285,6 +308,9 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 		return block("blocked dangerous command (%s); %s.", joined, why), nil
 	}
 	risk := describeRisk(analysis.Behaviors, analysis.Labels, lancetNote)
+	if scopeRisk != "" {
+		risk += "\n- " + scopeRisk
+	}
 	body := func() string {
 		affected := describeAffected(command, analysis, items)
 		if len(commandAffectedItems(command, analysis, items)) == 0 && call.ExplainUnknown != nil {

@@ -538,25 +538,23 @@ they are absent; set `LANCET_MODEL_DIR` and `LANCET_ORT_LIBRARY` to point at the
 
 ## smart-approve-lancet
 
-The safety layer: it registers no tool and gates `bash`, `write` and `edit` through `tool_call`. It is on by default.
-Use `/smart-approve-lancet off` to bypass all guard checks, or `/smart-approve-lancet on` to restore them.
-The footer shows `smart-approve-lancet on - auto/interactive - lancet on/off` while enabled, and only
-`smart-approve-lancet off` while disabled. Both switches and the mode persist across sessions.
-While enabled, hard-blocked bash behaviors (`rm -rf /`, `curl | sh`, fork bombs, ...) are always blocked.
-Other dangerous behaviors and protected paths (`~/.ssh`, `.env`, ... with `.env.example` allowed; symlinks are
-resolved, dangling ones included) ask for confirmation in `interactive` mode and are blocked in `auto` mode
-or when no UI exists. `auto` is the renamed `strict` mode with unchanged behavior; legacy settings still load.
-With `/smart-approve-lancet lancet on`, commands outside the verified read-only subset are scored locally first:
-`risky` is blocked, `review` asks, `not_flagged` continues, and an unavailable model blocks.
-A damaged settings file (`smart-approve-lancet.json` in the agent directory) fails closed and is reported.
-Commands: `/smart-approve-lancet [on|off|interactive|auto|status]` (no argument toggles the mode) and
-`/smart-approve-lancet lancet [status|setup|on|off|check <command>]`.
+The safety layer registers no tool. `/smart-approve-lancet mode {off,lax,strict}` selects its access scope:
 
-Verified read-only commands (`readlink`, `strings`, `rg`, `grep`, `head`, `tail`, `cat`, `ls`, `pwd`, `wc`, `stat`)
-bypass LANCET scoring and approval, including pipelines and lists made entirely from these commands.
-Redirects, substitutions, executable hooks, wrappers, and mixed read/write commands retain the existing policy.
-`rg` with `RIPGREP_CONFIG_PATH` set also retains scoring because its config can supply executable hooks.
-Hard-block rules still take precedence.
+- `off`: bypass this guard, but not ASK mode, hashline authority or other host protections.
+- `lax` (new-install default): always allow verified read-only operations through this guard; check mutations.
+- `strict`: check read and mutation risks. Ordinary unflagged reads run without a dialog; protected files and unknown read scopes require approval.
+
+Both checked modes retain hard shell blocks (`rm -rf /`, `curl | sh`, fork bombs, ...). Other flagged operations ask for approval, or block when no UI is available. Strict is not the old `auto`/legacy `strict` mode that blocked every flagged call without asking.
+
+The shared choice is private and stored at `~/.pig/smart-approve-lancet/mode.json`, based on the user home rather than `PIG_HOME`, `PIG_CODING_AGENT_DIR` or `PI_CODING_AGENT_DIR`. All instances using that user home share it, even with different agent profiles. Each admission and status request reloads it; footers refresh on the next agent run or policy check. A change during approval/scoring rejects the old admission and asks the agent to retry. Writes use atomic replacement and file/directory sync; filesystem durability support still applies.
+
+**Migration:** standalone `on`, `off`, `interactive`, `auto`, `strict` and bare-command toggling are removed. Use `mode off`, `mode lax` or `mode strict`; no arguments now show status. Old profile mode/enabled fields are not silently promoted to a user-wide choice: until you explicitly choose, a legacy-only profile uses strict and reports migration guidance. A saved shared mode takes precedence. Unrelated profile settings are preserved.
+
+The footer shows `smart-approve-lancet <mode> - lancet on/off`; unavailable settings are reported and gated calls fail closed. `/smart-approve-lancet status` shows the shared and profile setting paths. LANCET stays independently configurable per profile through `/smart-approve-lancet lancet [status|setup|on|off|check <command>]`; it is off by default.
+
+With LANCET enabled, checked shell commands are scored locally: `risky` blocks, `review` requires approval, `not_flagged` continues through static policy, and unavailable scoring blocks. Lax exempts the verified read-only shell subset (`readlink`, `strings`, `rg`, `grep`, `head`, `tail`, `cat`, `ls`, `pwd`, `wc`, `stat`), including verified read-only pipelines/lists. Strict evaluates these reads too. Redirects, substitutions, executable hooks, wrappers and mixed commands do not gain the lax read exemption; `rg` with `RIPGREP_CONFIG_PATH` retains scoring.
+
+Strict also checks exact reviewed local read tools: `read`, `grep`, `find`, `ls`, `ast_search`, `code_overview`, `code_search`, and the bundled `lsp_*` tools. It does not trust arbitrary tool-name prefixes. Directory content searches and workspace-wide LSP requests have unknown scope and need consent rather than scanning arbitrary trees during admission. Read grants include exact tool arguments and the resolved scope; write grants cannot authorize reads. This is not an OS sandbox or a guarantee about arbitrary programs.
 
 The confirmation shows the `Command:` first, then the `Risk Description:`, then `Affected items:` with one `- type: name - effect` entry per known target, so a long analysis scrolls below the command. Long dialogs scroll with the page keys when the host carries `patches/pig/0003-editor-images-host.patch`; a stock host shows them unscrolled. Simple commands
 name deleted files/folders and explicit Git branches/tags; protected writes name the file and the write/edit effect.
@@ -564,14 +562,14 @@ Implicit targets, shell expressions, compound commands and unsupported options s
 guessing. For an unknown-scope confirmation, the current session model receives only the command and working
 folder to explain risks and possible affected items (an additional provider request that can incur API costs).
 Its assessment is labeled advisory, never executes tools, and keeps the static unknown-scope warning. Failure or
-invalid output shows an unavailable notice and still requires approval. Known targets, stored grants, strict/no-UI
+invalid output shows an unavailable notice and still requires approval. Known targets, stored grants, no-UI
 blocks and hard blocks do not request an assessment. Requests cap output at 1024 tokens, disable retries and set
 a 15 s provider timeout (provider timeout semantics apply). This display does not change approval rules or saved
-grant keys. The dialog answers `Deny`, `Allow once`
-or `Always allow this command and item`. The last stores the exact command (or the tool, for `write` and `edit`)
+grant keys. The dialog answers `Allow`, `Deny`, `Always allow this command and item`, in that order.
+`Allow` approves only this call and saves no grant. The host initially selects the first option, so pressing Enter now allows once rather than denies. Escape, q, Ctrl+C, invalid responses and dialog failures deny. The last choice stores the exact command (or the tool, for `write` and `edit`)
 together with its policy item (delete paths or the working folder for bash; the file path for write/edit) in
 `smart-approve-lancet-allow.json` in the agent directory (mode 0600); only that pair is skipped later, and the other
-sessions see it at once. `strict` mode, hard blocks and LANCET `risky` verdicts still block. A damaged allow list
+sessions see it at once. Hard blocks and LANCET `risky` verdicts still block. A damaged allow list
 grants nothing and is reported on stderr. A recursive force delete whose every target is known and strictly inside
 `<cwd>/.agent-work` or any `tmp` folder below the working folder (symlinks followed) runs without asking, in every
 mode; so does a protected-path write inside those folders.

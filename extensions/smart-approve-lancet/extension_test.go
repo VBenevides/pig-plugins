@@ -15,7 +15,7 @@ import (
 
 const (
 	confirmable = "kill -9 99999999 2>&1" // dangerous, not hard-blocked
-	chipOff     = "smart-approve-lancet on - interactive - lancet off"
+	chipOff     = "smart-approve-lancet lax - lancet off"
 )
 
 func extensionPath(t *testing.T) string {
@@ -46,6 +46,13 @@ func mustWrite(t *testing.T, file, content string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setSharedMode(t *testing.T, home *pigtest.Home, mode guard.AccessMode) {
+	t.Helper()
+	if err := (guard.ModeStore{Path: guard.SharedModeFile(home.Dir)}).Save(mode); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -144,7 +151,7 @@ func TestRPCConfirmationFlow(t *testing.T) {
 	)
 	defer mock.Close()
 
-	answers := []string{"Deny", "Allow once", "Deny"}
+	answers := []string{"Deny", "Allow", "Deny"}
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{
 		Extensions: []string{extensionPath(t)},
 		Prompts:    []string{"a", "b", "c", "d"},
@@ -164,7 +171,7 @@ func TestRPCConfirmationFlow(t *testing.T) {
 		if got, _ := result.Asked[i]["title"].(string); !strings.HasPrefix(got, want+"\n") || !strings.Contains(got, "Affected items:\n"+items[i]) {
 			t.Errorf("dialog %d title = %q, want it to start with %q and show %q", i, got, want, items[i])
 		}
-		if options := fmt.Sprint(result.Asked[i]["options"]); options != "[Deny Allow once Always allow this command and item]" {
+		if options := fmt.Sprint(result.Asked[i]["options"]); options != "[Allow Deny Always allow this command and item]" {
 			t.Errorf("dialog %d options = %s", i, options)
 		}
 	}

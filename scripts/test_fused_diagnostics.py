@@ -185,7 +185,7 @@ def check(binary, work):
         # deliberately rejected during that window. This badge is published
         # by session_start after the normal submit handler is installed.
         pump_until(
-            lambda: b"fake-claude" in transcript and b"smart-approve-lancet on" in transcript,
+            lambda: b"fake-claude" in transcript and b"smart-approve-lancet lax" in transcript,
             "session/editor startup",
         )
         os.write(master, b"initial request")

@@ -13,7 +13,7 @@ const CommandName = "smart-approve-lancet"
 
 // Help texts of the command.
 const (
-	CommandHelp = "usage: /smart-approve-lancet [on|off|interactive|auto|status] | lancet [status|setup|on|off|check <command>] (no argument toggles the mode)"
+	CommandHelp = "usage: /smart-approve-lancet mode {off,lax,strict} | status | lancet [status|setup|on|off|check <command>] (no argument shows status)"
 	LancetHelp  = "usage: /smart-approve-lancet lancet status | setup | on | off | check <command>"
 )
 
@@ -24,11 +24,19 @@ type Notify func(message, level string)
 type Controller struct {
 	Gate     *Gate
 	Lancet   Lancet
-	Settings string // path of the settings file
+	Settings string     // path of the settings file
+	Modes    *ModeStore // nil only for legacy-policy callers and migration tests
 }
 
 // Chip is the footer text of the current state.
 func (c *Controller) Chip() string {
+	if c.Modes != nil {
+		state, scoring, _, err := c.sharedSnapshot()
+		if err != nil {
+			return CommandName + " unavailable"
+		}
+		return fmt.Sprintf("%s %s - lancet %s", CommandName, state.Mode, onOff(scoring))
+	}
 	if !c.Gate.Enabled() {
 		return CommandName + " off"
 	}
@@ -51,6 +59,9 @@ func (c *Controller) Check(ctx context.Context, call Call, announce func()) Deci
 	if !Gated(call.Tool) {
 		return allow
 	}
+	if c.Modes != nil {
+		return c.checkShared(ctx, call, announce)
+	}
 	settings := LoadSettings(c.Settings)
 	if settings.Problem != "" {
 		return block("blocked %s; cannot load current settings: %s.", call.Tool, settings.Problem)
@@ -63,54 +74,61 @@ func (c *Controller) Check(ctx context.Context, call Call, announce func()) Deci
 
 // Handle runs one command line. announce is called after the mode or LANCET state changed.
 func (c *Controller) Handle(ctx context.Context, args string, notify Notify, announce func()) {
-	trimmed := strings.TrimSpace(args)
-	word := strings.ToLower(trimmed)
-	switch {
-	case word == "lancet" || strings.HasPrefix(word, "lancet "):
-		c.lancetCommand(ctx, trimmed[len("lancet"):], notify, announce)
-		return
-	case word == "on" || word == "off":
-		enabled := word == "on"
-		if err := SaveSettings(c.Settings, Change{Enabled: new(enabled)}); err != nil {
-			notify(fmt.Sprintf("%sstate not changed; cannot save %s: %v", Prefix, c.Settings, err), "error")
+	words := strings.Fields(args)
+	if len(words) == 0 || (len(words) == 1 && strings.EqualFold(words[0], "status")) {
+		if c.Modes == nil {
+			notify("Shared guard mode storage unavailable", "error")
 			return
 		}
-		c.Gate.SetEnabled(enabled)
-		announce()
-		notify(c.Chip(), "info")
-		return
-	case word == "status":
-		notify(c.status(), "info")
+		note, err := c.RefreshShared(announce)
+		if err != nil {
+			notify(Prefix+err.Error(), "error")
+			return
+		}
+		text := c.status()
+		if note != "" {
+			text += "\n" + note
+		}
+		notify(text, "info")
 		return
 	}
-	next := word
-	if word == "" {
-		next = string(Interactive)
-		if c.Gate.Mode() == Interactive {
-			next = string(Strict)
+	switch strings.ToLower(words[0]) {
+	case "lancet":
+		c.lancetCommand(ctx, strings.TrimSpace(strings.TrimSpace(args)[len(words[0]):]), notify, announce)
+		return
+	case "mode":
+		if len(words) == 2 {
+			mode, ok := ParseAccessMode(strings.ToLower(words[1]))
+			if ok && c.Modes != nil {
+				if err := ctx.Err(); err != nil {
+					notify(Prefix+err.Error(), "error")
+					return
+				}
+				if err := c.Modes.Save(mode); err != nil {
+					notify(fmt.Sprintf("%smode save failed at %s: %v; check status before retrying", Prefix, c.Modes.Path, err), "error")
+					return
+				}
+				if _, err := c.RefreshShared(announce); err != nil {
+					notify(Prefix+"mode saved, but effective settings unavailable: "+err.Error(), "error")
+					return
+				}
+				notify(c.Chip(), "info")
+				return
+			}
 		}
 	}
-	mode, ok := ParseMode(next)
-	if !ok {
-		notify(fmt.Sprintf(`%sunknown option "%s"; %s`, Prefix, word, CommandHelp), "error")
-		return
-	}
-	if err := SaveSettings(c.Settings, Change{Mode: new(mode)}); err != nil {
-		notify(fmt.Sprintf("%smode not changed; cannot save %s: %v", Prefix, c.Settings, err), "error")
-		return
-	}
-	c.Gate.SetMode(mode)
-	announce()
-	notify(fmt.Sprintf("%s: %s", CommandName, strings.TrimPrefix(c.Chip(), CommandName+" ")), "info")
+	notify(fmt.Sprintf(`%sunknown option %q; %s`, Prefix, strings.TrimSpace(args), CommandHelp), "error")
 }
 
 func (c *Controller) status() string {
 	return strings.Join([]string{
-		fmt.Sprintf("%s: %s", CommandName, strings.TrimPrefix(c.Chip(), CommandName+" ")),
-		"interactive asks before dangerous commands and protected paths; auto blocks them without asking",
-		"while enabled, hard-blocked commands are blocked in both modes; see /smart-approve-lancet lancet status for the local model",
-		"off bypasses all guard checks; LLM risk analysis is not part of this port",
-		"settings: " + c.Settings,
+		c.Chip(),
+		"lax checks mutations and allows verified reads; strict checks read and mutation risks",
+		"off bypasses only this guard; ASK and edit authority remain independent",
+		"hard blocks and unavailable mandatory LANCET scoring cannot be approved; no-UI risks block",
+		"unknown-scope LLM explanations are advisory only",
+		"shared mode: " + c.Modes.Path,
+		"profile scoring settings: " + c.Settings,
 	}, "\n")
 }
 
@@ -141,7 +159,7 @@ func (c *Controller) lancetStatus() string {
 	return strings.Join(append(lines,
 		"policy (bash only, after hard blocks):",
 		"  NOT_FLAGGED -> continues to the dangerous-command check",
-		"  REVIEW      -> asks you (blocked in auto mode or without a UI)",
+		"  REVIEW      -> asks you (blocked without a UI)",
 		"  RISKY       -> blocked",
 		"  unavailable -> blocked while LANCET is on",
 	), "\n")
@@ -223,7 +241,7 @@ func (c *Controller) enable(ctx context.Context, notify Notify, announce func())
 	}
 	c.Gate.SetLancet(true)
 	announce()
-	notify("LANCET: on. Commands outside the read-only subset are scored locally; if LANCET becomes unavailable, those commands are blocked.", "info")
+	notify("LANCET: on. Checked bash commands are scored locally (lax exempts verified reads); if scoring becomes unavailable, those commands are blocked.", "info")
 }
 
 func (c *Controller) disable(notify Notify, announce func()) {
@@ -254,9 +272,11 @@ func Completions(prefix string) []Completion {
 	var options []string
 	switch {
 	case len(words) <= 1:
-		options = []string{"on", "off", string(Interactive), string(Strict), "status", "lancet"}
+		options = []string{"mode", "status", "lancet"}
 	case words[0] == "lancet" && len(words) == 2:
 		options = []string{"status", "setup", "on", "off", "check"}
+	case words[0] == "mode" && len(words) == 2:
+		options = []string{"off", "lax", "strict"}
 	}
 	var out []Completion
 	for _, name := range options {

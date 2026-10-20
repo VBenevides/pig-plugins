@@ -45,7 +45,7 @@ def submit(text):
     wait(text)
     os.write(master, b"\r")
 try:
-    wait("smart-approve-lancet on")
+    wait("smart-approve-lancet lax")
     submit("/this-is-literal")
     wait("literal accepted")
     for key, answer in ((b"q", "first cancelled"), (b"\x1b", "second cancelled")):

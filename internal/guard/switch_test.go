@@ -6,46 +6,43 @@ import (
 	"testing"
 )
 
-func TestGuardSwitchPersistsAndRestoresPolicy(t *testing.T) {
+func TestGuardModePersistsAndRestoresPolicy(t *testing.T) {
 	h := newHarness(t)
-	h.run("auto")
 	h.lancet.model = ModelInfo{Verified: true}
 	h.run("lancet on")
 	h.lancet.calls = nil
-	h.run("off")
-	if h.ctl.Chip() != "smart-approve-lancet off" || !LoadSettings(h.file).Disabled {
-		t.Fatalf("off state: chip=%q settings=%+v", h.ctl.Chip(), LoadSettings(h.file))
-	}
-	restarted := &Controller{Gate: NewGate(LoadSettings(h.file), h.lancet), Settings: h.file}
+	h.run("mode off")
+	restarted := &Controller{Gate: NewGate(Settings{}, h.lancet), Settings: h.file, Modes: h.ctl.Modes}
 	for _, call := range []Call{
 		{Tool: "bash", Input: bash("rm -rf /")},
 		{Tool: "bash", Input: bash("echo model check")},
 		{Tool: "write", Input: map[string]any{"path": ".env"}},
-		{Tool: "edit", Input: map[string]any{"path": ".env"}},
+		{Tool: "read", Input: map[string]any{"path": ".env"}},
 	} {
 		if got := restarted.Check(context.Background(), call, nil); got.Block {
-			t.Fatalf("off blocked %s: %+v", call.Tool, got)
+			t.Fatal(got)
 		}
 	}
 	if len(h.lancet.calls) != 0 {
-		t.Fatalf("off scored: %v", h.lancet.calls)
+		t.Fatal(h.lancet.calls)
 	}
-	h.run("on")
-	if h.ctl.Chip() != "smart-approve-lancet on - auto - lancet on" || LoadSettings(h.file).Disabled {
-		t.Fatalf("on did not preserve mode/scoring: %q", h.ctl.Chip())
+	h.run("mode strict")
+	if !LoadSettings(h.file).Lancet {
+		t.Fatal("mode change disabled profile scoring")
 	}
 	if got := restarted.Check(context.Background(), Call{Tool: "bash", Input: bash("rm -rf /")}, nil); !got.Block {
-		t.Fatal("persisted on did not restore hard blocks")
+		t.Fatal("hard block not restored")
 	}
 }
 
-func TestGuardSwitchSaveFailureKeepsPolicyEnabled(t *testing.T) {
+func TestGuardModeSaveFailureKeepsPolicy(t *testing.T) {
 	h := newHarness(t)
-	if err := os.WriteFile(h.file, []byte("[1]"), 0600); err != nil {
+	if err := os.WriteFile(h.file, []byte(`{}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	h.run("off")
-	if !h.gate.Enabled() || h.announce != 0 || h.levels[0] != "error" {
-		t.Fatalf("failed save changed guard: enabled=%v announcements=%d notices=%v", h.gate.Enabled(), h.announce, h.notices)
+	h.ctl.Modes.Path = h.file + "/impossible"
+	h.run("mode off")
+	if h.gate.access != ModeLax || h.announce != 0 || h.levels[0] != "error" {
+		t.Fatal(h.notices)
 	}
 }
