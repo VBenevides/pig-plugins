@@ -57,7 +57,9 @@ func block(format string, args ...any) Decision {
 }
 
 // Gated reports whether the gate judges calls of this tool.
-func Gated(tool string) bool { return tool == "bash" || tool == "write" || tool == "edit" }
+func Gated(tool string) bool {
+	return tool == "bash" || tool == "write" || tool == "edit" || readTools[tool]
+}
 
 // Gate is the safety policy for bash, write and edit. It is safe for concurrent use.
 type Gate struct {
@@ -68,6 +70,7 @@ type Gate struct {
 	mode     Mode
 	lancetOn bool
 	disabled bool
+	access   AccessMode // nonempty only for the new shared access policy
 	// allowlist keeps the "Always allow" answers; nil turns that choice off.
 	allowlist *Allowlist
 }
@@ -149,6 +152,9 @@ func (g *Gate) Check(ctx context.Context, call Call) (decision Decision) {
 	if !Gated(call.Tool) || !g.Enabled() {
 		return allow
 	}
+	if readTools[call.Tool] && g.access != ModeStrict {
+		return allow
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			decision = block("blocked %s; policy evaluation failed: %v.", call.Tool, r)
@@ -157,6 +163,8 @@ func (g *Gate) Check(ctx context.Context, call Call) (decision Decision) {
 	var err error
 	if call.Tool == "bash" {
 		decision, err = g.checkBash(ctx, call)
+	} else if readTools[call.Tool] {
+		decision, err = g.checkRead(call)
 	} else {
 		decision, err = g.checkWrite(call)
 	}
@@ -242,8 +250,13 @@ func (g *Gate) checkBash(ctx context.Context, call Call) (Decision, error) {
 	if analysis.HardBlocked {
 		return block("blocked hard-blocked command (%s). This operation is never allowed.", strings.Join(labels, ", ")), nil
 	}
-	if readOnlyCommand(command) {
+	if readOnlyCommand(command) && g.access != ModeStrict {
 		return allow, nil
+	}
+	if g.access == ModeStrict && readOnlyCommand(command) {
+		if risk := g.shellReadRisk(command, call.Cwd); risk != "" {
+			labels = append(append([]string(nil), labels...), "Read risk: "+risk)
+		}
 	}
 	if g.LancetOn() {
 		if g.scorer == nil {

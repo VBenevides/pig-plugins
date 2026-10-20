@@ -24,7 +24,8 @@ type Notify func(message, level string)
 type Controller struct {
 	Gate     *Gate
 	Lancet   Lancet
-	Settings string // path of the settings file
+	Settings string     // path of the settings file
+	Modes    *ModeStore // nil only for legacy-policy callers and migration tests
 }
 
 // Chip is the footer text of the current state.
@@ -50,6 +51,9 @@ func onOff(on bool) string {
 func (c *Controller) Check(ctx context.Context, call Call, announce func()) Decision {
 	if !Gated(call.Tool) {
 		return allow
+	}
+	if c.Modes != nil {
+		return c.checkShared(ctx, call, announce)
 	}
 	settings := LoadSettings(c.Settings)
 	if settings.Problem != "" {
