@@ -2,13 +2,24 @@
 
 All notable changes to pig-plugins are documented here.
 
-## [0.2.1] - 2026-10-19
+## [0.2.1] - 2026-10-20
 
 ### Features
 
 - Add shared Smart Approve modes: `off`, `lax` (the new-install default) and risk-based `strict`. Strict checks protected and unknown local read scopes as well as mutations; lax exempts verified reads.
-- Persist the mode outside agent profiles, reload it across instances, and reject admissions when the mode changes during approval or scoring. LANCET settings remain profile-local.
+- Persist the mode privately at `~/.pig/smart-approve-lancet/mode.json` using atomic replacement, independently of agent-profile overrides. Reload it for admissions and status requests; LANCET settings and saved grants remain profile-local.
 - Order approval choices as `Allow`, `Deny`, `Always allow this command and item`. Allow is one-time only; cancellations and invalid responses deny.
+
+### Bugfixes
+
+- Reject stale admissions when the shared mode or scoring setting changes during approval or scoring, including changes from another running profile.
+- Prevent unproven shell scopes, variables and wrappers from bypassing strict read checks. Corrupt or unreadable shared/profile settings fail closed rather than disabling checks.
+- Reject obsolete or unadvertised dialog answers, including persistent approval when no grant store is available. Preserve damaged grant files when saving fails.
+
+### Other
+
+- Add mode/scoring, symlink, migration, storage-failure and concurrency tests, plus cross-process/profile and fused read/write consent coverage.
+- Add real terminal coverage for choice order, default Enter, Deny, scrolling/resize and q/Escape/Ctrl+C cancellation. Update startup fixtures and document command migration and shared-mode storage.
 
 ### Breaking Changes
 
