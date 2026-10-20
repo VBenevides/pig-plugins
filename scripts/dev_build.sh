@@ -84,17 +84,11 @@ tar -C "$stage/plugins" -xf "$stage/plugins.tar"
 rm -f "$stage/plugins.tar"
 echo "dev_build: [3/6] applying native host patches" >&2
 # The native account extension requires the pinned host and SDK patches.
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0001-native-oauth-accounts-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0003-chat-input-and-previews-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0004-extension-dialogs-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0005-image-view-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0007-provider-recovery-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0008-startup-distribution-versions-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0009-editor-select-all-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0011-cursor-provider-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0013-diagnostic-routing-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0014-command-output-settings-host.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0015-distribution-update-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0001-accounts-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0003-editor-images-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0005-provider-recovery-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0007-distribution-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0008-settings-diagnostics-host.patch" >&2
 echo "dev_build: [4/6] preparing patched SDK" >&2
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
 sdk_ref="$sdk_module@v$compatible_version"
@@ -103,10 +97,10 @@ sdk_source=$(GOWORK=off go list -m -f '{{.Dir}}' "$sdk_ref")
 mkdir "$stage/sdk"
 cp -R "$sdk_source/." "$stage/sdk"
 chmod -R u+w "$stage/sdk"
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0002-native-oauth-accounts-sdk.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0006-image-view-sdk.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0010-ordered-compact-sdk.patch" >&2
-GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0012-cursor-provider-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0002-accounts-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0004-editor-images-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0006-provider-recovery-sdk.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/sdk" apply "$root/patches/pig/0009-compaction-sdk.patch" >&2
 (
     cd "$stage/source"
     rm -f go.work go.work.sum

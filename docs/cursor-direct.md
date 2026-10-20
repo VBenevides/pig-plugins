@@ -74,8 +74,8 @@ individual immutable event snapshots at 64 MiB; lifetime work at 65,536 inbound
 frames and 32,768 emitted events; queued client messages at 32; tools per remote
 turn at 128; concurrent generations at four; requests at 30 minutes, unary
 discovery at 15 seconds, and SSE appends at 30 seconds. Consumed snapshots do not
-spend a cumulative snapshot-byte budget. Host/SDK patches `0011-cursor-provider-host.patch`
-and `0012-cursor-provider-sdk.patch` apply
+spend a cumulative snapshot-byte budget. Host/SDK patches `0005-provider-recovery-host.patch`
+and `0006-provider-recovery-sdk.patch` apply
 cancellable backpressure: one unread event per SDK/native Cursor queue, plus
 bounded in-flight/terminal state. Slow consumers stall the producer, not grow
 an unbounded queue. Consumers must drain events; waiting only for Result without

@@ -1,8 +1,8 @@
 diff --git a/context.go b/context.go
-index ad89016..d22db17 100644
+index cd7405b..710b7ab 100644
 --- a/context.go
 +++ b/context.go
-@@ -1920,6 +1920,10 @@ func (c Context) CompactWithOptions(opts CompactOptions) {
+@@ -2166,6 +2166,10 @@ func (c Context) CompactWithOptions(opts CompactOptions) {
  	}
  	args["awaitCompletion"] = true
  	conn := c.ext.conn
@@ -13,7 +13,7 @@ index ad89016..d22db17 100644
  	go func() {
  		// The callbacks run after their handler returned; a panicking one
  		// must not take the extension down with it.
-@@ -1928,7 +1932,11 @@ func (c Context) CompactWithOptions(opts CompactOptions) {
+@@ -2174,7 +2178,11 @@ func (c Context) CompactWithOptions(opts CompactOptions) {
  				fmt.Fprintf(os.Stderr, "extension: recovered from panic in compact callback: %v\n%s\n", recovered, debug.Stack())
  			}
  		}()

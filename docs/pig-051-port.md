@@ -14,26 +14,27 @@ to `cmd/pig`. Keep host and SDK patch application in separate source trees.
 
 ## Patch decisions and acceptance mapping
 
-All patches are retained or adapted pending executable equivalence tests. No
-patch is retired merely because a filename or similarly named upstream test exists.
+The accepted fifteen-patch stack is consolidated into nine cohesive patches.
+Host and SDK remain separate. Apply each target's files in numeric order.
+The original and compacted stacks produce byte-identical host and SDK trees.
 
-| Patch | Decision / 0.5.1 implementation | Required acceptance |
+| Patch | Original patches | System and acceptance |
 | --- | --- | --- |
-| 0001 native accounts host | Adapt `ai` credential storage, `coding/cli/auth_commands.go`, subprocess dispatch, interactive auth and login UI | Selected-account credentials, concurrent refresh/storage, provider menu registration, account rotation past failed neighbors; no token disclosure |
-| 0002 native accounts SDK | Retain account API, check against new context dispatch | SDK account tests plus auto-models/footer/login integration |
-| 0003 input and previews | Adapt interactive command routing, autocomplete, editor and transcript hooks | Namespaced/literal/line-start commands, steering/queue, draft recovery, bounded previews, expansion preferences |
-| 0004 dialogs | Adapt selector/layout/input handling | Scroll long menus, resize, q/Escape cancellation without consuming q in text input |
-| 0005 images host | Adapt subprocess UI bridge and conditional editor | Image numbering, failed neighbors, stale editor replacement, cancellation and retention |
-| 0006 images SDK | Retain preview/conditional editor API | SDK payloads and real-host image/draft integration |
-| 0007 provider recovery | Adapt overflow/retry code | Codex context-limit classification and interrupted/normal websocket-close behavior |
-| 0008 startup versions | Adapt header rendering | Correct host/distribution version, quiet/offline startup and terminal rendering |
-| 0009 select all | Adapt editor/keybindings and parity inventory | Selection replacement by type/paste/delete, undo and cursor behavior |
-| 0010 ordered compact SDK | Retain ordered dispatch contract | Compaction registered before handler return and next prompt |
-| 0011 Cursor host | Adapt message serialization, stream backpressure, session recovery, `coding/cli` RPC events and compaction | Replay veto across all retry paths, exactly-once side effects, tool streaming and interrupted summary drains |
-| 0012 Cursor SDK | Adapt provider registration to expanded upstream provider types | Native transport and replay metadata round-trip, provider backpressure/cancellation |
-| 0013 diagnostics | Adapt existing upstream diagnostic tests and routing hooks; establish overlap before retiring hunks | Diagnostics never mutate draft/cursor/queued input/model history; fused diagnostic suite |
-| 0014 output settings | Adapt settings and slash-handler layout | Persisted opt-in, live toggle, bypass, unchanged exit/error metadata and bounded recoverable output |
-| 0015 distribution update | Adapt `coding/cli/self_update.go` and startup initialization, respecting upstream build tags | `update`, `--update`, `--self`, `--force`; extension-only isolation; single binary and safe failed upgrade |
+| `0001-accounts-host.patch` | 0001 | Native credential storage, account rotation, login UI and secret-safe errors |
+| `0002-accounts-sdk.patch` | 0002 | Typed account API and dispatch |
+| `0003-editor-images-host.patch` | 0003, 0004, 0005, 0009 | Input namespaces, previews, dialogs, images, selection and undo |
+| `0004-editor-images-sdk.patch` | 0006 | Image preview and conditional-editor SDK |
+| `0005-provider-recovery-host.patch` | 0007, 0011 | Overflow/replay vetoes, Cursor transport, startup discovery and backpressure |
+| `0006-provider-recovery-sdk.patch` | 0012 | Provider registration, replay metadata and cancellation |
+| `0007-distribution-host.patch` | 0008, 0015 | Startup versions, single executable and distribution-owned updates |
+| `0008-settings-diagnostics-host.patch` | 0013, 0014 | Clean diagnostic routing, live settings, persistence and raw recovery |
+| `0009-compaction-sdk.patch` | 0010 | Ordered compaction before subsequent prompts |
+
+Consolidation checks passed: independent pristine-tree application and byte-for-byte
+comparison, three inventory checks, a fresh fused build, full repository tests with
+bundled smoke fixtures, `make fmt-check vet`, `go build ./...`, 21 installer
+fixtures, five updater fixtures, and fused TUI diagnostics. `scripts/gowork.sh`
+also rebuilt an SDK identical to the independently applied stack.
 
 ## Bundled extension coverage
 

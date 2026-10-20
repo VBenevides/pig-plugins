@@ -1,3 +1,269 @@
+diff --git a/coding/extension/host/subprocess/conditional_editor.go b/coding/extension/host/subprocess/conditional_editor.go
+new file mode 100644
+index 0000000..4e755bb
+--- /dev/null
++++ b/coding/extension/host/subprocess/conditional_editor.go
+@@ -0,0 +1,38 @@
++package subprocess
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++
++	"github.com/MichaelKinsy/PiG/coding/extension"
++)
++
++// Optional additive capability: compare and replacement must share the editor owner loop.
++type conditionalEditorUI interface {
++	CompareAndSetEditorText(context.Context, string, string) (bool, error)
++}
++
++func (b *UIBridge) handleCompareAndSetEditorText(ctx context.Context, ui extension.UIContext, args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Expected string `json:"expected"`
++		Text     string `json:"text"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse compareAndSetEditorText args: %w", err)
++	}
++	applied := false
++	if ui != extension.NoopUIContext {
++		conditional, ok := ui.(conditionalEditorUI)
++		if !ok {
++			return nil, fmt.Errorf("UI does not support atomic editor replacement")
++		}
++		var err error
++		applied, err = conditional.CompareAndSetEditorText(ctx, p.Expected, p.Text)
++		if err != nil {
++			return nil, fmt.Errorf("replace unchanged editor text: %w", err)
++		}
++	}
++	result, err := json.Marshal(map[string]bool{"applied": applied})
++	return &CallResultPayload{Result: result}, err
++}
+diff --git a/coding/extension/host/subprocess/conditional_editor_test.go b/coding/extension/host/subprocess/conditional_editor_test.go
+new file mode 100644
+index 0000000..3c8be71
+--- /dev/null
++++ b/coding/extension/host/subprocess/conditional_editor_test.go
+@@ -0,0 +1,51 @@
++package subprocess
++
++import (
++	"context"
++	"encoding/json"
++	"testing"
++)
++
++type conditionalEditorMock struct{ mockUIContext }
++
++func (u *conditionalEditorMock) CompareAndSetEditorText(_ context.Context, expected, text string) (bool, error) {
++	if u.editorText != expected {
++		return false, nil
++	}
++	u.editorText = text
++	return true, nil
++}
++
++func TestUIBridgeConditionalEditorReplacement(t *testing.T) {
++	ui := &conditionalEditorMock{mockUIContext: mockUIContext{editorText: "path"}}
++	bridge := newTestBridge(ui)
++	for _, want := range []bool{true, false} {
++		result, err := call(bridge, "ui.compareAndSetEditorText", `{"expected":"path","text":"marker"}`)
++		if err != nil || result.Error != nil {
++			t.Fatalf("result=%+v err=%v", result, err)
++		}
++		var out struct {
++			Applied bool `json:"applied"`
++		}
++		if err := json.Unmarshal(result.Result, &out); err != nil {
++			t.Fatal(err)
++		}
++		if out.Applied != want {
++			t.Fatalf("applied=%v want=%v", out.Applied, want)
++		}
++	}
++	if ui.editorText != "marker" {
++		t.Fatal(ui.editorText)
++	}
++}
++
++func TestUIBridgeConditionalEditorWithoutCapability(t *testing.T) {
++	ui := &mockUIContext{editorText: "new typing"}
++	_, err := call(newTestBridge(ui), "ui.compareAndSetEditorText", `{"expected":"path","text":"marker"}`)
++	if err == nil {
++		t.Fatal("unsupported UI silently accepted a transform")
++	}
++	if ui.editorText != "new typing" {
++		t.Fatal("unsupported UI changed editor")
++	}
++}
+diff --git a/coding/extension/host/subprocess/image_preview.go b/coding/extension/host/subprocess/image_preview.go
+new file mode 100644
+index 0000000..81e936e
+--- /dev/null
++++ b/coding/extension/host/subprocess/image_preview.go
+@@ -0,0 +1,53 @@
++package subprocess
++
++import (
++	"encoding/json"
++	"fmt"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++// Render through the host's configured image protocol and cell geometry, not
++// subprocess environment detection. Returned rows use the normal widget cache
++// and TUI image placement/cropping lifecycle.
++func (b *UIBridge) handleRenderImage(args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Data   string `json:"data"`
++		Width  int    `json:"width"`
++		Height int    `json:"height"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse renderImage args: %w", err)
++	}
++	if len(p.Data) > 8<<20 || p.Width < 1 || p.Width > 240 || p.Height < 1 || p.Height > 40 {
++		return nil, fmt.Errorf("renderImage exceeds preview bounds")
++	}
++	dimensions := tui.GetPNGDimensions(p.Data)
++	if dimensions == nil || dimensions.WidthPx <= 0 || dimensions.HeightPx <= 0 || dimensions.WidthPx > 24000000/dimensions.HeightPx {
++		return nil, fmt.Errorf("renderImage requires a bounded PNG")
++	}
++	supported := tui.GetCapabilities().Images != ""
++	var lines []string
++	if supported {
++		preview := tui.NewImage(p.Data, "image/png", tui.DefaultImageTheme(), tui.ImageOptions{MaxWidthCells: p.Width, MaxHeightCells: p.Height}, dimensions)
++		lines = preview.Render(p.Width + 2)
++	}
++	result, err := json.Marshal(map[string]any{"frame": map[string]any{"lines": lines, "supported": supported}})
++	return &CallResultPayload{Result: result}, err
++}
++
++func (b *UIBridge) handleSetPreviewWidget(extName string, args json.RawMessage) (*CallResultPayload, error) {
++	var p struct {
++		Key   string   `json:"key"`
++		Lines []string `json:"lines"`
++		Width int      `json:"width"`
++	}
++	if err := json.Unmarshal(args, &p); err != nil {
++		return nil, fmt.Errorf("parse setPreviewWidget args: %w", err)
++	}
++	if len(args) > 24<<20 || len(p.Lines) > 200 || p.Width < 1 || p.Width > 10000 || p.Key == "" {
++		return nil, fmt.Errorf("setPreviewWidget exceeds preview bounds")
++	}
++	b.updateWidget(extName, p.Key, p.Lines, p.Width, "aboveEditor")
++	return &CallResultPayload{}, nil
++}
+diff --git a/coding/extension/host/subprocess/image_preview_test.go b/coding/extension/host/subprocess/image_preview_test.go
+new file mode 100644
+index 0000000..1956542
+--- /dev/null
++++ b/coding/extension/host/subprocess/image_preview_test.go
+@@ -0,0 +1,76 @@
++package subprocess
++
++import (
++	"bytes"
++	"encoding/base64"
++	"encoding/json"
++	"image"
++	"image/png"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestNativePreviewGraphicsAndFallback(t *testing.T) {
++	previous := tui.GetCapabilities()
++	defer tui.SetCapabilities(previous)
++	var buf bytes.Buffer
++	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, 432, 240))); err != nil {
++		t.Fatal(err)
++	}
++	args, err := json.Marshal(map[string]any{"data": base64.StdEncoding.EncodeToString(buf.Bytes()), "width": 36, "height": 10})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, protocol := range []tui.ImageProtocol{"", tui.ImageProtocolKitty, tui.ImageProtocolITerm2} {
++		tui.SetCapabilities(tui.TerminalCapabilities{Images: protocol})
++		result, err := (&UIBridge{}).handleRenderImage(args)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var value struct {
++			Frame struct {
++				Lines     []string
++				Supported bool
++			}
++		}
++		if err := json.Unmarshal(result.Result, &value); err != nil {
++			t.Fatal(err)
++		}
++		if value.Frame.Supported != (protocol != "") {
++			t.Fatalf("protocol %q: %+v", protocol, value)
++		}
++		if protocol != "" && (len(value.Frame.Lines) == 0 || !strings.Contains(strings.Join(value.Frame.Lines, ""), "\x1b")) {
++			t.Fatalf("missing graphics for %q", protocol)
++		}
++	}
++	if _, err := (&UIBridge{}).handleRenderImage(json.RawMessage(`{"data":"invalid","width":36,"height":10}`)); err == nil {
++		t.Fatal("invalid PNG accepted")
++	}
++}
++
++func TestPreviewWidgetKeepsAllRowsAndRejectsStaleWidth(t *testing.T) {
++	bridge := newTestBridge(&mockUIContext{})
++	lines := make([]string, 44)
++	for i := range lines {
++		lines[i] = "preview"
++	}
++	args, err := json.Marshal(map[string]any{"key": "gallery", "lines": lines, "width": 80})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := bridge.handleSetPreviewWidget("images", args); err != nil {
++		t.Fatal(err)
++	}
++	proxy := bridge.widgets["gallery"]
++	if proxy == nil || bridge.widgetOwners["gallery"] != "images" {
++		t.Fatal("missing gallery widget")
++	}
++	if got := proxy.Render(80); len(got) != len(lines) {
++		t.Fatalf("gallery truncated: %d rows", len(got))
++	}
++	if got := proxy.Render(40); len(got) != 0 {
++		t.Fatalf("stale frame painted: %v", got)
++	}
++}
+diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/host/subprocess/ui_bridge.go
+index f739835..f8cdbb9 100644
+--- a/coding/extension/host/subprocess/ui_bridge.go
++++ b/coding/extension/host/subprocess/ui_bridge.go
+@@ -1373,6 +1373,10 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
+ 		return b.handleSetHiddenThinkingLabel(ui, call.Args)
+ 	case "ui.setWidget":
+ 		return b.handleSetWidget(extName, owner, call.Args)
++	case "ui.renderImage":
++		return b.handleRenderImage(call.Args)
++	case "ui.setPreviewWidget":
++		return b.handleSetPreviewWidget(extName, call.Args)
+ 
+ 	// ── Category 2: User Interaction (blocking) ──────────────────────────
+ 	case "ui.select":
+@@ -1416,6 +1420,8 @@ func (b *UIBridge) handleCall(ctx context.Context, extName string, owner *Conn,
+ 		return b.handlePasteToEditor(ui, call.Args)
+ 	case "ui.setEditorText":
+ 		return b.handleSetEditorText(ui, call.Args)
++	case "ui.compareAndSetEditorText":
++		return b.handleCompareAndSetEditorText(ctx, ui, call.Args)
+ 	case "ui.getEditorText":
+ 		return b.handleGetEditorText(ui)
+ 	case "ui.getEditorComponent":
 diff --git a/internal/codingagent/autocomplete_command_order_test.go b/internal/codingagent/autocomplete_command_order_test.go
 index c6cb264..b196b9e 100644
 --- a/internal/codingagent/autocomplete_command_order_test.go
@@ -220,6 +486,158 @@ index c4bac33..cc4023d 100644
  		t.Fatalf("editor after Enter = %q, want the accepted argument left in the editor", got)
  	}
  }
+diff --git a/internal/codingagent/ext_ui_conditional_editor.go b/internal/codingagent/ext_ui_conditional_editor.go
+new file mode 100644
+index 0000000..e60d91e
+--- /dev/null
++++ b/internal/codingagent/ext_ui_conditional_editor.go
+@@ -0,0 +1,62 @@
++package codingagent
++
++import (
++	"context"
++	"sync"
++	"time"
++)
++
++// CompareAndSetEditorText applies a background draft transform only if typing or
++// submission has not changed the expanded text. All editor access stays on its owner.
++func (u *ExtUIContext) CompareAndSetEditorText(ctx context.Context, expected, text string) (bool, error) {
++	// Bound cleanup even if the owner loop is shutting down or in a modal phase.
++	ctx, cancel := context.WithTimeout(ctx, time.Second)
++	defer cancel()
++	apply := func() bool {
++		if ctx.Err() != nil || u.m.editor == nil || u.m.editor.GetExpandedText() != expected {
++			return false
++		}
++		u.m.editor.SetText(text)
++		if u.m.tuiInst != nil {
++			u.m.requestRender()
++		}
++		return true
++	}
++	if err := ctx.Err(); err != nil {
++		return false, err
++	}
++	if u.m.runCtx == nil {
++		return apply(), nil
++	}
++	var mu sync.Mutex
++	applied, cancelled := false, false
++	result := make(chan struct{}, 1)
++	if err := u.m.postToMain(ctx, func() {
++		mu.Lock()
++		if !cancelled {
++			applied = apply()
++		}
++		mu.Unlock()
++		result <- struct{}{}
++	}); err != nil {
++		return false, err
++	}
++	var err error
++	select {
++	case <-result:
++	case <-ctx.Done():
++		err = ctx.Err()
++	case <-u.m.runCtx.Done():
++		err = context.Cause(u.m.runCtx)
++	}
++	mu.Lock()
++	defer mu.Unlock()
++	cancelled = true
++	if applied {
++		return true, nil
++	}
++	if err == nil {
++		err = ctx.Err()
++	}
++	return false, err
++}
+diff --git a/internal/codingagent/ext_ui_conditional_editor_test.go b/internal/codingagent/ext_ui_conditional_editor_test.go
+new file mode 100644
+index 0000000..ac55e34
+--- /dev/null
++++ b/internal/codingagent/ext_ui_conditional_editor_test.go
+@@ -0,0 +1,78 @@
++package codingagent
++
++import (
++	"context"
++	"errors"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestConditionalEditorReplacementRunsOnOwner(t *testing.T) {
++	for _, currText := range []string{"/tmp/paste.png", "new typing", ""} {
++		t.Run(currText, func(t *testing.T) {
++			m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++			m.editor.SetText("/tmp/paste.png")
++			ui := &ExtUIContext{m: m}
++			type result struct {
++				applied bool
++				err     error
++			}
++			done := make(chan result, 1)
++			go func() {
++				applied, err := ui.CompareAndSetEditorText(t.Context(), "/tmp/paste.png", "[Image #1]")
++				done <- result{applied, err}
++			}()
++			task := <-m.uiTaskCh
++			// Typing or submission can win before the owner accepts the transform.
++			m.editor.SetText(currText)
++			task()
++			got := <-done
++			wantApplied := currText == "/tmp/paste.png"
++			if got.err != nil || got.applied != wantApplied {
++				t.Fatalf("result=%+v", got)
++			}
++			want := currText
++			if wantApplied {
++				want = "[Image #1]"
++			}
++			if text := m.editor.GetExpandedText(); text != want {
++				t.Fatalf("text=%q want=%q", text, want)
++			}
++		})
++	}
++}
++
++func TestConditionalEditorReplacementCancellation(t *testing.T) {
++	m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++	m.editor.SetText("/tmp/paste.png")
++	ctx, cancel := context.WithCancel(t.Context())
++	done := make(chan error, 1)
++	go func() {
++		_, err := (&ExtUIContext{m: m}).CompareAndSetEditorText(ctx, "/tmp/paste.png", "[Image #1]")
++		done <- err
++	}()
++	task := <-m.uiTaskCh
++	cancel()
++	task()
++	if err := <-done; err == nil {
++		t.Fatal("cancelled transform succeeded")
++	}
++	if text := m.editor.Text(); text != "/tmp/paste.png" {
++		t.Fatalf("cancelled transform changed draft: %q", text)
++	}
++}
++
++func TestConditionalEditorReplacementTimeoutRejectsLateTask(t *testing.T) {
++	m := &InteractiveMode{editor: tui.NewEditor(), runCtx: t.Context(), uiTaskCh: make(chan func(), 1)}
++	m.editor.SetText("/tmp/paste.png")
++	applied, err := (&ExtUIContext{m: m}).CompareAndSetEditorText(t.Context(), "/tmp/paste.png", "[Image #1]")
++	if applied || !errors.Is(err, context.DeadlineExceeded) {
++		t.Fatalf("applied=%v err=%v", applied, err)
++	}
++	// A queued task must not change the draft after its caller has abandoned it.
++	(<-m.uiTaskCh)()
++	if text := m.editor.Text(); text != "/tmp/paste.png" {
++		t.Fatalf("late task changed draft: %q", text)
++	}
++}
 diff --git a/internal/codingagent/interactive.go b/internal/codingagent/interactive.go
 index 37c8454..5949e31 100644
 --- a/internal/codingagent/interactive.go
@@ -650,10 +1068,36 @@ index 61bb267..32a4fee 100644
  	if !pigstrip.Has(pigstrip.ListTools, "bash") {
  		b.WriteString("| `!` | Run bash command |\n| `!!` | Run bash command (excluded from context) |\n")
 diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
-index 93b1d85..be48f72 100644
+index 93b1d85..fa3bdea 100644
 --- a/internal/codingagent/interactive_input.go
 +++ b/internal/codingagent/interactive_input.go
-@@ -1013,6 +1013,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
+@@ -616,6 +616,15 @@ func (m *InteractiveMode) dispatchKey(ctx context.Context, data string) error {
+ 	return m.dispatchInputChunk(ctx, data, nil)
+ }
+ 
++// dialogOwnsPageKey reports whether data is a page key that an open extension dialog handles itself.
++func (m *InteractiveMode) dialogOwnsPageKey(data string) bool {
++	if m.extensionDialog == nil {
++		return false
++	}
++	kb := tui.GetTUIKeybindings()
++	return kb.Matches(data, tui.KBSelectPageUp) || kb.Matches(data, tui.KBSelectPageDown)
++}
++
+ // dispatchInputChunk processes one keystroke routed with ticket. When a
+ // subprocess terminal-input listener must answer first, it returns before the
+ // keystroke is handled, and handling resumes on the main loop with the verdict.
+@@ -663,7 +672,8 @@ func (m *InteractiveMode) dispatchInputChunk(ctx context.Context, data string, t
+ 	// handled by the alt-screen renderer and must not reach the editor. Mirrors
+ 	// upstream's addInputListener(handleViewportInput) on the alt-screen, which
+ 	// the alt-screen renderer registers; the driver runs the renderer's listeners.
+-	if m.tuiInst != nil {
++	// A dialog retains its page keys instead of scrolling the transcript behind it.
++	if m.tuiInst != nil && !m.dialogOwnsPageKey(data) {
+ 		current, done := m.tuiInst.RunInputListeners(data)
+ 		if done {
+ 			return nil
+@@ -1013,6 +1023,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
  		return nil
  
  	case outcomeSubmit:
@@ -664,7 +1108,7 @@ index 93b1d85..be48f72 100644
  		text := widthx.JSTrim(m.editor.GetExpandedText())
  		if text == "" {
  			return nil
-@@ -1026,6 +1030,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
+@@ -1026,6 +1040,10 @@ func (m *InteractiveMode) handleEditorAction(ctx context.Context, action keyActi
  		m.editor.HandleInput("\n")
  
  	case outcomeFollowUp:
@@ -675,7 +1119,7 @@ index 93b1d85..be48f72 100644
  		// Alt+Enter: if idle, act as regular submit; if working, enqueue
  		// as follow-up (delivered after the agent has no more tool calls
  		// or steering messages).
-@@ -1152,7 +1160,12 @@ func (m *InteractiveMode) expandSkillCommand(prompt string) (string, bool) {
+@@ -1152,7 +1170,12 @@ func (m *InteractiveMode) expandSkillCommand(prompt string) (string, bool) {
  	if len(m.opts.Skills) == 0 {
  		return "", false
  	}
@@ -689,7 +1133,7 @@ index 93b1d85..be48f72 100644
  	if err != nil && m.newRunner != nil {
  		m.newRunner.EmitError(err)
  	}
-@@ -1198,11 +1211,12 @@ func (m *InteractiveMode) syncExtensionSlashCommands() {
+@@ -1198,11 +1221,12 @@ func (m *InteractiveMode) syncExtensionSlashCommands() {
  // unresolved slashes are not resolvable here: they expand into model prompts
  // and stay queued during compaction.
  func (m *InteractiveMode) resolvableSlashCommand(prompt string) bool {
@@ -704,7 +1148,7 @@ index 93b1d85..be48f72 100644
  	return ok
  }
  
-@@ -1312,11 +1326,11 @@ func (m *InteractiveMode) runStreaming() bool {
+@@ -1312,11 +1336,11 @@ func (m *InteractiveMode) runStreaming() bool {
  // isExtensionCommand reports whether text invokes an extension-registered
  // command. Mirrors upstream InteractiveMode.isExtensionCommand.
  func (m *InteractiveMode) isExtensionCommand(text string) bool {
@@ -736,6 +1180,29 @@ index 220b5e2..16ce5b2 100644
  			}
  		}
  		// Upstream rechecks streaming after the input await (agent-session.ts
+diff --git a/internal/codingagent/interactive_layout.go b/internal/codingagent/interactive_layout.go
+index a50768b..f22a73d 100644
+--- a/internal/codingagent/interactive_layout.go
++++ b/internal/codingagent/interactive_layout.go
+@@ -31,7 +31,7 @@ const extensionDialogReservedLines = 3
+ // while an extension dialog is open. On a terminal too short for both, the
+ // dialog wins, but the transcript never renders empty and leaves the user
+ // answering with no context at all.
+-const minExtensionDialogChatLines = 3
++const minExtensionDialogChatLines = 1
+ 
+ // setExtensionDialogViewMode caps (or restores) the chat container so an open
+ // extension dialog has room without hiding the reasoning that motivated it
+@@ -67,6 +67,9 @@ func (m *InteractiveMode) extensionDialogLines(component tui.Component) int {
+ 	if width <= 0 || component == nil {
+ 		return 0
+ 	}
++	if sized, ok := component.(interface{ SetTerminalHeight(int) }); ok {
++		sized.SetTerminalHeight(m.tuiInst.Height())
++	}
+ 	return len(component.Render(width))
+ }
+ 
 diff --git a/internal/codingagent/interactive_prompt_routing_test.go b/internal/codingagent/interactive_prompt_routing_test.go
 index 66763db..f57e5e0 100644
 --- a/internal/codingagent/interactive_prompt_routing_test.go
@@ -1495,6 +1962,19 @@ index f1cc8d3..a875937 100644
  	})
  	m.renderSessionEntryList([]SessionEntry{entry}, false)
  	if got := strings.Join(m.chatContainer.Render(120), "\n"); !strings.Contains(got, "[skill]") || strings.Contains(got, "SKILL_BODY_MARKER") {
+diff --git a/test/parity/known-gaps.toml b/test/parity/known-gaps.toml
+index 2932298..03be9da 100644
+--- a/test/parity/known-gaps.toml
++++ b/test/parity/known-gaps.toml
+@@ -18,3 +18,8 @@
+ 
+ pi_version = "1.3.0+1402973a"
+ 
++[[gap]]
++scope = "tui-keybindings"
++key = "keybinding:tui.editor.selectAll"
++tracking = "pig-plugins patches/pig/0009-editor-select-all-host.patch"
++why = "pig additive: whole-text selection in the prompt editor. It has no default key so ctrl+a keeps moving to the line start; a keybindings.json entry binds it."
 diff --git a/tui/autocomplete.go b/tui/autocomplete.go
 index 2d69c39..0d34401 100644
 --- a/tui/autocomplete.go
@@ -1728,10 +2208,40 @@ index b19c8f2..e0573c7 100644
  	for _, tc := range cases {
  		t.Run(tc.name, func(t *testing.T) {
 diff --git a/tui/editor.go b/tui/editor.go
-index ca688b9..5a6d2b0 100644
+index ca688b9..548d8cd 100644
 --- a/tui/editor.go
 +++ b/tui/editor.go
-@@ -1311,7 +1311,7 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
+@@ -45,6 +45,8 @@ type Editor struct {
+ 	history    []editorState
+ 	killRing   KillRing
+ 	lastAction string // "kill" | "yank" | "type-word" | ""
++	// selectedAll marks the whole text as selected by tui.editor.selectAll (pig additive; see editor_select_all.go).
++	selectedAll bool
+ 
+ 	preferredVisualCol   *int
+ 	snappedFromCursorCol *int
+@@ -359,6 +361,7 @@ func (e *Editor) SetText(text string) {
+ 		e.remoteSetText(text)
+ 		return
+ 	}
++	e.selectedAll = false
+ 	e.AutocompleteCancel()
+ 	e.lastAction = ""
+ 	e.inputHistIdx = -1
+@@ -751,6 +754,12 @@ func (e *Editor) buildVisualLines(width, rowWidth int) []string {
+ 	out := e.visualScratch[:0]
+ 	defer func() { e.visualScratch = out[:0] }()
+ 	emitCursorMarker := e.Focused // upstream editor.ts: const emitCursorMarker = this.focused; the hardware cursor stays on the text while the autocomplete popup is open
++	if e.selectedAll {
++		for _, line := range e.layoutText(width) {
++			out = append(out, selectedRow(line.text))
++		}
++		return out
++	}
+ 	for _, line := range e.layoutText(width) {
+ 		if !line.hasCursor {
+ 			out = append(out, line.text)
+@@ -1311,7 +1320,7 @@ func (e *Editor) AutocompleteAccept() (submit bool) {
  	// A prefix that starts with "/" falls through to submit; anything else
  	// (an argument completion) does not (upstream editor.ts
  	// tui.select.confirm).
@@ -1740,7 +2250,7 @@ index ca688b9..5a6d2b0 100644
  	e.AutocompleteCancel()
  	if !isSlashName && e.OnChange != nil {
  		e.OnChange(e.Text())
-@@ -1408,7 +1408,7 @@ func (e *Editor) naturalAutocompleteContext() bool {
+@@ -1408,7 +1417,7 @@ func (e *Editor) naturalAutocompleteContext() bool {
  	}
  	line := e.lines[e.cursor[0]]
  	before := jsstring.Slice(line, 0, e.cursor[1])
@@ -1749,6 +2259,27 @@ index ca688b9..5a6d2b0 100644
  		return true
  	}
  	previousBoundary := true
+@@ -1622,6 +1631,9 @@ func (e *Editor) handlePasteFlush(buf string) {
+ 	e.inputHistSaved = nil
+ 	e.lastAction = ""
+ 	e.saveHistory()
++	if e.selectedAll {
++		e.clearAllText() // The paste replaces the selection; one undo step restores the old text.
++	}
+ 	// Some terminals re-encode control bytes inside bracketed paste as
+ 	// CSI-u Ctrl+<letter> sequences (ESC [ <codepoint> ; 5 u). Decode
+ 	// those back to their literal byte before normalization so Ctrl+J
+@@ -1750,6 +1762,10 @@ func (e *Editor) HandleInput(data string) {
+ 		return
+ 	}
+ 
++	if e.handleSelectAll(data) {
++		return
++	}
++
+ 	// Completion selection precedes ordinary editing. Async application remains owned by the host's input ticket.
+ 	kb := GetTUIKeybindings()
+ 	// Upstream editor.ts handleInput: "Ctrl+C - let parent handle (exit/clear)".
 diff --git a/tui/editor_async_provider.go b/tui/editor_async_provider.go
 index 76a4c27..0fb015b 100644
 --- a/tui/editor_async_provider.go
@@ -1781,6 +2312,576 @@ index 76a4c27..0fb015b 100644
  }
  
  func (e *Editor) requestAsyncAutocomplete(force, explicit bool) {
+diff --git a/tui/editor_select_all.go b/tui/editor_select_all.go
+new file mode 100644
+index 0000000..8eb01b0
+--- /dev/null
++++ b/tui/editor_select_all.go
+@@ -0,0 +1,79 @@
++package tui
++
++import (
++	"strings"
++	"unicode/utf8"
++)
++
++// Whole-text selection for the editor (pig additive). tui.editor.selectAll marks everything selected; typing or
++// pasting replaces it, a delete key removes it, and any other key (movement, Enter, Escape, ...) clears the mark
++// and acts normally. There is no partial selection and no clipboard action.
++
++// handleSelectAll reports whether it consumed data. It runs before autocomplete and ordinary editing.
++func (e *Editor) handleSelectAll(data string) bool {
++	kb := GetTUIKeybindings()
++	if kb.Matches(data, KBEditorSelectAll) {
++		if e.Text() != "" {
++			e.AutocompleteCancel()
++			e.lastAction = ""
++			e.selectedAll = true
++			e.Invalidate()
++		}
++		return true
++	}
++	if !e.selectedAll {
++		return false
++	}
++	switch {
++	case kb.Matches(data, KBEditorDeleteCharBack), kb.Matches(data, KBEditorDeleteCharForward),
++		kb.Matches(data, KBEditorDeleteWordBack), kb.Matches(data, KBEditorDeleteWordForward),
++		kb.Matches(data, KBEditorDeleteToLineStart), kb.Matches(data, KBEditorDeleteToLineEnd):
++		e.saveHistory()
++		e.clearAllText()
++		return true
++	case isTypedText(data):
++		e.saveHistory()
++		e.clearAllText()
++		e.lastAction = "type-word" // The undo state above already holds the replaced text.
++		return false
++	}
++	e.selectedAll = false
++	e.Invalidate()
++	return false
++}
++
++// clearAllText empties the editor without recording an undo state; callers record it first.
++func (e *Editor) clearAllText() {
++	e.AutocompleteCancel()
++	e.selectedAll = false
++	e.lastAction = ""
++	e.inputHistIdx = -1
++	e.inputHistSaved = nil
++	e.pastes = nil
++	e.pasteCounter = 0
++	e.lines = []string{""}
++	e.cursor = [2]int{0, 0}
++	e.Invalidate()
++}
++
++// isTypedText reports whether data is printable text rather than a control byte or an escape sequence.
++func isTypedText(data string) bool {
++	if data == "" || strings.HasPrefix(data, "\x1b") || !utf8.ValidString(data) {
++		return false
++	}
++	for _, r := range data {
++		if r < 0x20 || r == 0x7f {
++			return false
++		}
++	}
++	return true
++}
++
++// selectedRow draws one row of selected text in reverse video. An empty row still shows one selected cell so a
++// selected line break is visible.
++func selectedRow(text string) string {
++	if text == "" {
++		text = " "
++	}
++	return "\x1b[7m" + text + "\x1b[27m"
++}
+diff --git a/tui/editor_select_all_test.go b/tui/editor_select_all_test.go
+new file mode 100644
+index 0000000..351dc52
+--- /dev/null
++++ b/tui/editor_select_all_test.go
+@@ -0,0 +1,130 @@
++package tui
++
++import (
++	"strings"
++	"testing"
++)
++
++// selectAllKeys binds ctrl+a to select all and leaves home for the line start, as config/agent/keybindings.json does.
++func selectAllKeys(t *testing.T) {
++	t.Helper()
++	previous := globalTUIKeybindings
++	SetTUIKeybindings(NewTUIKeybindingsManager(map[string][]string{
++		string(KBEditorSelectAll):       {"ctrl+a"},
++		string(KBEditorCursorLineStart): {"home"},
++	}))
++	t.Cleanup(func() { globalTUIKeybindings = previous })
++}
++
++func newSelected(t *testing.T, text string) *Editor {
++	t.Helper()
++	selectAllKeys(t)
++	e := NewEditor()
++	e.SetText(text)
++	e.HandleInput("\x01")
++	return e
++}
++
++func plainRows(e *Editor, width int) string {
++	return stripANSI(strings.Join(e.Render(width), "\n"))
++}
++
++func TestSelectAllMarksTheWholeTextAndRendersItReversed(t *testing.T) {
++	e := newSelected(t, "alpha beta\ngamma")
++	if !e.selectedAll {
++		t.Fatal("ctrl+a must select all")
++	}
++	rendered := strings.Join(e.Render(40), "\n")
++	if strings.Count(rendered, "\x1b[7m") < 2 || !strings.Contains(plainRows(e, 40), "alpha beta") || !strings.Contains(plainRows(e, 40), "gamma") {
++		t.Fatalf("every text row must be drawn reversed: %q", rendered)
++	}
++	if e.Text() != "alpha beta\ngamma" {
++		t.Fatalf("selecting must not change the text: %q", e.Text())
++	}
++}
++
++func TestSelectAllOnAnEmptyEditorSelectsNothing(t *testing.T) {
++	selectAllKeys(t)
++	e := NewEditor()
++	e.HandleInput("\x01")
++	if e.selectedAll {
++		t.Fatal("there is nothing to select")
++	}
++	e.HandleInput("x")
++	if e.Text() != "x" {
++		t.Fatalf("typing still works: %q", e.Text())
++	}
++}
++
++func TestTypingOrPastingReplacesTheSelectionAndUndoRestoresIt(t *testing.T) {
++	e := newSelected(t, "old text")
++	e.HandleInput("N")
++	e.HandleInput("ew")
++	if e.Text() != "New" || e.selectedAll {
++		t.Fatalf("typing must replace the selection, got %q", e.Text())
++	}
++	e.HandleInput("\x1f") // ctrl+- undo: one step restores the replaced text.
++	if e.Text() != "old text" {
++		t.Fatalf("undo must bring the replaced text back, got %q", e.Text())
++	}
++
++	e = newSelected(t, "old text")
++	e.HandleInput("\x1b[200~pasted\nlines\x1b[201~")
++	if got := e.Text(); !strings.Contains(got, "pasted") || strings.Contains(got, "old") {
++		t.Fatalf("a paste must replace the selection, got %q", got)
++	}
++}
++
++func TestDeleteKeysRemoveTheSelectionAndOnlyThat(t *testing.T) {
++	for name, key := range map[string]string{"backspace": "\x7f", "delete": "\x1b[3~", "ctrl+w": "\x17", "ctrl+u": "\x15", "ctrl+k": "\x0b"} {
++		e := newSelected(t, "one two\nthree")
++		e.HandleInput(key)
++		if e.Text() != "" || e.selectedAll {
++			t.Errorf("%s must delete the selected text, got %q selected=%v", name, e.Text(), e.selectedAll)
++		}
++		e.HandleInput("\x1f")
++		if e.Text() != "one two\nthree" {
++			t.Errorf("%s: undo must restore the text, got %q", name, e.Text())
++		}
++	}
++}
++
++func TestOtherKeysClearTheSelectionWithoutChangingTheText(t *testing.T) {
++	for name, key := range map[string]string{"left": "\x1b[D", "right": "\x1b[C", "home": "\x1b[H", "end": "\x1b[F", "escape": "\x1b", "up": "\x1b[A"} {
++		e := newSelected(t, "keep me")
++		e.HandleInput(key)
++		if e.selectedAll || e.Text() != "keep me" {
++			t.Errorf("%s: selected=%v text=%q", name, e.selectedAll, e.Text())
++		}
++	}
++	e := newSelected(t, "submit me")
++	var submitted string
++	e.OnSubmit = func(text string) { submitted = text }
++	e.HandleInput("\r")
++	if submitted != "submit me" {
++		t.Fatalf("Enter must submit the whole text, got %q", submitted)
++	}
++}
++
++func TestSelectAllIsOffUntilBoundAndKeepsLineStartOnCtrlA(t *testing.T) {
++	previous := globalTUIKeybindings
++	SetTUIKeybindings(NewTUIKeybindingsManager(nil))
++	t.Cleanup(func() { globalTUIKeybindings = previous })
++	if keys := GetTUIKeybindings().GetKeys(string(KBEditorSelectAll)); len(keys) != 0 {
++		t.Fatalf("select all must have no default key, got %v", keys)
++	}
++	e := NewEditor()
++	e.SetText("hello")
++	e.HandleInput("\x01")
++	if e.selectedAll || e.cursor[1] != 0 {
++		t.Fatalf("by default ctrl+a still moves to the line start: selected=%v col=%d", e.selectedAll, e.cursor[1])
++	}
++}
++
++func TestSetTextClearsTheSelection(t *testing.T) {
++	e := newSelected(t, "first")
++	e.SetText("second")
++	if e.selectedAll {
++		t.Fatal("replacing the text must clear the selection")
++	}
++}
+diff --git a/tui/extension_selector.go b/tui/extension_selector.go
+index 12f83cf..a8c5f92 100644
+--- a/tui/extension_selector.go
++++ b/tui/extension_selector.go
+@@ -38,6 +38,10 @@ type ExtensionSelectorComponent struct {
+ 	onToggleToolsExpanded func()
+ 	onSelect              func(option string)
+ 	onCancel              func()
++	bodyScroll            int // first visible row of a long title/description (pig additive)
++	terminalHeight        int
++	bodyRows              int
++	bodyScrolls           bool
+ 
+ 	// The themed texts are built when they change, as upstream builds each Text with theme.fg: the title at
+ 	// construction and for a countdown tick, the description at construction, the hint at construction and the
+@@ -171,6 +175,15 @@ func (e *ExtensionSelectorComponent) SetPreview(preview func(selectedIndex int)
+ // longest row (wrapping only to keep the preview inside the dialog), the preview follows previewGapCells later,
+ // top-aligned with the first row, and the title, hint and borders keep the full width.
+ func (e *ExtensionSelectorComponent) Render(width int) []string {
++	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
++	if e.terminalHeight > 0 {
++		return e.renderHeight(width, text, NewDynamicBorder().Render(width))
++	}
++	body := append(e.titleText.Render(width), styledDescriptionLines(e.descriptionText, width)...)
++	e.bodyScrolls = len(body) > extensionSelectorBodyRows
++	if e.bodyScrolls {
++		return e.renderLongBody(width)
++	}
+ 	preview := e.previewLines(width)
+ 	if preview == nil {
+ 		return e.Container.Render(width)
+@@ -321,6 +334,58 @@ const extensionSelectorPageSize = 8
+ // CapturesSelectPageInput reports that the selector handles tui.select.pageUp and tui.select.pageDown.
+ func (e *ExtensionSelectorComponent) CapturesSelectPageInput() bool { return true }
+ 
++// Render mirrors upstream extension-selector.ts, whose rows are Text(…, 1, 0)
++// children between Spacer(1) and DynamicBorder rows:
++//
++//	DynamicBorder + Spacer + accent(bold(title)) + [Spacer + description] +
++//	Spacer + one Text per option ("→ " prefix on selected) + Spacer +
++//	navigate/select/cancel hint + Spacer + DynamicBorder.
++//
++// Every Text wraps within one cell of padding on each side and pads to width,
++// so no row is wider than the render width.
++func (e *ExtensionSelectorComponent) renderLongBody(width int) []string {
++	border := NewDynamicBorder()
++	text := func(content string) []string { return NewPaddedText(content, 1, 0, nil).Render(width) }
++
++	var lines []string
++	lines = append(lines, border.Render(width)...)
++	lines = append(lines, "")
++	body := e.titleText.Render(width)
++	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
++	lines = append(lines, e.scrollBody(body, text)...)
++	lines = append(lines, "")
++
++	if preview := e.previewLines(width); preview != nil {
++		lines = append(lines, e.rowsBesidePreview(width, preview)...)
++	} else {
++		lines = append(lines, e.listContainer.Render(width)...)
++	}
++
++	lines = append(lines, "")
++	lines = append(lines, text(e.hintText)...)
++	lines = append(lines, "")
++	lines = append(lines, border.Render(width)...)
++	return lines
++}
++
++// extensionSelectorBodyRows is the most title and description rows shown at once (pig additive).
++// A longer body scrolls with the page keys instead of growing past the screen.
++const extensionSelectorBodyRows = 12
++
++// scrollBody shows at most extensionSelectorBodyRows rows of body, from e.bodyScroll, and a status row with the range.
++func (e *ExtensionSelectorComponent) scrollBody(body []string, text func(string) []string) []string {
++	if len(body) <= extensionSelectorBodyRows {
++		e.bodyScroll = 0
++		return body
++	}
++	e.bodyScroll = max(0, min(e.bodyScroll, len(body)-extensionSelectorBodyRows))
++	end := e.bodyScroll + extensionSelectorBodyRows
++	visible := append([]string(nil), body[e.bodyScroll:end]...)
++	status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) +
++		"  " + extKeyHint("pgup/pgdn", "scroll")
++	return append(visible, text(ActiveTheme().Fg("muted", status))...)
++}
++
+ // HandleInput resolves expansion, navigation, confirmation and cancellation in that order. Empty options do not complete the selector.
+ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 	if e.done {
+@@ -332,6 +397,10 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 		if e.onToggleToolsExpanded != nil {
+ 			e.onToggleToolsExpanded()
+ 		}
++	case kb.Matches(data, KBSelectPageUp) && e.bodyScrolls:
++		e.bodyScroll = max(0, e.bodyScroll-e.pageRows())
++	case kb.Matches(data, KBSelectPageDown) && e.bodyScrolls:
++		e.bodyScroll += e.pageRows() // Render clamps to the last page
+ 	case kb.Matches(data, KBSelectUp) || data == "k":
+ 		e.cursor = max(0, e.cursor-1)
+ 		e.updateList()
+@@ -348,7 +417,7 @@ func (e *ExtensionSelectorComponent) HandleInput(data string) {
+ 				e.onSelect(selected)
+ 			}
+ 		}
+-	case kb.Matches(data, KBSelectCancel):
++	case kb.Matches(data, KBSelectCancel) || data == "q": // No filter input here, so q is not text (pig additive).
+ 		e.done = true
+ 		e.cancel = true
+ 		if e.onCancel != nil {
+diff --git a/tui/extension_selector_height.go b/tui/extension_selector_height.go
+new file mode 100644
+index 0000000..689d52b
+--- /dev/null
++++ b/tui/extension_selector_height.go
+@@ -0,0 +1,73 @@
++package tui
++
++import "strconv"
++
++// SetTerminalHeight budgets the complete selector, not just its message body.
++func (e *ExtensionSelectorComponent) SetTerminalHeight(height int) {
++	e.terminalHeight = max(0, height)
++}
++
++func styledDescriptionLines(description string, width int) []string {
++	if description == "" {
++		return nil
++	}
++	return append([]string{""}, NewPaddedText(description, 1, 0, nil).Render(width)...)
++}
++
++func (e *ExtensionSelectorComponent) pageRows() int {
++	if e.terminalHeight > 0 {
++		return max(1, e.bodyRows)
++	}
++	return extensionSelectorBodyRows
++}
++
++func (e *ExtensionSelectorComponent) renderHeight(width int, text func(string) []string, border []string) []string {
++	budget := max(1, e.terminalHeight*7/10)
++	oneLine := func(value string) string {
++		rows := text(value)
++		if len(rows) == 0 {
++			return ""
++		}
++		return rows[0]
++	}
++	var lines []string
++	borders := 0
++	if budget >= 4 {
++		borders = 2 * len(border)
++		lines = append(lines, border...)
++	}
++	// Reserve body space, but keep every approval option visible whenever it
++	// physically fits. At extremely small heights, options follow the cursor.
++	optionRows := min(len(e.options), max(1, budget-borders-2))
++	remaining := max(0, budget-borders-optionRows)
++	hintRows := 0
++	if remaining >= 4 {
++		hintRows = 1
++	}
++	body := e.titleText.Render(width)
++	body = append(body, styledDescriptionLines(e.descriptionText, width)...)
++	e.bodyRows = max(0, remaining-hintRows)
++	scrolling := len(body) > e.bodyRows
++	e.bodyScrolls = scrolling
++	if scrolling && e.bodyRows > 1 {
++		e.bodyRows-- // reserve a one-row scroll indicator
++	}
++	e.bodyScroll = max(0, min(e.bodyScroll, max(0, len(body)-e.bodyRows)))
++	end := min(len(body), e.bodyScroll+e.bodyRows)
++	lines = append(lines, body[e.bodyScroll:end]...)
++	if scrolling && remaining-hintRows > 1 {
++		status := "lines " + strconv.Itoa(e.bodyScroll+1) + "-" + strconv.Itoa(end) + " of " + strconv.Itoa(len(body)) + "  pgup/pgdn scroll"
++		lines = append(lines, oneLine(ActiveTheme().Fg("muted", status)))
++	}
++	start := max(0, min(e.cursor, len(e.options)-optionRows))
++	for i := start; i < start+optionRows; i++ {
++		lines = append(lines, oneLine(e.rowText(i)))
++	}
++	if hintRows > 0 {
++		lines = append(lines, oneLine(e.hintText))
++	}
++	if borders > 0 {
++		lines = append(lines, border...)
++	}
++	return lines
++}
+diff --git a/tui/extension_selector_height_test.go b/tui/extension_selector_height_test.go
+new file mode 100644
+index 0000000..c058b3d
+--- /dev/null
++++ b/tui/extension_selector_height_test.go
+@@ -0,0 +1,50 @@
++package tui
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestExtensionSelectorHeightBudgetPreservesApprovalChoices(t *testing.T) {
++	for _, height := range []int{1, 6, 10, 12, 18, 24, 40, 80} {
++		for _, width := range []int{16, 40, 80} {
++			sel := NewExtensionSelectorComponent(strings.Repeat("long explanation\n", 100), []string{"Deny", "Allow", "Allow once"}, nil, nil)
++			sel.SetTerminalHeight(height)
++			rows := sel.Render(width)
++			if len(rows) > max(1, height*7/10) {
++				t.Fatalf("height %d width %d: got %d rows", height, width, len(rows))
++			}
++			if height >= 10 {
++				for _, choice := range []string{"Deny", "Allow", "Allow once"} {
++					if !strings.Contains(strings.Join(rows, "\n"), choice) {
++						t.Fatalf("height %d width %d: missing %s", height, width, choice)
++					}
++				}
++			}
++		}
++	}
++}
++
++func TestExtensionSelectorHeightResizeAndScrolling(t *testing.T) {
++	sel := NewExtensionSelectorComponent(strings.Repeat("explanation\n", 100), []string{"Deny", "Allow", "Allow once"}, nil, nil)
++	sel.SetTerminalHeight(40)
++	before := sel.Render(80)
++	sel.HandleInput("\x1b[6~")
++	if sel.bodyScroll == 0 || sel.Done() {
++		t.Fatal("page down must scroll without approving")
++	}
++	sel.SetTerminalHeight(12)
++	shrunk := sel.Render(80)
++	if len(shrunk) > 8 || len(shrunk) >= len(before) {
++		t.Fatal("resize did not shrink dialog", len(before), len(shrunk))
++	}
++	sel.SetTerminalHeight(80)
++	if len(sel.Render(80)) <= len(shrunk) {
++		t.Fatal("resize did not grow dialog")
++	}
++	sel.HandleInput("\x1b[B")
++	sel.HandleInput("\r")
++	if !sel.Done() || sel.SelectedValue() != "Allow" {
++		t.Fatal("approval navigation changed")
++	}
++}
+diff --git a/tui/extension_selector_oracle_test.go b/tui/extension_selector_oracle_test.go
+index 57b5a39..4257205 100644
+--- a/tui/extension_selector_oracle_test.go
++++ b/tui/extension_selector_oracle_test.go
+@@ -124,7 +124,17 @@ func TestExtensionSelectorMatchesPi(t *testing.T) {
+ 			func(option string) { events = append(events, "select:"+option) },
+ 			func() { events = append(events, "cancel") },
+ 			ExtensionSelectorOptions{Description: probe.Description})
+-		got := showImagesResult{Steps: [][]string{}, Frames: [][]string{selector.Render(probe.Width)}}
++		// Compare the native child composition with Pi. The distribution adds bounded
++		// body scrolling; dedicated height/scroll tests cover that intentional divergence.
++		renderFrame := func() []string {
++			native := selector.Container.Render(probe.Width)
++			actual := selector.Render(probe.Width)
++			if !selector.bodyScrolls && !reflect.DeepEqual(actual, native) {
++				t.Errorf("probe %d: short dialog diverged from its native composition", i)
++			}
++			return native
++		}
++		got := showImagesResult{Steps: [][]string{}, Frames: [][]string{renderFrame()}}
+ 		// The host removes the component as soon as a callback runs, so Pi's never sees a key after one; Pig's host polls Done and ignores later keys.
+ 		keys := probe.Keys
+ 		if completed := firstCompletedStep(expected[i].Steps); completed >= 0 {
+@@ -134,7 +144,7 @@ func TestExtensionSelectorMatchesPi(t *testing.T) {
+ 		for _, key := range keys {
+ 			selector.HandleInput(key)
+ 			got.Steps = append(got.Steps, append([]string{}, events...))
+-			got.Frames = append(got.Frames, selector.Render(probe.Width))
++			got.Frames = append(got.Frames, renderFrame())
+ 		}
+ 		if !reflect.DeepEqual(got.Steps, expected[i].Steps) || !reflect.DeepEqual(got.Frames, expected[i].Frames) {
+ 			if failures++; failures <= 3 {
+diff --git a/tui/extension_selector_test.go b/tui/extension_selector_test.go
+index 757edee..db8bcec 100644
+--- a/tui/extension_selector_test.go
++++ b/tui/extension_selector_test.go
+@@ -7,6 +7,7 @@ package tui
+ 
+ import (
+ 	"slices"
++	"strconv"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -77,6 +78,21 @@ func TestExtensionSelectorHandleInput_CancelStillWins(t *testing.T) {
+ 	}
+ }
+ 
++// q cancels like Escape: this selector has no filter input, so q is never text (pig additive).
++func TestExtensionSelectorQCancelsLikeEscape(t *testing.T) {
++	sel := NewExtensionSelectorComponent("Pick one", []string{"a", "b"}, nil, nil)
++	sel.HandleInput("q")
++	if !sel.Done() || !sel.Cancelled() {
++		t.Fatal("q must cancel the selector")
++	}
++	other := NewExtensionSelectorComponent("Pick one", []string{"a", "b"}, nil, nil)
++	other.HandleInput("j")
++	other.HandleInput("\r")
++	if !other.Done() || other.Cancelled() || other.SelectedValue() != "b" {
++		t.Fatal("navigation and confirmation must be unchanged")
++	}
++}
++
+ // Upstream extension-selector.ts and extension-editor.ts render an optional
+ // description between the title and the body, after a blank spacer, wrapped
+ // with one cell of padding.
+@@ -410,3 +426,37 @@ func TestExtensionSelectorComponentHasNoPreviewWithoutOptionsAndCapturesThePageK
+ 		t.Error("the selector must capture tui.select.pageUp and pageDown")
+ 	}
+ }
++
++func TestExtensionSelectorLongBodyHasFixedHeightAndScrolls(t *testing.T) {
++	var rows []string
++	for i := 1; i <= 40; i++ {
++		rows = append(rows, "row"+strconv.Itoa(i)+"x")
++	}
++	sel := NewExtensionSelectorComponent(strings.Join(rows, "\n"), []string{"Deny", "Allow once"}, nil, nil)
++	first := sel.Render(80)
++	joined := strings.Join(first, "\n")
++	if !strings.Contains(joined, "row1x") || strings.Contains(joined, "row13x") || !strings.Contains(joined, "of 40") {
++		t.Fatalf("first page wrong:\n%s", joined)
++	}
++	sel.HandleInput("\x1b[6~") // pageDown
++	next := sel.Render(80)
++	if len(next) != len(first) {
++		t.Fatalf("height changed: %d -> %d", len(first), len(next))
++	}
++	if j := strings.Join(next, "\n"); !strings.Contains(j, "row13x") || strings.Contains(j, "row1x") {
++		t.Fatalf("second page wrong:\n%s", j)
++	}
++	for i := 0; i < 10; i++ {
++		sel.HandleInput("\x1b[6~")
++	}
++	if j := strings.Join(sel.Render(80), "\n"); !strings.Contains(j, "row40x") || !strings.Contains(j, "29-40 of 40") {
++		t.Fatalf("last page wrong:\n%s", j)
++	}
++	sel.HandleInput("\x1b[5~") // pageUp
++	if j := strings.Join(sel.Render(80), "\n"); !strings.Contains(j, "17-28 of 40") {
++		t.Fatalf("pageUp wrong:\n%s", j)
++	}
++	if sel.Done() {
++		t.Fatal("scrolling must not complete the selector")
++	}
++}
 diff --git a/tui/file_autocomplete.go b/tui/file_autocomplete.go
 index cf5265a..12e7901 100644
 --- a/tui/file_autocomplete.go
@@ -2056,6 +3157,26 @@ index 0000000..56c151e
 +		t.Fatal("delayed command overwrote newer typing")
 +	}
 +}
+diff --git a/tui/keybindings.go b/tui/keybindings.go
+index 74cb993..ef9296a 100644
+--- a/tui/keybindings.go
++++ b/tui/keybindings.go
+@@ -34,6 +34,7 @@ const (
+ 	KBEditorCursorLineEnd     TUIKeybinding = "tui.editor.cursorLineEnd"
+ 	KBEditorJumpForward       TUIKeybinding = "tui.editor.jumpForward"
+ 	KBEditorJumpBackward      TUIKeybinding = "tui.editor.jumpBackward"
++	KBEditorSelectAll         TUIKeybinding = "tui.editor.selectAll"
+ 	KBEditorPageUp            TUIKeybinding = "tui.editor.pageUp"
+ 	KBEditorPageDown          TUIKeybinding = "tui.editor.pageDown"
+ 	KBEditorDeleteCharBack    TUIKeybinding = "tui.editor.deleteCharBackward"
+@@ -180,6 +181,7 @@ func TUIKeybindingDefinitionsFor(platform KeybindingPlatform) KeybindingDefiniti
+ 		KBEditorCursorLineEnd:     {DefaultKeys: []string{"end", "ctrl+e"}, Description: "Move to line end"},
+ 		KBEditorJumpForward:       {DefaultKeys: []string{"ctrl+]"}, Description: "Jump forward to character"},
+ 		KBEditorJumpBackward:      {DefaultKeys: []string{"ctrl+alt+]"}, Description: "Jump backward to character"},
++		KBEditorSelectAll:         {DefaultKeys: []string{}, Description: "Select all text in the editor"},
+ 		KBEditorPageUp:            {DefaultKeys: []string{"pageUp", "ctrl+pageUp"}, Description: "Page up"},
+ 		KBEditorPageDown:          {DefaultKeys: []string{"pageDown", "ctrl+pageDown"}, Description: "Page down"},
+ 		KBEditorDeleteCharBack:    {DefaultKeys: []string{"backspace"}, Description: "Delete character backward"},
 diff --git a/tui/skill_invocation.go b/tui/skill_invocation.go
 index 82a3523..162431f 100644
 --- a/tui/skill_invocation.go
@@ -2403,9 +3524,36 @@ index 0000000..3e3fd79
 +	}
 +}
 diff --git a/tui/tool_execution.go b/tui/tool_execution.go
-index 6757c89..6a64534 100644
+index 6757c89..3c269c2 100644
 --- a/tui/tool_execution.go
 +++ b/tui/tool_execution.go
+@@ -774,7 +774,7 @@ func (c *ToolExecutionComponent) renderToolImages(width int) []string { return c
+ // renderLegacyHeader draws the call header, wrapped across rows like upstream's Text.
+ func (c *ToolExecutionComponent) renderLegacyHeader(width int) []string {
+ 	if c.isUnregisteredTool() {
+-		return wrapText(c.formatToolExecution(), width)
++		return wrapText(c.formatToolExecution(width), width)
+ 	}
+ 	return wrapText(c.renderHeaderInner(width), width)
+ }
+@@ -787,7 +787,7 @@ func (c *ToolExecutionComponent) isUnregisteredTool() bool {
+ 
+ // formatToolExecution is upstream formatToolExecution (tool-execution.ts:394-406): the tool name in toolTitle, its arguments as JSON.stringify(args, null, 2)
+ // after a blank line, and the result text on the next line, stripped of ANSI sequences, binary control characters and carriage returns (render-utils.ts getTextOutput).
+-func (c *ToolExecutionComponent) formatToolExecution() string {
++func (c *ToolExecutionComponent) formatToolExecution(width int) string {
+ 	out := toolTitleText(c.Name)
+ 	if len(c.argumentsRaw) > 0 {
+ 		if canonical, err := jsonstringify.Canonicalize(c.argumentsRaw); err == nil {
+@@ -798,7 +798,7 @@ func (c *ToolExecutionComponent) formatToolExecution() string {
+ 		}
+ 	}
+ 	if output := strings.ReplaceAll(text.SanitizeBinaryOutput(text.StripANSIString(c.Output)), "\r", ""); output != "" {
+-		out += "\n" + output
++		out += "\n" + strings.Join(c.collapsedToolRows(wrapText(output, width), width), "\n")
+ 	}
+ 	return out
+ }
 @@ -816,13 +816,10 @@ func (c *ToolExecutionComponent) renderLegacyBody(width int) []string {
  		// first-ten-lines fallback and can be expanded by click or Ctrl+O.
  		return append(append([]string{""}, c.renderCollapsedPreview(width)...), c.runningElapsedRows(width)...)
