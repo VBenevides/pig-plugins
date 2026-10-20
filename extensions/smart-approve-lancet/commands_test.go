@@ -206,7 +206,7 @@ func TestLancetEnforcementWithTheRealModel(t *testing.T) {
 		bashCall("rm -rf /"), pigtest.Text("five"),
 	)
 	defer mock.Close()
-	answers := []string{"Deny", "Allow once", "Allow once"}
+	answers := []string{"Deny", "Allow", "Allow"}
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionPath(t)}, Env: env,
 		Prompts: []string{"a", "b", "c", "d", "e"},
 		Dialog: func(map[string]any) map[string]any {
@@ -256,7 +256,7 @@ func TestPersistedSharedReviewWithRealModelRPC(t *testing.T) {
 		bashCall(command), pigtest.Text("strict again"),
 	)
 	defer mock.Close()
-	answers := []string{"Deny", "Deny", "Allow once"}
+	answers := []string{"Deny", "Deny", "Allow"}
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{
 		Extensions: []string{extensionPath(t), filepath.Join(extensionPath(t), "testdata", "settings-writer")},
 		Env:        env,

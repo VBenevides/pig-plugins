@@ -105,7 +105,7 @@ func TestDialogShowsAffectedItemsAndOffersAlwaysAllow(t *testing.T) {
 			t.Errorf("dialog lacks %q:\n%s", want, s.asked[0])
 		}
 	}
-	if got, want := strings.Join(s.options[0], "|"), strings.Join([]string{choiceDeny, choiceOnce, choiceAlways}, "|"); got != want {
+	if got, want := strings.Join(s.options[0], "|"), "Allow|Deny|Always allow this command and item"; got != want {
 		t.Errorf("options = %q, want %q", got, want)
 	}
 }

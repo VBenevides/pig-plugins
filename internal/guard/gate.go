@@ -191,10 +191,11 @@ func confirm(call Call, title, body string) bool {
 	return err == nil && approved
 }
 
-// Answers offered by the select dialog. Deny comes first so that a reflex Enter never grants anything.
+// Answers are ordered as requested. With the host's default selection, Enter
+// now allows once; cancellation and invalid responses still deny.
 const (
 	choiceDeny   = "Deny"
-	choiceOnce   = "Allow once"
+	choiceOnce   = "Allow"
 	choiceAlways = "Always allow this command and item"
 )
 
@@ -216,7 +217,7 @@ func (g *Gate) ask(call Call, title string, body func() string, grant Grant) boo
 	if call.Select == nil {
 		return confirm(call, title, text)
 	}
-	options := []string{choiceDeny, choiceOnce}
+	options := []string{choiceOnce, choiceDeny}
 	if list != nil {
 		options = append(options, choiceAlways)
 	}
@@ -228,6 +229,9 @@ func (g *Gate) ask(call Call, title string, body func() string, grant Grant) boo
 	case choiceOnce:
 		return true
 	case choiceAlways:
+		if list == nil {
+			return false
+		}
 		if err := list.Add(grant); err != nil {
 			fmt.Fprintf(os.Stderr, "%scannot save the allow list entry: %v\n", Prefix, err)
 		}

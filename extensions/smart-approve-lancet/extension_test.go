@@ -151,7 +151,7 @@ func TestRPCConfirmationFlow(t *testing.T) {
 	)
 	defer mock.Close()
 
-	answers := []string{"Deny", "Allow once", "Deny"}
+	answers := []string{"Deny", "Allow", "Deny"}
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{
 		Extensions: []string{extensionPath(t)},
 		Prompts:    []string{"a", "b", "c", "d"},
@@ -171,7 +171,7 @@ func TestRPCConfirmationFlow(t *testing.T) {
 		if got, _ := result.Asked[i]["title"].(string); !strings.HasPrefix(got, want+"\n") || !strings.Contains(got, "Affected items:\n"+items[i]) {
 			t.Errorf("dialog %d title = %q, want it to start with %q and show %q", i, got, want, items[i])
 		}
-		if options := fmt.Sprint(result.Asked[i]["options"]); options != "[Deny Allow once Always allow this command and item]" {
+		if options := fmt.Sprint(result.Asked[i]["options"]); options != "[Allow Deny Always allow this command and item]" {
 			t.Errorf("dialog %d options = %s", i, options)
 		}
 	}

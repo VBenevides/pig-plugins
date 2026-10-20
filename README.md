@@ -565,8 +565,8 @@ Its assessment is labeled advisory, never executes tools, and keeps the static u
 invalid output shows an unavailable notice and still requires approval. Known targets, stored grants, no-UI
 blocks and hard blocks do not request an assessment. Requests cap output at 1024 tokens, disable retries and set
 a 15 s provider timeout (provider timeout semantics apply). This display does not change approval rules or saved
-grant keys. The dialog answers `Deny`, `Allow once`
-or `Always allow this command and item`. The last stores the exact command (or the tool, for `write` and `edit`)
+grant keys. The dialog answers `Allow`, `Deny`, `Always allow this command and item`, in that order.
+`Allow` approves only this call and saves no grant. The host initially selects the first option, so pressing Enter now allows once rather than denies. Escape, q, Ctrl+C, invalid responses and dialog failures deny. The last choice stores the exact command (or the tool, for `write` and `edit`)
 together with its policy item (delete paths or the working folder for bash; the file path for write/edit) in
 `smart-approve-lancet-allow.json` in the agent directory (mode 0600); only that pair is skipped later, and the other
 sessions see it at once. Hard blocks and LANCET `risky` verdicts still block. A damaged allow list
