@@ -12,6 +12,14 @@ Execute the caller-specified TODO file until no executable item remains.
 Otherwise use `.agent-work/todo-planner/TODO.md`.
 Stop only when a real blocker prevents more work.
 
+## Required output writing
+
+Apply `ste-writing` to all new progress reports, TODO evidence notes, changelog entries, and commit-message prose.
+Read [references/STE_WRITING.md](references/STE_WRITING.md) before writing. The bundled rules work offline.
+Use strict mode for instructions and safety text. Use STE-flavored mode for descriptive evidence and reports.
+Complete the required writing review before saving, committing, or returning output.
+Preserve recorded evidence, existing item requirements, raw tool output, code, commands, hashes, and required fields.
+
 ## Required progress checkpoint
 
 Complete this checkpoint after each actionable item.

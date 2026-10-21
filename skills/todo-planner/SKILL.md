@@ -12,6 +12,14 @@ Create or update `TODO.md` from a supplied work list. Use a caller-specified
 path when provided. Otherwise use `.agent-work/todo-planner/TODO.md`.
 Plan only. Do not implement code, run tests, or create commits.
 
+## Required output writing
+
+Apply `ste-writing` to all new TODO titles, descriptions, test plans, notes, and status summaries.
+Read [references/STE_WRITING.md](references/STE_WRITING.md) before writing. The bundled rules work offline.
+Use strict mode for instructions and safety text. Use STE-flavored mode for descriptive plan text.
+Complete the required writing review before saving or returning output.
+Preserve existing item evidence and archive contents verbatim. Keep required field names, commands, and hashes unchanged.
+
 ## Workflow
 
 1. Read the work list and its evidence.

@@ -5,6 +5,14 @@ description: "Format implementation and TODO evidence commit messages with the p
 
 # Format Commit
 
+## Required output writing
+
+Apply `ste-writing` to all new commit-message prose and output explanations.
+Read [references/STE_WRITING.md](references/STE_WRITING.md) before writing. The bundled rules work offline.
+Use strict mode for instructions and safety text. Use STE-flavored mode for descriptive commit text.
+Complete the required writing review before returning a message.
+Preserve the required message syntax, technical names, hashes, and literal evidence.
+
 Use this format:
 
 ```text

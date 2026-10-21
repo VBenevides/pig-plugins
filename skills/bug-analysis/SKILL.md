@@ -7,6 +7,14 @@ description: Find the root cause of a defect, failure, regression, or unexpected
 
 Use evidence to find the root cause of a symptom.
 
+## Required output writing
+
+Apply `ste-writing` to all new or revised output prose, including reports and status summaries.
+Read [references/STE_WRITING.md](references/STE_WRITING.md) before writing. The bundled rules work offline.
+Use strict mode for instructions and safety text. Use STE-flavored mode for descriptive reports.
+Complete the required writing review before saving or returning output.
+Preserve literal evidence, code, commands, hashes, and required output fields.
+
 ## Core contract
 
 - Write a caller-specified output path when provided. Otherwise write

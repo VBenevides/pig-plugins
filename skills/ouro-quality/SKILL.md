@@ -9,6 +9,14 @@ disable-model-invocation: true
 The active agent owns source edits, tools, permissions, and commits. Ouro only
 runs the deterministic quality gate and returns evidence.
 
+## Required output writing
+
+Apply `ste-writing` to all authored quality reports, findings, and status summaries.
+Read [references/STE_WRITING.md](references/STE_WRITING.md) before writing. The bundled rules work offline.
+Use strict mode for instructions and safety text. Use STE-flavored mode for descriptive reports.
+Complete the required writing review before saving or returning output.
+Preserve raw tool output, result codes, code, commands, hashes, and recorded evidence.
+
 ## Available flows
 
 - **Initialize:** If configuration is absent, run `ouro init --root "$PWD"`.

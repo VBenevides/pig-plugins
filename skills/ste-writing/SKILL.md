@@ -7,8 +7,18 @@ description: Rewrite prose in ASD-STE100 Simplified Technical English. Use stric
 
 Write prose in ASD-STE100 Simplified Technical English.
 
-Use this skill for documents, pull requests, error messages, release notes, and comments.
-Do not use it for code, identifiers, commands, marketing text, essays, or personal prose.
+Use this skill for all authored reports, TODO plans, evidence notes, changelogs, documentation, commit messages, and status summaries.
+Use it for pull requests, error messages, release notes, comments, and diagram labels.
+Do not rewrite code, identifiers, commands, paths, URLs, hashes, required fields, quotations, or recorded evidence for style.
+Do not use it for marketing text, essays, or personal prose.
+
+## Required output writing
+
+Apply these rules to all new or revised skill-output prose.
+Read [references/OUTPUT_RULES.md](references/OUTPUT_RULES.md) for the shared output scope and preservation rules.
+The bundled rules work offline. No website, external checker, or separate skill is required.
+Complete the writing review before saving, publishing, committing, or returning authored prose.
+Keep required report sections and formats. Do not rewrite historical or archived evidence solely for style.
 
 ## Rules
 
@@ -72,5 +82,6 @@ Before returning text:
 These rules improve text form.
 They do not prove that the content is correct or useful.
 
-Read the free official standard at https://asd-ste100.org.
+The official standard at https://asd-ste100.org is optional background reading.
+Do not require network access to apply the bundled writing rules.
 Do not copy the complete copyrighted standard.

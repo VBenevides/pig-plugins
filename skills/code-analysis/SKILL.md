@@ -1,6 +1,7 @@
 ---
 name: code-analysis
 description: "User-invoked security and performance review. Produces .agent-work/code-analysis/ANALYSIS_REPORT.md with UTC and Git metadata and numbered report archives."
+disable-model-invocation: true
 ---
 
 # Code Analysis
@@ -12,6 +13,25 @@ user-invocation provenance, or an expressly authorized handoff carrying that pro
 and scope. Loading, mentioning, recommending or finding this skill relevant is not
 permission to run it. Do not implement fixes, change dependencies, create commits or
 invoke other gated workflows merely because findings suggest them.
+
+## Required output writing
+
+Apply `ste-writing` to all new report prose, findings, recommendations, and status summaries.
+Read [references/STE_WRITING.md](references/STE_WRITING.md) before writing. The bundled rules work offline.
+Use strict mode for instructions and safety text. Use STE-flavored mode for descriptive report text.
+Complete the required writing review before saving or returning output.
+Preserve report fields, literal evidence, archive contents, code, commands, hashes, and measurements.
+
+## Offline reference pack
+
+Read [references/README.md](references/README.md) and
+[references/REPORT_FORMAT.md](references/REPORT_FORMAT.md) from this skill's own
+directory before analysis. They contain the complete local report format and source
+references; no internet, hosted model or separately installed skill is required.
+Default to local evidence and tools. Do not attempt network access in offline mode,
+install missing tools or fetch advisory feeds merely to complete this review.
+If a local check needs unavailable dependencies, mark it `Not run` with the reason.
+Optional permitted web research may supplement, never replace, the bundled guidance.
 
 ## Procedure
 
@@ -34,13 +54,13 @@ invoke other gated workflows merely because findings suggest them.
    work/I/O, memory/resource bounds, concurrency, caching and retry behavior. Prefer
    existing profiling/benchmark tools and bounded, safe local checks. Do not run
    exploits, production loads, destructive commands or install tools without permission.
-4. Consult current primary-source web guidance for report structure. Start with the
-   references below; record URLs and UTC access dates actually consulted. Adapt the
-   format to this codebase, not a claim of OWASP certification. If web access fails,
-   report the failure and use these references as unverified starting points. Separate
-   confirmed findings from hypotheses and measured performance from estimates. Include
-   failed checks and coverage gaps. A review with no findings is valid, not proof of
-   security or optimal performance.
+4. Use the bundled report guidance. Record external source URLs as background, with
+   `Not accessed (offline)` unless actually consulted. Only perform optional online
+   research when permitted and useful; record real UTC access dates for those lookups.
+   An unavailable website does not block the report. Separate confirmed findings
+   from hypotheses and measured performance from estimates. Include failed checks,
+   coverage gaps and offline advisory-freshness limitations. A review with no findings
+   is valid, not proof of security or optimal performance.
 5. Prepare the report, preserve any previous report using the archive procedure, then
    publish `.agent-work/code-analysis/ANALYSIS_REPORT.md`. Read back the final report
    and verify metadata, both review areas, findings/evidence, references and archive
@@ -48,46 +68,11 @@ invoke other gated workflows merely because findings suggest them.
 
 ## Report format
 
-Use concise Markdown with these sections:
-
-```markdown
-# Code Analysis Report
-
-## Analysis Metadata
-- Started / finished (UTC): <ISO 8601 timestamps ending in Z>
-- Repository / scope / exclusions: <paths and boundaries>
-- Branch: <name, Detached HEAD, or unavailable reason>
-- Commit evaluated: <full SHA or unavailable reason>
-- Working tree: <clean/dirty, relevant changes and revision drift>
-- Previous reports: <relative archive links, if any>
-
-## Executive Summary
-<Main risks and priorities; point-in-time assessment, not a warranty>
-
-## Methods and Limitations
-<Commands, tool versions, checked boundaries and untested areas>
-
-## Security Findings
-## Performance and Optimization Findings
-## Verification Results
-<Actual command, result and relevant sanitized evidence; Not run with reason>
-
-## Recommendations
-<Prioritized actions, tradeoffs and proposed verification; no automatic fixes>
-
-## References
-<Actually consulted URLs and UTC access dates; source paths for code evidence>
-```
-
-For each finding include a stable ID, title, category, severity (Critical/High/Medium/Low
-with rationale), confidence/status, affected path and symbol or line range, observed
-behavior and evidence, impact, prerequisites, recommendation and verification plan.
-Security severity reflects likelihood and impact; performance priority reflects
-workload and measured cost, not a fabricated vulnerability score. For benchmarks
-record workload, environment/tool versions, command, baseline, repetitions, units,
-variability and results. Label unmeasured opportunities `Hypothesis — not measured`.
-Redact secrets and sensitive payloads; do not dump raw logs unnecessarily. Use
-`No confirmed findings` where appropriate and explain coverage.
+Use [references/REPORT_FORMAT.md](references/REPORT_FORMAT.md) for the complete
+report skeleton, security/performance finding blocks, rating rules, benchmark
+evidence and verification table. Fill it from inspected local evidence. Include both
+review areas and UTC/Git metadata (or specific unavailable reasons); no placeholder
+or invented finding, measurement, test pass or web access date may remain.
 
 ## Archive and safe publication
 
@@ -116,12 +101,8 @@ separate from analysis; never modify or remove existing numbered archives.
    the same analysis must reuse its archive, not create duplicates. No automatic
    cleanup or retention deletion is authorized.
 
-## Format references
+## Source references
 
-- [OWASP WSTG Reporting Structure](https://owasp.org/www-project-web-security-testing-guide/v42/5-Reporting):
-  executive summary, test scope/limitations, reproducible findings, risk and remediation.
-- [Google Benchmark User Guide](https://google.github.io/benchmark/user_guide.html):
-  environment context, repeated runs, statistics, units and reporting formats.
-
-These are format/methodology references, not dependencies or a requirement to run
-Google Benchmark on projects using other languages.
+See [references/README.md](references/README.md) for OWASP WSTG and Google Benchmark
+site references and the principles incorporated locally. These are optional reading,
+not runtime dependencies or a requirement to use a particular benchmark framework.

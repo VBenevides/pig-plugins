@@ -10,6 +10,14 @@ Activation gate: Execute this skill ONLY with the host's explicit user-invocatio
 
 Create or update `CHANGELOG.md` in the project root, or the user-specified path such as `./docs/CHANGELOG.md`.
 
+## Required output writing
+
+Apply `ste-writing` to all new changelog prose, release summaries, and status reports.
+Read [references/STE_WRITING.md](references/STE_WRITING.md) before writing. The bundled rules work offline.
+Use strict mode for instructions and safety text. Use STE-flavored mode for descriptive release notes.
+Complete the required writing review before saving or returning output.
+Preserve historical entries, literal evidence, dates, versions, hashes, headings, and required release syntax.
+
 ## Workflow
 
 1. Resolve the Git repository root with `git rev-parse --show-toplevel`. Resolve relative output paths from that root.
