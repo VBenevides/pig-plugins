@@ -2,6 +2,24 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.2] - 2026-10-21
+
+### Features
+
+- Add user-invoked `/skill:code-analysis` for security and performance reviews. Reports include UTC/Git metadata, evidence, limitations, and verified numbered archives of previous reports.
+- Add user-invoked `/skill:update-docs` for source-based README and documentation updates, architecture diagrams, and resource maps. The workflow commits only verified documentation.
+
+### Bugfixes
+
+- Install self-updates only when the remote plugins version is strictly newer. Equal or older remote versions leave the installation unchanged.
+- Pin the remote version, installer, and checkout to one verified commit. Stop on lookup failures, invalid versions, prereleases, or checkout mismatches before installation.
+
+### Other
+
+- Bundle offline report, documentation, diagram, and commit formats for the new skills. Both skills require explicit invocation and stay hidden from automatic model discovery.
+- Require STE writing rules and a writing review across all bundled skills. Preserve literal evidence, historical entries, code, commands, and required formats.
+- Add regression coverage for version comparisons, update failures, metadata size limits, and pinned checkouts. Document the self-update checks and download limits.
+
 ## [0.2.1] - 2026-10-20
 
 ### Features

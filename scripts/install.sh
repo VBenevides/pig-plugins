@@ -27,12 +27,27 @@ if [ ! -f "$here/dev_build.sh" ]; then
     checkout=$(mktemp -d "${TMPDIR:-/tmp}/pig-plugins-install.XXXXXX")
     trap 'rm -rf "$checkout"' 0
     echo "install: downloading repository" >&2
-    git clone --quiet --depth 1 "${PIG_PLUGINS_REPO:-https://github.com/VBenevides/pig-plugins}" "$checkout/src"
+    if [ -n "${PIG_PLUGINS_COMMIT:-}" ]; then
+        case "$PIG_PLUGINS_COMMIT" in
+            *[!0-9a-f]*|'') echo "install: invalid pinned commit" >&2; exit 1 ;;
+        esac
+        [ "${#PIG_PLUGINS_COMMIT}" -eq 40 ] || { echo "install: invalid pinned commit" >&2; exit 1; }
+        git init --quiet "$checkout/src"
+        git -C "$checkout/src" remote add origin "${PIG_PLUGINS_REPO:-https://github.com/VBenevides/pig-plugins}"
+        git -C "$checkout/src" fetch --quiet --depth 1 origin "$PIG_PLUGINS_COMMIT"
+        git -C "$checkout/src" checkout --quiet --detach FETCH_HEAD
+    else
+        git clone --quiet --depth 1 "${PIG_PLUGINS_REPO:-https://github.com/VBenevides/pig-plugins}" "$checkout/src"
+    fi
     "$checkout/src/scripts/install.sh"
     exit 0
 fi
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -n "${PIG_PLUGINS_COMMIT:-}" ]; then
+    actual_commit=$(git -C "$root" rev-parse HEAD)
+    [ "$actual_commit" = "$PIG_PLUGINS_COMMIT" ] || { echo "install: checkout does not match pinned commit" >&2; exit 1; }
+fi
 pig_home=${PIG_HOME:-"$HOME/.pig"}
 agent_dir=${PIG_CODING_AGENT_DIR:-"$pig_home/agent"}
 dest="$pig_home/pig-plugins"

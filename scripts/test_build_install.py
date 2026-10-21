@@ -101,6 +101,45 @@ chmod +x "$2"
         return subprocess.run([str(self.root / "scripts" / name), *map(str, args)],
                               env=self.env, capture_output=True, text=True, timeout=10)
 
+    def test_pinned_checkout_mismatch_stops_before_installation(self):
+        self.env["PIG_PLUGINS_COMMIT"] = "a" * 40
+        self.tool("git", 'echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n')
+        result = self.run_script("install.sh")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("checkout does not match pinned commit", result.stderr)
+        self.assertFalse(Path(self.env["PIG_HOME"]).exists())
+
+    def test_bootstrap_fetches_pinned_commit_not_new_branch_head(self):
+        remote = Path(self.tmp.name) / "remote"
+        remote.mkdir()
+        scripts = remote / "scripts"
+        scripts.mkdir()
+        installer = scripts / "install.sh"
+        marker = Path(self.tmp.name) / "pin-marker"
+        installer.write_text('#!/bin/sh\nprintf pinned > "$PIN_MARKER"\n')
+        installer.chmod(0o755)
+        real_git = shutil.which("git")
+        assert real_git is not None
+        def git(*args):
+            return subprocess.check_output([real_git, "-C", str(remote), *args], text=True).strip()
+        git("init", "--quiet")
+        git("config", "user.name", "Fixture")
+        git("config", "user.email", "fixture@example.invalid")
+        git("add", "scripts/install.sh")
+        git("commit", "--quiet", "-m", "pinned")
+        pinned = git("rev-parse", "HEAD")
+        installer.write_text('#!/bin/sh\nprintf wrong > "$PIN_MARKER"\n')
+        git("commit", "--quiet", "-am", "new branch head")
+        launcher = Path(self.tmp.name) / "bootstrap.sh"
+        shutil.copy2(ROOT / "scripts/install.sh", launcher)
+        env = dict(self.env, PIG_PLUGINS_COMMIT=pinned, PIG_PLUGINS_REPO=str(remote),
+                   PIN_MARKER=str(marker))
+        # Bypass only the fixture git wrapper; exercise a real shallow fetch/checkout.
+        env["PATH"] = os.environ["PATH"]
+        result = subprocess.run([str(launcher)], env=env, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(marker.read_text(), "pinned")
+
     def test_candidate_ignores_installed_pig_versions(self):
         self.env.pop("PIG_SOURCE_ROOT")
         self.env["PIG_BUILD_VERSION"] = "0.5.1"
