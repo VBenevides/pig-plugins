@@ -29,9 +29,17 @@ class DistributionUpdateTest(unittest.TestCase):
         curl = self.tools / "curl"
         curl.write_text('''#!/bin/sh
 set -eu
-while [ "$1" != -o ]; do shift; done
-printf '%s\n' 'printf "%s|%s" "$PIG_PLUGINS_UPDATE" "$PIG_PLUGINS_HOST_VERSION" > "$UPDATE_MARKER"' 'exit "${INSTALL_EXIT:-0}"' > "$2"
-exit "${DOWNLOAD_EXIT:-0}"
+while [ "$1" != -o ]; do url=$1; shift; done
+case "$url" in
+  */git/ref/heads/main)
+    printf '{"object":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' > "$2" ;;
+  */aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/VERSION)
+    printf '%s' "${REMOTE_VERSION:-999.0.0}" > "$2" ;;
+  */aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/scripts/install.sh)
+    printf '%s\\n' 'printf "%s|%s|%s" "$PIG_PLUGINS_UPDATE" "$PIG_PLUGINS_HOST_VERSION" "$PIG_PLUGINS_COMMIT" > "$UPDATE_MARKER"' 'exit "${INSTALL_EXIT:-0}"' > "$2"
+    exit "${DOWNLOAD_EXIT:-0}" ;;
+  *) exit 1 ;;
+esac
 ''')
         curl.chmod(0o755)
 
@@ -52,7 +60,26 @@ exit "${DOWNLOAD_EXIT:-0}"
                 marker = self.marker.read_text()
                 self.assertTrue(marker.startswith("1|"), marker)
                 self.assertGreater(len(marker), 2)
+                self.assertTrue(marker.endswith("|" + "a" * 40), marker)
                 self.assertFalse(list(self.downloads.glob("pig-plugins-update.*")))
+
+    def test_equal_or_older_remote_does_not_install(self):
+        local = (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+        for remote in (local, "0.0.0"):
+            with self.subTest(remote=remote):
+                self.env["REMOTE_VERSION"] = remote
+                result = self.run_binary("--update")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("no update needed", result.stdout)
+                self.assertFalse(self.marker.exists())
+                self.assertFalse(list(self.downloads.glob("pig-plugins-update.*")))
+
+    def test_invalid_remote_does_not_install(self):
+        self.env["REMOTE_VERSION"] = "not-a-version"
+        result = self.run_binary("--update")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("compare plugins versions", result.stderr)
+        self.assertFalse(self.marker.exists())
 
     def test_installer_failure_cleans_up_and_can_retry(self):
         self.env["INSTALL_EXIT"] = "9"

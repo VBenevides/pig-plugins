@@ -58,15 +58,25 @@ When PiG is below the supported version or pig-plugins is outdated, the extensio
 pig-plugins --update
 ```
 
-This downloads the official plugin installer completely before executing it.
-The installer refreshes PiG through its official curl installer to the version
-declared in the newly cloned `COMPATIBILITY.json` (currently `0.5.1`), then
-rebuilds the latest plugins. `--update` does not force incompatible upstream
-upgrades. An explicit `PIG_VERSION`
-override remains available at your own compatibility risk.
-The existing native executable survives a failed rebuild. Updates are never
-installed automatically, and the check preference survives reinstalls.
-Both `pig-plugins update` and `pig-plugins --update` use this installer, including in development builds. Explicit extension-update commands keep PiG's package-update behavior.
+Self-update resolves the official repository's `main` commit through GitHub's API
+and compares that commit's `VERSION` with the embedded local plugins version.
+Only a strictly newer remote version downloads and executes the installer. Equal
+or newer local versions return a no-op; lookup failures, malformed/development
+versions and prereleases stop with an error and no installation. Comparison uses
+numeric major/minor/patch components, accepts a leading `v`, and ignores build metadata.
+
+The version, installer and fetched checkout are pinned to that same commit, even
+if `main` moves during the update. Metadata responses are capped at 4 KiB; HTTPS
+requests have 10-second connection and 60-second total timeouts. The installer is
+downloaded completely before execution. GitHub API failures/rate limits stop the update.
+The installer refreshes PiG to the pinned checkout's `COMPATIBILITY.json` version,
+then rebuilds those plugins. `--update` does not force incompatible upstream
+upgrades. An explicit `PIG_VERSION` override remains available at your own
+compatibility risk. The existing native executable survives a failed rebuild.
+Updates are never installed automatically, and the check preference survives reinstalls.
+Both `pig-plugins update` and `pig-plugins --update` use this guard, including in
+development builds; `update --force` does not bypass version precedence.
+Explicit extension-update commands keep PiG's package-update behavior.
 
 ### Upgrade to 0.2.0
 
