@@ -76,7 +76,10 @@ func TestBothBrowsersAndOwnedSessionLifecycle(t *testing.T) {
 			if _, err := client.Run(ctx, "snapshot", nil, nil); err != nil {
 				t.Fatal(err)
 			}
-			ref := fmt.Sprintf("r%d-1", client.generation)
+			var ref string
+			for name := range client.refs {
+				ref = name
+			}
 			if _, err := client.Run(ctx, "fill", map[string]any{"ref": ref, "text": "secret input"}, approve); err != nil {
 				t.Fatal(err)
 			}
@@ -97,6 +100,9 @@ func TestBothBrowsersAndOwnedSessionLifecycle(t *testing.T) {
 			}
 			if err := client.Close(ctx); err != nil {
 				t.Fatal(err)
+			}
+			if _, err := client.Run(ctx, "tabs", nil, nil); err == nil {
+				t.Fatal("closed client reopened its session")
 			}
 			fixture.mu.Lock()
 			defer fixture.mu.Unlock()
@@ -150,7 +156,10 @@ func TestRemoteFailureIsSanitizedAndNotRetried(t *testing.T) {
 	if _, err := c.Run(context.Background(), "snapshot", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	ref := fmt.Sprintf("r%d-1", c.generation)
+	var ref string
+	for name := range c.refs {
+		ref = name
+	}
 	_, err := c.Run(context.Background(), "click", map[string]any{"ref": ref}, approve)
 	if err == nil || !strings.Contains(err.Error(), "stale element reference") || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("failure: %v", err)
@@ -220,5 +229,69 @@ func TestCancellationStopsDriverRequest(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("request ignored cancellation")
+	}
+}
+
+func TestReferencesAreScopedToDriverSession(t *testing.T) {
+	c, _ := NewClient(Chrome, "http://127.0.0.1:9515")
+	// Distinct sessions must not produce the same reference at the same generation.
+	fixture := &driverFixture{}
+	server := httptest.NewServer(http.HandlerFunc(fixture.serve))
+	defer server.Close()
+	c.endpoint = server.URL
+	if _, err := c.Run(context.Background(), "snapshot", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var old string
+	for name := range c.refs {
+		old = name
+	}
+	c.session = "other-session"
+	c.generation = 0
+	// Reuse the fixture's DOM with a different session identity.
+	fixtureServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = "/session/owned-session/execute/sync"
+		fixture.serve(w, r)
+	}))
+	defer fixtureServer.Close()
+	c.endpoint = fixtureServer.URL
+	if _, err := c.Run(context.Background(), "snapshot", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.refs[old]; ok {
+		t.Fatal("reference survived a session change")
+	}
+}
+
+func TestCloseDoesNotWaitForConfirmation(t *testing.T) {
+	c, _ := NewClient(Chrome, "http://127.0.0.1:9515")
+	entered, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	finished := make(chan error, 1)
+	go func() {
+		_, err := c.Run(context.Background(), "navigate", map[string]any{"url": "https://example.org"}, func(string, string) (bool, error) { close(entered); <-release; return true, nil })
+		finished <- err
+	}()
+	<-entered
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close(context.Background()) }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cleanup waited for a user dialog")
+	}
+	// Releasing the dialog must not let its approved operation reopen the client.
+	unblock()
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Fatal("closed client dispatched an action")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("approved action did not finish")
 	}
 }

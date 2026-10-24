@@ -111,6 +111,16 @@ Validation with `make check` does not enable these extensions in the default con
 
 `rewind` is deferred by user choice.
 
+### browser-use
+
+Use `/browser-use mode chrome`, `/browser-use mode firefox`, or `/browser-use mode off`.
+The native WebDriver integration requires the selected browser and a matching local driver, but no Node runtime.
+Every session start, including `/new`, resets the mode to off. No browser preference is saved.
+Off mode hides browser tools from provider declarations and tool discovery. Earlier conversation history remains unchanged.
+Enabled mode shows the selected browser beside Mode and ADHD in the footer.
+Browser actions require confirmation. Personal browser profiles and existing Chrome tabs are not attached.
+See [browser setup, tools, and safety limits](docs/browser-use.md).
+
 ### auto-models
 
 Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude/Codex quota windows and Cursor account meters) and `/auto-model` (primary and fallback model, with thinking level).

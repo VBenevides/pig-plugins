@@ -59,6 +59,9 @@ func TestFirstRowModeAndOptionalADHD(t *testing.T) {
 		{"adhd", map[string]string{"adhd-output": "● ADHD ON"}, "Mode: ACT · ADHD ON"},
 		{"both", map[string]string{"ask-mode": "ASK", "adhd-output": "● ADHD ON"}, "Mode: ASK · ADHD ON"},
 		{"disabled", map[string]string{"ask-mode": "", "adhd-output": ""}, "Mode: ACT"},
+		{"chrome", map[string]string{"browser-use": "Browser: chrome"}, "Mode: ACT · Browser: chrome"},
+		{"firefox and ADHD", map[string]string{"ask-mode": "ASK", "adhd-output": "● ADHD ON", "browser-use": "Browser: firefox"}, "Mode: ASK · ADHD ON · Browser: firefox"},
+		{"browser off", map[string]string{"browser-use": "", "adhd-output": "● ADHD ON"}, "Mode: ACT · ADHD ON"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			line := RenderFooter(RenderState{Cwd: "/p", Statuses: tc.statuses}, 120, Theme{}, time.Unix(1000, 0))[0]

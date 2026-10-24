@@ -3,6 +3,7 @@ package browseruse
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -126,7 +127,7 @@ func (c *Client) start(ctx context.Context) error {
 		SessionID string `json:"sessionId"`
 	}
 	if err := c.request(ctx, "POST", "/session", map[string]any{"capabilities": map[string]any{"alwaysMatch": caps}}, &result); err != nil {
-		return fmt.Errorf("start %s WebDriver session: %w", c.mode, err)
+		return fmt.Errorf("start %s WebDriver session failed; check the driver for an incomplete session before retry: %w", c.mode, err)
 	}
 	if !opaqueID.MatchString(result.SessionID) {
 		return errors.New("browser driver returned an invalid session ID")
@@ -155,12 +156,17 @@ func (c *Client) invalidate() { c.refs = nil; c.generation++ }
 // Run confirms state changes before dispatch. Arbitrary JavaScript, CDP,
 // uploads, and host scripts are absent.
 func (c *Client) Run(ctx context.Context, action string, args map[string]any, confirm func(string, string) (bool, error)) (any, error) {
+	// Never hold the session lock while a user dialog is open. Off mode and
+	// session replacement must be able to cancel and close this client.
+	if err := ConfirmAction(ctx, action, confirm); err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
 		return nil, errors.New("browser session is closed")
 	}
-	if err := ConfirmAction(ctx, action, confirm); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	get := func(key string) string { v, _ := args[key].(string); return v }
@@ -277,13 +283,14 @@ func (c *Client) snapshot(ctx context.Context, path string) (any, error) {
 	}
 	c.refs = make(map[string]element)
 	elements := make([]map[string]string, 0, len(page.Elements))
+	sessionHash := sha256.Sum256([]byte(c.session))
 	for i, el := range page.Elements {
 		id := el.Element[elementKey]
 		if !opaqueID.MatchString(id) || len(el.Label) > 2000 || len(el.Tag) > 50 || len(el.Type) > 50 {
 			c.invalidate()
 			return nil, errors.New("browser returned an invalid snapshot element")
 		}
-		ref := fmt.Sprintf("r%d-%d", c.generation, i+1)
+		ref := fmt.Sprintf("r%x-%d-%d", sessionHash[:6], c.generation, i+1)
 		c.refs[ref] = element{ID: id, Type: el.Type}
 		elements = append(elements, map[string]string{"ref": ref, "tag": el.Tag, "type": el.Type, "label": el.Label})
 	}
