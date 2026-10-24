@@ -112,6 +112,41 @@ A live headless Firefox check passed navigation, input events, clicks, snapshots
 Chrome runtime behavior remains unverified where Chrome and ChromeDriver are unavailable.
 The optional live checks use `PIG_BROWSER_LIVE_CHROME_DRIVER_URL` and `PIG_BROWSER_LIVE_FIREFOX_DRIVER_URL`.
 
+## OMP compatibility boundary
+
+The source comparison uses OMP revision `a483884da868db2c4dd21463dc03899ba64be6ff`.
+OMP exposes one `browser` tool with `open`, `close`, and `run` actions.
+Its `run` action uses an OMP JavaScript runtime and worker protocol.
+This extension exposes fixed WebDriver operations instead. OMP scripts and tab objects are not interchangeable with these tools.
+
+| Connection | OMP | This extension |
+| --- | --- | --- |
+| Automation browser | Shared Chromium with Puppeteer | Fresh Chrome or Firefox WebDriver session |
+| Existing CDP endpoint | Supported through `app.cdp_url` | Not supported |
+| Existing Chrome tabs | MV3 extension and OMP relay | Not supported |
+| Browser process | Separate connected, spawned, and shared ownership rules | Driver owns a newly created automation browser |
+| Tab identity | Named workers and CDP targets | WebDriver handles within one owned session |
+| Script execution | `browser` run action and OMP helpers | No arbitrary scripts or host runtime |
+
+OMP's relay exposes a CDP facade, not the W3C WebDriver session API.
+Its Chrome extension exchanges tab events and numbered RPC messages over a WebSocket connection.
+The protocol includes attach, detach, send, createTab, removeTab, activateTab, group, and ungroup operations.
+These messages do not provide a direct WebDriver adapter.
+
+The relay can control logged-in Chrome tabs. Its documentation warns that any process with relay access can control those tabs.
+A relay adapter would need separate authentication, tab-ownership, approval, and reconnect controls.
+This release does not add that adapter or require the OMP runtime.
+It never scans for OMP relays, imports OMP settings, or attaches to personal profiles.
+A missing or restarted OMP relay therefore has no effect on these browser modes.
+
+Driver-session deletion affects only this extension's automation browser.
+It does not send CDP detach commands, close OMP tabs, or stop an OMP daemon.
+Driver restart can invalidate this extension's session and references. Errors remain visible, and writes are not retried.
+Select off before another mode selection to create a fresh automation session after a driver failure.
+
+No live OMP relay, user-profile attachment, or cross-platform relay test was performed.
+The supported WebDriver lifecycle has synthetic Chrome/Firefox coverage and a live Firefox check.
+
 ## Sources
 
 - [W3C WebDriver](https://www.w3.org/TR/webdriver/)
@@ -119,5 +154,8 @@ The optional live checks use `PIG_BROWSER_LIVE_CHROME_DRIVER_URL` and `PIG_BROWS
 - [geckodriver](https://firefox-source-docs.mozilla.org/testing/geckodriver/)
 - [geckodriver server flags](https://firefox-source-docs.mozilla.org/testing/geckodriver/Flags.html)
 - [pi-browser-harness source comparison](https://github.com/amankumarsingh77/pi-browser-harness/tree/0c68d0c74eeac7838f4a5f4fab38a76e078e72d7/src/domains)
+- [OMP browser schema and dispatch](https://github.com/can1357/oh-my-pi/blob/a483884da868db2c4dd21463dc03899ba64be6ff/packages/coding-agent/src/tools/browser.ts)
+- [OMP relay wire protocol](https://github.com/can1357/oh-my-pi/blob/a483884da868db2c4dd21463dc03899ba64be6ff/packages/coding-agent/src/tools/browser/relay/protocol.ts)
+- [OMP relay ownership and security limits](https://github.com/can1357/oh-my-pi/blob/a483884da868db2c4dd21463dc03899ba64be6ff/packages/browser-relay/README.md)
 
 This implementation uses the WebDriver protocol directly. It does not copy or bundle upstream browser-harness code.
