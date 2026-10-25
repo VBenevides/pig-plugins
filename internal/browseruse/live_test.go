@@ -28,7 +28,7 @@ func TestLiveBrowser(t *testing.T) {
 				_, _ = fmt.Fprint(w, `<!doctype html><title>Browser fixture</title><input aria-label="Name" id="name" oninput="document.querySelector('output').textContent=this.value"><output>empty</output><button onclick="document.querySelector('output').textContent='clicked'">Submit test</button>`)
 			}))
 			defer page.Close()
-			client, err := NewClient(mode, endpoint)
+			client, err := NewClient(mode, endpoint, t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -65,7 +65,7 @@ func TestBothBrowsersAndOwnedSessionLifecycle(t *testing.T) {
 			fixture := &driverFixture{}
 			server := httptest.NewServer(http.HandlerFunc(fixture.serve))
 			defer server.Close()
-			client, err := NewClient(mode, server.URL)
+			client, err := NewClient(mode, server.URL, t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -130,7 +130,7 @@ func TestDeniedAndInvalidActionsDoNotReachDriver(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; t.Error("unexpected driver request") }))
 	defer server.Close()
-	c, _ := NewClient(Chrome, server.URL)
+	c, _ := NewClient(Chrome, server.URL, t.TempDir())
 	for _, action := range []string{"navigate", "click", "fill", "select_tab", "execute_js", "upload", "raw_cdp", "run_script"} {
 		if _, err := c.Run(context.Background(), action, map[string]any{"url": "https://example.org"}, nil); err == nil {
 			t.Fatalf("admitted %s", action)
@@ -152,7 +152,7 @@ func TestRemoteFailureIsSanitizedAndNotRetried(t *testing.T) {
 	fixture := &driverFixture{failClick: true}
 	server := httptest.NewServer(http.HandlerFunc(fixture.serve))
 	defer server.Close()
-	c, _ := NewClient(Chrome, server.URL)
+	c, _ := NewClient(Chrome, server.URL, t.TempDir())
 	if _, err := c.Run(context.Background(), "snapshot", nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestDriverRedirectAndResponseLimits(t *testing.T) {
 				}
 			}))
 			defer s.Close()
-			c, _ := NewClient(Chrome, s.URL)
+			c, _ := NewClient(Chrome, s.URL, t.TempDir())
 			if _, err := c.Run(context.Background(), "tabs", nil, nil); err == nil || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("unbounded or leaked: %v", err)
 			}
@@ -216,7 +216,7 @@ func TestCancellationStopsDriverRequest(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer s.Close()
-	c, _ := NewClient(Firefox, s.URL)
+	c, _ := NewClient(Firefox, s.URL, t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() { _, err := c.Run(ctx, "tabs", nil, nil); result <- err }()
@@ -233,7 +233,7 @@ func TestCancellationStopsDriverRequest(t *testing.T) {
 }
 
 func TestReferencesAreScopedToDriverSession(t *testing.T) {
-	c, _ := NewClient(Chrome, "http://127.0.0.1:9515")
+	c, _ := NewClient(Chrome, "http://127.0.0.1:9515", t.TempDir())
 	// Distinct sessions must not produce the same reference at the same generation.
 	fixture := &driverFixture{}
 	server := httptest.NewServer(http.HandlerFunc(fixture.serve))
@@ -264,7 +264,7 @@ func TestReferencesAreScopedToDriverSession(t *testing.T) {
 }
 
 func TestCloseDoesNotWaitForConfirmation(t *testing.T) {
-	c, _ := NewClient(Chrome, "http://127.0.0.1:9515")
+	c, _ := NewClient(Chrome, "http://127.0.0.1:9515", t.TempDir())
 	entered, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()

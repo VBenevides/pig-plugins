@@ -2,7 +2,6 @@ package browseruseext
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,55 +91,42 @@ func (d *webdriverFixture) serve(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"value": value})
 }
 
-func TestRealHostConfirmationScreenshotsAndCleanup(t *testing.T) {
+func TestRealHostActionsWithoutConfirmationScreenshotsAndCleanup(t *testing.T) {
 	pigtest.RequirePig(t)
-	for _, allow := range []bool{false, true} {
-		t.Run(fmt.Sprint(allow), func(t *testing.T) {
-			driver := &webdriverFixture{}
-			server := httptest.NewServer(http.HandlerFunc(driver.serve))
-			defer server.Close()
-			home := pigtest.NewHome(t)
-			replies := []pigtest.Reply{pigtest.Calls(pigtest.Call("browser_navigate", map[string]any{"url": "https://example.org"}))}
-			if allow {
-				replies = append(replies,
-					pigtest.Calls(pigtest.Call("browser_snapshot", map[string]any{})),
-					pigtest.Calls(pigtest.Call("browser_fill", map[string]any{"ref": "r4943e43bc034-2-1", "value": "Test value"})),
-					pigtest.Calls(pigtest.Call("browser_screenshot", map[string]any{})),
-				)
-			}
-			replies = append(replies, pigtest.Text("done"))
-			mock := pigtest.NewMockLLM(replies...)
-			defer mock.Close()
-			result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: extensionPaths(t), Vision: true, Env: map[string]string{"PIG_BROWSER_CHROME_DRIVER_URL": server.URL}, Confirm: func(map[string]any) bool { return allow }, Prompts: []string{"/browser-use mode chrome", "use the test browser", "/browser-use mode off"}})
-			expectedDialogs := 1
-			if allow {
-				expectedDialogs = 2
-			}
-			if len(result.Asked) != expectedDialogs {
-				t.Fatalf("dialogs %d, expected %d; notices %q stderr %s", len(result.Asked), expectedDialogs, result.Notices(), result.Stderr)
-			}
-			driver.mu.Lock()
-			calls := append([]string(nil), driver.calls...)
-			driver.mu.Unlock()
-			if !allow {
-				if len(calls) != 0 {
-					t.Fatalf("declined action reached driver: %v", calls)
-				}
-				return
-			}
-			if calls[len(calls)-1] != "DELETE /session/test-session" {
-				t.Fatalf("missing cleanup: %v", calls)
-			}
-			raw, _ := json.Marshal(mock.Requests()[4]["messages"])
-			if !strings.Contains(string(raw), "image_url") || !strings.Contains(string(raw), "data:image/png;base64,") {
-				t.Fatalf("model did not receive screenshot: %s", raw)
-			}
-			for _, event := range result.Events {
-				if event["type"] == "tool_execution_end" && event["isError"] == true {
-					t.Fatalf("tool failed: %v", event)
-				}
-			}
-		})
+	driver := &webdriverFixture{}
+	server := httptest.NewServer(http.HandlerFunc(driver.serve))
+	defer server.Close()
+	home := pigtest.NewHome(t)
+	mock := pigtest.NewMockLLM(
+		pigtest.Calls(pigtest.Call("browser_navigate", map[string]any{"url": "https://example.org"})),
+		pigtest.Calls(pigtest.Call("browser_snapshot", map[string]any{})),
+		pigtest.Calls(pigtest.Call("browser_fill", map[string]any{"ref": "r4943e43bc034-3-1", "value": "Test value"})),
+		pigtest.Calls(pigtest.Call("browser_screenshot", map[string]any{})),
+		pigtest.Text("done"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: extensionPaths(t), Vision: true, Env: map[string]string{"PIG_BROWSER_CHROME_DRIVER_URL": server.URL}, Confirm: func(map[string]any) bool { return false }, Prompts: []string{"/browser-use mode chrome", "use the test browser", "/browser-use mode off"}})
+	if len(result.Asked) != 0 {
+		t.Fatalf("unexpected browser dialogs: %v; stderr %s", result.Asked, result.Stderr)
+	}
+	driver.mu.Lock()
+	calls := append([]string(nil), driver.calls...)
+	driver.mu.Unlock()
+	if len(calls) == 0 || calls[len(calls)-1] != "DELETE /session/test-session" {
+		t.Fatalf("missing browser execution or cleanup: %v", calls)
+	}
+	requests := mock.Requests()
+	if len(requests) != 5 {
+		t.Fatalf("requests %d; notices %q stderr %s", len(requests), result.Notices(), result.Stderr)
+	}
+	raw, _ := json.Marshal(requests[4]["messages"])
+	if !strings.Contains(string(raw), "image_url") || !strings.Contains(string(raw), "data:image/png;base64,") {
+		t.Fatalf("model did not receive screenshot: %s", raw)
+	}
+	for _, event := range result.Events {
+		if event["type"] == "tool_execution_end" && event["isError"] == true {
+			t.Fatalf("tool failed: %v", event)
+		}
 	}
 }
 

@@ -24,26 +24,35 @@ const elementKey = "element-6066-11e4-a52e-4f735466cecf"
 // Operations are serialized and are never retried, including after cancellation.
 // A closed client cannot create another session.
 type Client struct {
-	mu         sync.Mutex
-	endpoint   string
-	mode       Mode
-	http       *http.Client
-	session    string
-	refs       map[string]element
-	generation uint64
-	closed     bool
+	mu            sync.Mutex
+	endpoint      string
+	mode          Mode
+	http          *http.Client
+	profile       string
+	headless      bool
+	visible       bool
+	session       string
+	refs          map[string]element
+	generation    uint64
+	closed        bool
+	managed       bool
+	driver        *driverProcess
+	browserBinary string
 }
 
 type element struct{ ID, Type string }
 
-func NewClient(mode Mode, endpoint string) (*Client, error) {
+func NewClient(mode Mode, endpoint, profile string) (*Client, error) {
 	if mode != Chrome && mode != Firefox {
 		return nil, errors.New("browser mode is off")
 	}
 	if err := ValidateEndpoint(endpoint); err != nil {
 		return nil, err
 	}
-	return &Client{mode: mode, endpoint: strings.TrimRight(endpoint, "/"), http: &http.Client{
+	if profile == "" {
+		return nil, errors.New("persistent browser profile is required")
+	}
+	return &Client{mode: mode, profile: profile, endpoint: strings.TrimRight(endpoint, "/"), http: &http.Client{
 		Timeout:       35 * time.Second,
 		Transport:     &http.Transport{Proxy: nil, MaxConnsPerHost: 1, DisableKeepAlives: true},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("browser driver redirects are disabled") },
@@ -113,18 +122,43 @@ func (c *Client) start(ctx context.Context) error {
 	if c.session != "" {
 		return nil
 	}
+	if err := prepareProfile(c.profile); err != nil {
+		return err
+	}
+	if c.managed && c.driver == nil {
+		if err := c.prepareDriver(ctx); err != nil {
+			return err
+		}
+	}
 	caps := map[string]any{"browserName": string(c.mode), "acceptInsecureCerts": false,
 		"unhandledPromptBehavior": "dismiss and notify",
 		"timeouts":                map[string]any{"implicit": 0, "pageLoad": 25000, "script": 10000},
 	}
-	// Only fresh profiles are supported. Never attach to or copy a personal profile.
+	// Profiles stay in place across headless/visible restarts.
 	if c.mode == Chrome {
-		caps["goog:chromeOptions"] = map[string]any{"prefs": map[string]any{"download_restrictions": 3, "credentials_enable_service": false, "profile.password_manager_enabled": false}}
+		args := []string{"--user-data-dir=" + c.profile}
+		if !c.visible {
+			args = append(args, "--headless=new")
+		}
+		caps["goog:chromeOptions"] = map[string]any{"args": args, "prefs": map[string]any{"download_restrictions": 3, "credentials_enable_service": false, "profile.password_manager_enabled": false}}
+		if c.browserBinary != "" {
+			caps["goog:chromeOptions"].(map[string]any)["binary"] = c.browserBinary
+		}
 	} else {
-		caps["moz:firefoxOptions"] = map[string]any{"prefs": map[string]any{"browser.download.useDownloadDir": false, "browser.helperApps.alwaysAsk.force": true, "signon.rememberSignons": false}}
+		args := []string{"-profile", c.profile}
+		if !c.visible {
+			args = append(args, "-headless")
+		}
+		caps["moz:firefoxOptions"] = map[string]any{"args": args, "prefs": map[string]any{"browser.download.useDownloadDir": false, "browser.helperApps.alwaysAsk.force": true, "signon.rememberSignons": false}}
+		if c.browserBinary != "" {
+			caps["moz:firefoxOptions"].(map[string]any)["binary"] = c.browserBinary
+		}
 	}
 	var result struct {
-		SessionID string `json:"sessionId"`
+		SessionID    string `json:"sessionId"`
+		Capabilities struct {
+			Headless bool `json:"moz:headless"`
+		} `json:"capabilities"`
 	}
 	if err := c.request(ctx, "POST", "/session", map[string]any{"capabilities": map[string]any{"alwaysMatch": caps}}, &result); err != nil {
 		return fmt.Errorf("start %s WebDriver session failed; check the driver for an incomplete session before retry: %w", c.mode, err)
@@ -133,22 +167,31 @@ func (c *Client) start(ctx context.Context) error {
 		return errors.New("browser driver returned an invalid session ID")
 	}
 	c.session = result.SessionID
+	c.headless = result.Capabilities.Headless
+	if c.visible && c.headless {
+		return errors.New("browser driver started Firefox headless; restart the driver without MOZ_HEADLESS for visible browser use")
+	}
 	return nil
 }
 
-// Close deletes only this client's automation session. It never kills the driver
-// server or a browser outside that session. Failed cleanup remains observable.
+// Close deletes the owned session and stops only a driver started by this client.
+// External drivers remain running. Cleanup errors remain observable.
 func (c *Client) Close(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.closed = true
-	if c.session == "" {
-		return nil
+	var cleanupErr error
+	if c.session != "" {
+		id := c.session
+		c.session = ""
+		c.invalidate()
+		cleanupErr = c.request(ctx, "DELETE", "/session/"+id, nil, nil)
 	}
-	id := c.session
-	c.session = ""
-	c.invalidate()
-	return c.request(ctx, "DELETE", "/session/"+id, nil, nil)
+	if c.driver != nil {
+		cleanupErr = errors.Join(cleanupErr, c.driver.stop())
+		c.driver = nil
+	}
+	return cleanupErr
 }
 
 func (c *Client) invalidate() { c.refs = nil; c.generation++ }
@@ -188,12 +231,18 @@ func (c *Client) Run(ctx context.Context, action string, args map[string]any, co
 		if target.Type == "file" {
 			return nil, errors.New("browser file uploads are disabled")
 		}
+		if action == "fill" && target.Type == "password" {
+			return nil, errors.New("enter passwords directly in the visible browser; use browser_login")
+		}
 	}
 	if action == "select_tab" && !opaqueID.MatchString(get("handle")) {
 		return nil, errors.New("invalid browser tab handle")
 	}
 	if err := c.start(ctx); err != nil {
 		return nil, err
+	}
+	if c.visible && c.headless {
+		return nil, errors.New("manual login requires a visible browser; disable and restart the driver without headless mode")
 	}
 	path := "/session/" + c.session
 	switch action {
@@ -266,9 +315,11 @@ type Screenshot struct{ Data string }
 func (c *Client) snapshot(ctx context.Context, path string) (any, error) {
 	c.invalidate()
 	var page struct {
-		Title    string `json:"title"`
-		Text     string `json:"text"`
-		Elements []struct {
+		Title         string `json:"title"`
+		Text          string `json:"text"`
+		LoginRequired bool   `json:"loginRequired"`
+		Headless      bool   `json:"headless"`
+		Elements      []struct {
 			Element map[string]string `json:"element"`
 			Tag     string            `json:"tag"`
 			Type    string            `json:"type"`
@@ -277,6 +328,10 @@ func (c *Client) snapshot(ctx context.Context, path string) (any, error) {
 	}
 	if err := c.request(ctx, "POST", path+"/execute/sync", map[string]any{"script": snapshotScript, "args": []any{}}, &page); err != nil {
 		return nil, err
+	}
+	if c.visible && page.Headless {
+		c.headless = true
+		return nil, errors.New("manual login requires a visible browser; restart Chrome without headless options")
 	}
 	if len(page.Elements) > 150 || len(page.Text) > 100000 || len(page.Title) > 4000 {
 		return nil, errors.New("browser snapshot exceeds its limits")
@@ -294,12 +349,16 @@ func (c *Client) snapshot(ctx context.Context, path string) (any, error) {
 		c.refs[ref] = element{ID: id, Type: el.Type}
 		elements = append(elements, map[string]string{"ref": ref, "tag": el.Tag, "type": el.Type, "label": el.Label})
 	}
-	return map[string]any{"untrustedPageContent": true, "title": page.Title, "text": page.Text, "elements": elements}, nil
+	return map[string]any{"untrustedPageContent": true, "loginRequired": page.LoginRequired, "title": page.Title, "text": page.Text, "elements": elements}, nil
 }
 
 const snapshotScript = `return {
  title: document.title.slice(0,1000),
+ headless: /HeadlessChrome/i.test(navigator.userAgent),
  text: (document.body ? document.body.innerText : '').slice(0,20000),
+ loginRequired: Array.from(document.querySelectorAll('input[type="password"]')).some(e => e.getClientRects().length) ||
+   (/\/(login|log-in|signin|sign-in|auth)(\/|$)/i.test(location.pathname) &&
+    Array.from(document.querySelectorAll('input[autocomplete="username"],input[type="email"],input[name="username"]')).some(e => e.getClientRects().length)),
  elements: Array.from(document.querySelectorAll('a[href],button,input,textarea,select,[role="button"]'))
  .filter(e => e.getClientRects().length && !e.disabled && e.type !== 'file' && e.type !== 'hidden')
  .slice(0,150).map(e => ({element:e, tag:e.tagName.toLowerCase(),type:e.type || '',
@@ -308,7 +367,7 @@ const snapshotScript = `return {
 
 const fillScript = `const e=arguments[0], value=arguments[1];
 if (!(e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) ||
-    (e instanceof HTMLInputElement && !['text','search','email','password','url','tel','number'].includes(e.type))) return false;
+    (e instanceof HTMLInputElement && !['text','search','email','url','tel','number'].includes(e.type))) return false;
 const proto=e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
 Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);
 e.dispatchEvent(new Event('input',{bubbles:true}));
