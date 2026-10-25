@@ -39,6 +39,8 @@ extensions:
     origins: [local:./extensions/cursor-login]
   - name: ask-mode
     origins: [local:./extensions/ask-mode]
+  - name: browser-use
+    origins: [local:./extensions/browser-use]
   - name: goal
     origins: [local:./extensions/goal]
   - name: compact-settings

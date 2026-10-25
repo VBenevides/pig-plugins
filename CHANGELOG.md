@@ -2,6 +2,21 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.3] - 2026-10-24
+
+### Features
+
+- Add native Chrome and Firefox tools through `/browser-use mode off|chrome|firefox`, without Node. Support navigation, bounded page snapshots, clicks, text input, PNG screenshots, and tab selection.
+- Reset browser mode to off on session start, reload, and `/new`. Hide disabled tools from discovery and provider declarations. Show the selected browser in the footer.
+- Detect the installed browser and download, verify, cache, and start its driver on first use. Remove older drivers only after successful startup. Preserve external driver overrides and stop only owned driver processes.
+- Preserve site logins in dedicated browser profiles. Add `hidden`, `login`, and `always` visibility modes, with direct browser login and explicit confirmation. Login mode returns to headless operation with the same profile.
+- Run browser actions without per-action browser prompts while retaining host approval controls and ASK-mode restrictions. Restrict driver endpoints to loopback, retain TLS checks, reject password fills and file uploads, and never retry writes automatically.
+
+### Other
+
+- Add synthetic driver, real-host, footer, lifecycle, login, cancellation, cache, and security regression tests, plus optional live browser checks.
+- Document browser setup, persistent profiles, visibility, safety limits, and OMP compatibility boundaries. Personal-profile attachment, OMP relay control, and arbitrary browser scripts are not supported.
+
 ## [0.2.2] - 2026-10-21
 
 ### Features

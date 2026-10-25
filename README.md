@@ -111,6 +111,25 @@ Validation with `make check` does not enable these extensions in the default con
 
 `rewind` is deferred by user choice.
 
+### browser-use
+
+Use `/browser-use mode chrome`, `/browser-use mode firefox`, or `/browser-use mode off`.
+The native WebDriver integration checks that the selected browser is available. It does not require Node.
+On first use, it downloads and starts a compatible driver under `~/.pig/agent/browser-use/drivers/`.
+It reuses unchanged driver versions and deletes older versions after a successful update.
+Off and session shutdown stop owned drivers. Explicit driver URL overrides remain externally managed.
+Every session start, including `/new`, resets the mode to off. The dedicated browser profile and site login state remain on disk.
+Off mode hides browser tools from provider declarations and tool discovery. Earlier conversation history remains unchanged.
+Enabled mode shows the selected browser beside Mode and ADHD in the footer.
+Browser actions do not require per-action browser confirmation. Host approval controls still apply.
+Personal browser profiles and existing Chrome tabs are not attached.
+Each browser reuses its profile under `~/.pig/agent/browser-use/`. Visibility defaults to `hidden`.
+Use `/browser-use visibility hidden|login|always` to control the browser window.
+`hidden` never shows a window. If login is required, the agent must use another authorized method.
+`login` starts headless, restarts visibly for **Logged in** or **Other**, and returns headless with the same profile.
+`always` keeps the browser visible. Enter credentials directly in the browser, not in chat.
+See [browser setup, tools, and safety limits](docs/browser-use.md).
+
 ### auto-models
 
 Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude/Codex quota windows and Cursor account meters) and `/auto-model` (primary and fallback model, with thinking level).
