@@ -207,6 +207,13 @@ are covered independently.
 
 Cursor generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. Cursor streams use cancellable backpressure to bound unread events; native compaction drains them before awaiting results. These integration controls require `0005-provider-recovery-host.patch` and `0006-provider-recovery-sdk.patch`, applied by the bundled build.
 
+### Text input
+
+Ctrl+Backspace and Ctrl+W delete the previous word. Page Up moves to the start of the first line.
+Page Down moves to the end of the last line. When completion suggestions are open, page keys navigate the suggestions.
+Up and Down move within a new draft without replacing its text. Up from an empty field recalls previous messages.
+After history recall, Up and Down can browse messages. Editing a recalled message makes it a new draft.
+
 ### Tool output previews
 
 `patches/pig/0003-editor-images-host.patch` defaults tool output to collapsed previews of at most 10 output rows. Ctrl+O expands or collapses tools and saves the preference as `toolsExpanded` in the global `settings.json`. New and resumed sessions restore that preference; full tool results remain available to the model and in session history. Headers, expansion hints, and image previews are separate from the output-row limit.

@@ -90,6 +90,7 @@ GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0007-distribution-host.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0008-settings-diagnostics-host.patch" >&2
 GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0010-tmux-images-host.patch" >&2
+GIT_CEILING_DIRECTORIES="$root" git -C "$stage/source" apply "$root/patches/pig/0011-editor-navigation-host.patch" >&2
 echo "dev_build: [4/6] preparing patched SDK" >&2
 sdk_module=github.com/MichaelKinsy/PiG/extensions/sdk
 sdk_ref="$sdk_module@v$compatible_version"

@@ -16,6 +16,7 @@ PATCHES = [
     "0008-settings-diagnostics-host.patch",
     "0009-compaction-sdk.patch",
     "0010-tmux-images-host.patch",
+    "0011-editor-navigation-host.patch",
 ]
 
 class PatchInventoryTest(unittest.TestCase):
