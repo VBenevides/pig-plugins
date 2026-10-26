@@ -2,6 +2,23 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.6] - 2026-10-26
+
+### Features
+
+- Bind Ctrl+Backspace to delete the previous word, like Ctrl+W.
+- Move to the start of the first draft line with Page Up and the end of the last line with Page Down.
+
+### Bugfixes
+
+- Keep Up and Down from replacing a nonempty new draft with history. Preserve history recall from empty input and navigation through recalled messages.
+- Deliver editor page keys to the focused editor in fullscreen mode instead of scrolling the transcript. Keep page navigation for open completion suggestions.
+
+### Other
+
+- Add editor and interactive-dispatch regression tests for word deletion, draft boundaries, history recall, and draft preservation.
+- Include the editor navigation patch in native builds and patch-inventory checks. Document the text-input controls in the README.
+
 ## [0.2.5] - 2026-10-25
 
 ### Features
