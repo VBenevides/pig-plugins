@@ -1,12 +1,8 @@
 // Package compactsettings is the PiG extension "compact-settings": /compact-settings limit relative|absolute sets
 // a context-size limit for automatic compacting. The effective limit is min(relative, absolute, window - reserve),
-// so PiG's own threshold always remains the upper bound. When a run settles with the context above a user-set
-// limit, the extension asks PiG to compact through the same path as /compact, so native and checkpoint summaries
-// share one trigger. The built-in /compact command is not touched.
-//
-// Limit: PiG's own check runs after each model reply and is not adjustable from an extension. This extension
-// checks when the agent run is about to settle, so within a single long run the context can pass the limit until
-// the run ends.
+// so PiG's own threshold always remains the upper bound. The extension checks before idle input starts a new
+// run and after a run settles, using the same path as /compact. The built-in /compact command is not touched.
+// Active-run input never waits for compaction: manual compaction aborts and waits for that run.
 package compactsettings
 
 import (
@@ -32,7 +28,8 @@ const unchangedSuffix = ". Nothing was changed."
 type state struct {
 	mu         sync.Mutex
 	compacting bool
-	failedAt   int // Context size at which compacting last failed; the same size is not retried.
+	done       chan struct{} // Closed by the compact callback, never while a waiter holds mu.
+	failedAt   int           // Context size at which compacting last failed; the same size is not retried.
 }
 
 // Extension returns the extension.
@@ -58,6 +55,30 @@ func Extension() *sdk.Extension {
 			ctx.Notify(message, level)
 			return nil
 		},
+	})
+
+	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		idle, err := ctx.IsIdle()
+		if err != nil {
+			return nil, fmt.Errorf("%s: check idle before input: %w", Name, err)
+		}
+		if !idle {
+			return nil, nil
+		}
+		if err := st.trigger(ctx); err != nil {
+			return nil, err
+		}
+		st.mu.Lock()
+		done := st.done
+		st.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return nil, fmt.Errorf("%s: input cancelled while waiting for compaction", Name)
+			}
+		}
+		return nil, nil
 	})
 
 	// Runs after the run has fully settled, like a /compact typed by the user: the host rejects a prompt submitted
@@ -183,9 +204,13 @@ func (st *state) trigger(ctx sdk.Context) error {
 		return nil
 	}
 	st.compacting = true
+	done := make(chan struct{})
+	st.done = done
 	finish := func(failedAt int) {
 		st.mu.Lock()
 		st.compacting, st.failedAt = false, failedAt
+		close(done)
+		st.done = nil
 		st.mu.Unlock()
 	}
 	ctx.CompactWithOptions(sdk.CompactOptions{

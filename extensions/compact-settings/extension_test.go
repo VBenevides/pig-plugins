@@ -1,6 +1,7 @@
 package compactsettings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,5 +126,58 @@ func TestCommandsValidatePersistAndReport(t *testing.T) {
 	}
 	if !strings.Contains(notices[0], "limit absolute: 200k tokens (200000)") || !strings.Contains(notices[0], "effective limit: 84k (83616)") {
 		t.Errorf("the 200k absolute limit must report the 83.6k cap: %s", notices[0])
+	}
+}
+
+// Set the limit only after the first run, so the settled hook cannot compact it.
+// Completion within RunRPC's timeout also detects a circular wait on compact events.
+func TestIdleInputCompactsBeforeNextModelRequest(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Text: "first", PromptTokens: 60000},
+		pigtest.Text("saved summary"),
+		pigtest.Text("second answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"first prompt " + strings.Repeat("history ", 200), "/compact-settings limit absolute 50k", "unique-next-question"},
+	})
+	requests := mock.Requests()
+	if len(requests) != 3 {
+		t.Fatalf("want initial, summary, answer requests; got %d; notices: %q; stderr: %s", len(requests), result.Notices(), result.Stderr)
+	}
+	for i, request := range requests {
+		data, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(string(data), "unique-next-question"); got != (i == 2) {
+			t.Errorf("request %d includes next question = %v; want %v", i, got, i == 2)
+		}
+	}
+}
+
+func TestIdleInputContinuesAfterCompactionFailure(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Text: "first", PromptTokens: 60000},
+		pigtest.HTTPError(400, "summary deliberately rejected"),
+		pigtest.Text("answer after failed summary"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"first prompt " + strings.Repeat("history ", 200), "/compact-settings limit absolute 50k", "next question"},
+	})
+	if len(mock.Requests()) != 3 {
+		t.Fatalf("want initial, failed summary, answer requests; got %d; stderr: %s", len(mock.Requests()), result.Stderr)
+	}
+	if !strings.Contains(strings.Join(result.Notices(), "\n"), "compacting at 60k tokens failed") {
+		t.Fatalf("missing compaction failure notice: %q", result.Notices())
 	}
 }
