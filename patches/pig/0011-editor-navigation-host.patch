@@ -1,0 +1,208 @@
+diff --git a/tui/editor.go b/tui/editor.go
+--- a/tui/editor.go
++++ b/tui/editor.go
+@@ -1332,6 +1332,9 @@
+ // autocomplete list is open.
+ func (e *Editor) CapturesSelectPageInput() bool { return len(e.autocompleteItems) > 0 }
+ 
++// CapturesEditorPageInput keeps draft navigation keys in the editor and its wrappers.
++func (e *Editor) CapturesEditorPageInput() bool { return true }
++
+ // AutocompleteMove moves the selection with keyboard-style wraparound. Mouse callers clamp their target before invoking it.
+ func (e *Editor) AutocompleteMove(delta int) {
+ 	n := len(e.autocompleteItems)
+@@ -1837,7 +1840,7 @@
+ 	switch {
+ 	case kb.Matches(data, KBEditorCursorUp):
+ 		switch {
+-		case e.isOnFirstVisualLine() && (e.isEditorEmpty() || e.inputHistIdx >= 0 || e.cursor[1] == 0):
++		case e.isOnFirstVisualLine() && (e.isEditorEmpty() || e.inputHistIdx >= 0):
+ 			e.navigateHistory(-1)
+ 		case e.isOnFirstVisualLine():
+ 			e.lastAction = ""
+@@ -1957,9 +1960,15 @@
+ 		e.lastAction = ""
+ 		e.undo()
+ 	case kb.Matches(data, KBEditorPageUp):
+-		e.pageScroll(-1)
++		e.lastAction = ""
++		e.cursor[0] = 0
++		e.setCursorCol(0)
++		e.Invalidate()
+ 	case kb.Matches(data, KBEditorPageDown):
+-		e.pageScroll(1)
++		e.lastAction = ""
++		e.cursor[0] = len(e.lines) - 1
++		e.setCursorCol(jsstring.Length(e.lines[e.cursor[0]]))
++		e.Invalidate()
+ 	case kb.Matches(data, KBEditorJumpForward):
+ 		e.jumpMode = "forward"
+ 	case kb.Matches(data, KBEditorJumpBackward):
+diff --git a/tui/keybindings.go b/tui/keybindings.go
+--- a/tui/keybindings.go
++++ b/tui/keybindings.go
+@@ -186,7 +186,7 @@
+ 		KBEditorPageDown:          {DefaultKeys: []string{"pageDown", "ctrl+pageDown"}, Description: "Page down"},
+ 		KBEditorDeleteCharBack:    {DefaultKeys: []string{"backspace"}, Description: "Delete character backward"},
+ 		KBEditorDeleteCharForward: {DefaultKeys: []string{"delete", "ctrl+d"}, Description: "Delete character forward"},
+-		KBEditorDeleteWordBack:    {DefaultKeys: []string{"ctrl+w", "alt+backspace"}, Description: "Delete word backward"},
++		KBEditorDeleteWordBack:    {DefaultKeys: []string{"ctrl+w", "alt+backspace", "ctrl+backspace"}, Description: "Delete word backward"},
+ 		KBEditorDeleteWordForward: {DefaultKeys: []string{"alt+d", "alt+delete"}, Description: "Delete word forward"},
+ 		KBEditorDeleteToLineStart: {DefaultKeys: []string{"ctrl+u"}, Description: "Delete to line start"},
+ 		KBEditorDeleteToLineEnd:   {DefaultKeys: []string{"ctrl+k"}, Description: "Delete to line end"},
+diff --git a/tui/tui_alt_screen_input.go b/tui/tui_alt_screen_input.go
+--- a/tui/tui_alt_screen_input.go
++++ b/tui/tui_alt_screen_input.go
+@@ -135,6 +135,12 @@
+ 	}
+ 	if t.shouldDeferViewportInputToOverlay() {
+ 		return "", false
++	}
++	// Editor page keys move within the draft instead of scrolling the transcript.
++	if editor, ok := t.GetFocusedComponent().(interface{ CapturesEditorPageInput() bool }); ok && editor.CapturesEditorPageInput() {
++		if keybindings.Matches(data, KBEditorPageUp) || keybindings.Matches(data, KBEditorPageDown) {
++			return "", false
++		}
+ 	}
+ 	// pig divergence (D155): a focused selection that handles the selection page keys keeps them, even when they are also bound to a viewport action (Pi #7629).
+ 	if (keybindings.Matches(data, KBSelectPageUp) || keybindings.Matches(data, KBSelectPageDown)) && CapturesSelectPageInput(t.GetFocusedComponent()) {
+diff --git a/tui/editor_draft_navigation_test.go b/tui/editor_draft_navigation_test.go
+new file mode 100644
+--- /dev/null
++++ b/tui/editor_draft_navigation_test.go
+@@ -0,0 +1,95 @@
++package tui
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestDraftNavigationWordDelete(t *testing.T) {
++	for _, key := range []string{"\x17", "\x1b[127;5u", "\x1b[27;5;127~"} {
++		t.Run(key, func(t *testing.T) {
++			e := NewEditor()
++			e.SetText("first second")
++			e.HandleInput(key)
++			if e.Text() != "first " {
++				t.Fatalf("word delete: %q", e.Text())
++			}
++			e.HandleInput("\x19")
++			if e.Text() != "first second" {
++				t.Fatalf("yank: %q", e.Text())
++			}
++		})
++	}
++}
++
++func TestDraftNavigationPageKeys(t *testing.T) {
++	for _, text := range []string{"", "one", "first\n" + strings.Repeat("wrapped ", 30) + "\nlast😀"} {
++		e := NewEditor()
++		e.SetText(text)
++		e.Render(20)
++		e.HandleInput("\x1b[5~")
++		if e.cursor != [2]int{0, 0} {
++			t.Fatalf("page up: %v", e.cursor)
++		}
++		e.HandleInput("\x1b[6~")
++		want := [2]int{len(e.lines) - 1, jsStringLength(e.lines[len(e.lines)-1])}
++		if e.cursor != want {
++			t.Fatalf("page down: %v, want %v", e.cursor, want)
++		}
++		if e.Text() != text {
++			t.Fatalf("page keys changed text: %q", e.Text())
++		}
++	}
++}
++
++func TestDraftNavigationArrowsPreserveNewInput(t *testing.T) {
++	e := NewEditor()
++	e.AddToHistory("older")
++	e.AddToHistory("newer")
++	e.SetText("new draft\nsecond line")
++	e.Render(40)
++	for _, key := range []string{"\x1b[A", "\x1b[B"} {
++		for range 5 {
++			e.HandleInput(key)
++			if e.Text() != "new draft\nsecond line" || e.inputHistIdx != -1 {
++				t.Fatalf("arrows replaced draft: %q, index %d", e.Text(), e.inputHistIdx)
++			}
++		}
++	}
++	e.Clear()
++	e.HandleInput("\x1b[A")
++	if e.Text() != "newer" {
++		t.Fatalf("recall: %q", e.Text())
++	}
++	e.HandleInput("\x1b[A")
++	if e.Text() != "older" {
++		t.Fatalf("older recall: %q", e.Text())
++	}
++	e.HandleInput("\x1b[B")
++	e.HandleInput("\x1b[B")
++	if e.Text() != "" {
++		t.Fatalf("leave history: %q", e.Text())
++	}
++	e.HandleInput("\x1b[A")
++	e.HandleInput("edited")
++	for range 5 {
++		e.HandleInput("\x1b[A")
++		e.HandleInput("\x1b[B")
++	}
++	if e.Text() != "editednewer" {
++		t.Fatalf("edited history draft: %q", e.Text())
++	}
++}
++
++func TestDraftNavigationPageKeysReachFocusedEditor(t *testing.T) {
++	e := NewEditor()
++	screen := NewTuiAltScreen(nil, nil, "")
++	for _, component := range []Component{e, &struct{ *Editor }{e}} {
++		screen.SetFocus(component)
++		for _, key := range []string{"\x1b[5~", "\x1b[6~"} {
++			if action, handled := screen.matchViewportAction(key); handled {
++				t.Fatalf("viewport captured editor key as %s", action)
++			}
++		}
++	}
++}
+diff --git a/internal/codingagent/tmux_draft_navigation_test.go b/internal/codingagent/tmux_draft_navigation_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/codingagent/tmux_draft_navigation_test.go
+@@ -0,0 +1,35 @@
++package codingagent
++
++import (
++	"context"
++	"testing"
++)
++
++func TestTmuxDraftNavigationThroughInteractiveDispatch(t *testing.T) {
++	t.Setenv("TMUX", "test")
++	for _, tc := range []struct {
++		name string
++		keys []string
++		want string
++	}{
++		{"word delete", []string{"first second", "\x17"}, "first "},
++		{"page up", []string{"first\nlast", "\x1b[5~", "START"}, "STARTfirst\nlast"},
++		{"page down", []string{"first\nlast", "\x1b[5~", "\x1b[6~", "END"}, "first\nlastEND"},
++		{"arrows", []string{"new draft", "\x1b[A", "\x1b[A", "\x1b[B", "\x1b[B"}, "new draft"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			m, _ := newCustomEditorDispatchMode(t)
++			m.isIdle = true
++			m.editor.AddToHistory("older")
++			m.editor.Render(100)
++			for _, key := range tc.keys {
++				if err := m.dispatchKey(context.Background(), key); err != nil {
++					t.Fatal(err)
++				}
++			}
++			if got := m.editor.Text(); got != tc.want {
++				t.Fatalf("draft = %q, want %q", got, tc.want)
++			}
++		})
++	}
++}
