@@ -2,6 +2,23 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.5] - 2026-10-25
+
+### Features
+
+- Enable Kitty images inside tmux for attached Kitty, Ghostty, and WezTerm clients when `allow-passthrough` is `on` or `all`.
+- Use Unicode placeholder cells and tmux passthrough to preserve image placement during scrolling, cropping, and cached rendering. Keep the text fallback when detection fails.
+
+### Bugfixes
+
+- Check user context limits before idle input starts a new run. Wait for compaction before the next question reaches the model.
+- Keep active-run steering and follow-up input outside the compaction wait. Report compaction failures and let idle input continue.
+
+### Other
+
+- Apply the tmux image host patch in the fused build and include it in patch-inventory checks.
+- Add regression tests for idle compaction success and failure, tmux detection, image transfer, placeholder rows, scrolling, and upload caching.
+
 ## [0.2.3] - 2026-10-24
 
 ### Features

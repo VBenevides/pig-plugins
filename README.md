@@ -20,7 +20,7 @@ Only after that build succeeds does it copy the plugins, prompts and skills into
 
 ## Versions and updates
 
-`VERSION` is `0.2.0` and is embedded in the plugin build. At session startup,
+The current plugin version comes from [`VERSION`](VERSION) and is embedded in the plugin build. At session startup,
 the bundled `check-update` extension shows `PiG - XXX | PiG Plugins - YYY`.
 The fused executable supplies its PiG version; when loaded
 separately, the extension falls back to `pig --version` on `PATH`.
@@ -260,16 +260,22 @@ Use these settings in the normal PiG agent directory's `settings.json`:
 
 These are the recommended image settings.
 Use a graphics-capable terminal, such as Kitty or Ghostty, for sharp previews.
-The native gallery uses the host's configured Kitty or iTerm2 renderer; Unicode placeholders
-are not required. With no graphics protocol, all images still appear as color-cell thumbnails.
+The native gallery uses the host's configured Kitty or iTerm2 renderer.
+With no graphics protocol, images appear as color-cell thumbnails.
 PiG disables iTerm2 graphics in fullscreen mode; use `tuiMode: "regular"` for iTerm2 previews.
 Print, JSON, and RPC modes retain numbered references and model attachments, but do not display the draft gallery.
 
-PiG disables automatic image protocol detection inside tmux and screen.
-The native gallery follows the host renderer and does not add multiplexer passthrough.
-Use PiG outside the multiplexer for reliable previews. Force `terminal.images: "kitty"` or
-`PI_IMAGE_PROTOCOL=kitty` only when the terminal and multiplexer can forward the graphics protocol.
-The setting takes precedence over the environment variable.
+Image previews work inside tmux with Kitty, Ghostty, or WezTerm when `allow-passthrough` is set to `on` or `all`.
+Add this line to your tmux configuration:
+
+```tmux
+set -g allow-passthrough on
+```
+
+Images scroll with the pane text. If terminal detection fails, PiG uses a text fallback.
+Automatic image detection remains disabled inside screen.
+`PI_IMAGE_PROTOCOL=kitty` overrides detection but does not enable tmux passthrough.
+The `terminal.images` setting takes precedence over the environment variable.
 Use PiG outside the multiplexer if forwarding fails.
 Stock `showImages` and `blockImages` settings control the transcript, not the draft gallery.
 Do not use `blockImages` as a privacy boundary: PiG 0.4.1 still sends those images to the model.
