@@ -1,0 +1,528 @@
+diff --git a/internal/pigdocs/content/terminal-setup.md b/internal/pigdocs/content/terminal-setup.md
+--- a/internal/pigdocs/content/terminal-setup.md
++++ b/internal/pigdocs/content/terminal-setup.md
+@@ -23,11 +23,11 @@
+ | JetBrains | no | yes | no |
+ | Apple Terminal | no | with `COLORTERM` | no |
+ 
+-Inside `tmux` or `screen`, PiG turns images off. The multiplexer
+-sits between PiG and the terminal, so what the outer terminal accepts is not
+-evidence that the pane accepts it. Hyperlinks stay off in `screen`. In `tmux`,
+-PiG asks tmux whether the attached client forwards hyperlinks and uses them
+-only when it does.
++Inside `tmux`, PiG enables Kitty images when the attached client is Kitty,
++Ghostty, or WezTerm and `allow-passthrough` is `on` or `all`. PiG uses Unicode
++placeholder cells so tmux can scroll the image with pane text. Images and
++hyperlinks stay off in `screen`. In `tmux`, PiG enables hyperlinks only when
++the attached client reports support.
+ 
+ PiG reads `TERM_PROGRAM`, `TERM` and `COLORTERM` first. It also accepts
+ `KITTY_WINDOW_ID`, `GHOSTTY_RESOURCES_DIR`, `WEZTERM_PANE`, `ITERM_SESSION_ID`,
+@@ -86,9 +86,10 @@
+ iTerm2 protocol. In every other terminal PiG writes the file path instead, so no
+ information is lost.
+ 
+-Images are off inside `tmux` and `screen`. To see images, run PiG outside the
+-multiplexer, or set `PI_IMAGE_PROTOCOL` when you know the multiplexer forwards
+-them.
++For tmux images, set `set -g allow-passthrough on` in your tmux configuration.
++The outer terminal must support Kitty Unicode placeholders. If detection fails,
++PiG keeps the text fallback. `PI_IMAGE_PROTOCOL=kitty` overrides detection but
++does not enable passthrough in tmux. Images remain off in `screen`.
+ 
+ ## Display problems
+ 
+diff --git a/tui/image.go b/tui/image.go
+--- a/tui/image.go
++++ b/tui/image.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"container/list"
++	"strings"
+ 	"sync"
+ 
+ 	"github.com/MichaelKinsy/PiG/tui/widthx"
+@@ -214,7 +215,9 @@
+ 			if result.ImageID != 0 {
+ 				i.imageID = result.ImageID
+ 			}
+-			if caps.Images == ImageProtocolKitty {
++			if caps.Images == ImageProtocolKitty && insideTmux() {
++				lines = strings.Split(result.Sequence, "\n")
++			} else if caps.Images == ImageProtocolKitty {
+ 				lines = []string{result.Sequence}
+ 				for range max(result.Rows-1, 0) {
+ 					lines = append(lines, "")
+diff --git a/tui/kitty_metadata.go b/tui/kitty_metadata.go
+--- a/tui/kitty_metadata.go
++++ b/tui/kitty_metadata.go
+@@ -139,6 +139,9 @@
+ // GetKittyImagePlacementRows reads the number of rows an image placement covers without scanning its payload: the
+ // explicit `r=` control, else the registered image's rows. Mirrors upstream getKittyImagePlacementRows.
+ func GetKittyImagePlacementRows(line string) (int, bool) {
++	if strings.Contains(line, tmuxDCS) {
++		return 1, true
++	}
+ 	controls := kittyGraphicPattern.FindStringSubmatch(line)
+ 	if controls == nil {
+ 		return 0, false
+@@ -174,6 +177,14 @@
+ 	loc := kittyGraphicPattern.FindStringSubmatchIndex(line)
+ 	if metadata == nil || loc == nil || hiddenRows < 0 || hiddenRows >= metadata.Rows || visibleRows <= 0 {
+ 		return line
++	}
++	if strings.Contains(line, tmuxDCS) {
++		// Keep the virtual placement at full size. Only text cells are cropped.
++		end := strings.LastIndex(line, "\x1b\\")
++		if end < 0 {
++			return line
++		}
++		return line[:end+2] + kittyPlaceholderRow(metadata.ImageID, metadata.Columns, hiddenRows)
+ 	}
+ 	croppedRows := min(visibleRows, metadata.Rows-hiddenRows)
+ 	if hiddenRows == 0 && croppedRows == metadata.Rows {
+@@ -243,6 +254,21 @@
+ // with no Kitty command or no registered metadata. Mirrors upstream
+ // getKittyImagePlacement.
+ func GetKittyImagePlacement(line string) (KittyImagePlacement, bool) {
++	if strings.Contains(line, tmuxDCS) {
++		raw := unwrapTmuxKitty(line)
++		if strings.Contains(raw, tmuxDCS) {
++			return KittyImagePlacement{}, false
++		}
++		placement, ok := GetKittyImagePlacement(raw)
++		if !ok {
++			return KittyImagePlacement{}, false
++		}
++		placement.Sequence = wrapTmuxKitty(placement.Sequence)
++		placement.ReplacementLine = wrapKittyCommands(placement.ReplacementLine)
++		placement.TransmissionBytes = len(line)
++		placement.Rows = 1
++		return placement, true
++	}
+ 	loc := kittyGraphicPattern.FindStringSubmatchIndex(line)
+ 	if loc == nil {
+ 		return KittyImagePlacement{}, false
+diff --git a/tui/layout.go b/tui/layout.go
+--- a/tui/layout.go
++++ b/tui/layout.go
+@@ -482,7 +482,7 @@
+ 					}
+ 					break
+ 				}
+-				if imageLine != "" {
++				if imageLine != "" && !strings.ContainsRune(imageLine, '\U0010eeee') {
+ 					break
+ 				}
+ 			}
+diff --git a/tui/terminal_image.go b/tui/terminal_image.go
+--- a/tui/terminal_image.go
++++ b/tui/terminal_image.go
+@@ -144,10 +144,9 @@
+ 	hasTrueColorHint := colorTerm == "truecolor" || colorTerm == "24bit" || strings.HasSuffix(term, "-direct")
+ 	isWindowsConsole := goos == "windows"
+ 
+-	// Emit OSC 8 hyperlinks only when tmux confirms it forwards. Image
+-	// protocols are unreliable under tmux, so leave images off.
+-	if os.Getenv("TMUX") != "" || strings.HasPrefix(term, "tmux") {
+-		return TerminalCapabilities{Images: "", TrueColor: hasTrueColorHint, Hyperlinks: tmuxForwardsHyperlink()}
++	// Probe tmux itself before using any inherited outer-terminal hints.
++	if insideTmux() {
++		return TerminalCapabilities{Images: tmuxImageProbe(), TrueColor: hasTrueColorHint, Hyperlinks: tmuxForwardsHyperlink()}
+ 	}
+ 	// screen does not forward OSC 8 hyperlinks, so keep them off there.
+ 	if strings.HasPrefix(term, "screen") {
+@@ -325,6 +324,9 @@
+ func EncodeKitty(base64Data string, columns, rows, imageID int, moveCursor ...bool) string {
+ 	const chunkSize = 4096
+ 	params := []string{"a=T", "f=100", "q=2"}
++	if insideTmux() {
++		params = append(params, "U=1")
++	}
+ 	if len(moveCursor) > 0 && !moveCursor[0] {
+ 		params = append(params, "C=1")
+ 	}
+@@ -338,7 +340,11 @@
+ 		params = append(params, fmt.Sprintf("i=%d", imageID))
+ 	}
+ 	if len(base64Data) <= chunkSize {
+-		return "\x1b_G" + strings.Join(params, ",") + ";" + base64Data + "\x1b\\"
++		return wrapTmuxKitty("\x1b_G" + strings.Join(params, ",") + ";" + base64Data + "\x1b\\")
++	}
++	quiet := ""
++	if insideTmux() {
++		quiet = "q=2,"
+ 	}
+ 	var chunks []string
+ 	for off := 0; off < len(base64Data); off += chunkSize {
+@@ -346,26 +352,26 @@
+ 		chunk := base64Data[off:end]
+ 		switch {
+ 		case off == 0:
+-			chunks = append(chunks, "\x1b_G"+strings.Join(params, ",")+",m=1;"+chunk+"\x1b\\")
++			chunks = append(chunks, wrapTmuxKitty("\x1b_G"+strings.Join(params, ",")+",m=1;"+chunk+"\x1b\\"))
+ 		case end == len(base64Data):
+-			chunks = append(chunks, "\x1b_Gm=0;"+chunk+"\x1b\\")
++			chunks = append(chunks, wrapTmuxKitty("\x1b_G"+quiet+"m=0;"+chunk+"\x1b\\"))
+ 		default:
+-			chunks = append(chunks, "\x1b_Gm=1;"+chunk+"\x1b\\")
++			chunks = append(chunks, wrapTmuxKitty("\x1b_G"+quiet+"m=1;"+chunk+"\x1b\\"))
+ 		}
+ 	}
+ 	return strings.Join(chunks, "")
+ }
+ 
+ func DeleteKittyImage(imageID int) string {
+-	return fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", imageID)
+-}
+-
+-func DeleteAllKittyImages() string { return "\x1b_Ga=d,d=A,q=2\x1b\\" }
++	return wrapTmuxKitty(fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", imageID))
++}
++
++func DeleteAllKittyImages() string { return wrapTmuxKitty("\x1b_Ga=d,d=A,q=2\x1b\\") }
+ 
+ // DeleteAllKittyPlacements removes every Kitty image placement (visible
+ // renderings) while leaving the transmitted image data intact. Mirrors upstream
+ // deleteAllKittyPlacements.
+-func DeleteAllKittyPlacements() string { return "\x1b_Ga=d,d=a,q=2\x1b\\" }
++func DeleteAllKittyPlacements() string { return wrapTmuxKitty("\x1b_Ga=d,d=a,q=2\x1b\\") }
+ 
+ // ITerm2Options mirrors the options object of upstream encodeITerm2. A nil Width or Height, an empty Name and a nil pointer are the absent fields.
+ // Width and Height are a number or a string, as in upstream.
+@@ -574,6 +580,17 @@
+ 	if maxWidth <= 0 {
+ 		maxWidth = 80
+ 	}
++	if caps.Images == ImageProtocolKitty && insideTmux() {
++		maxWidth = min(maxWidth, len(kittyDiacritics))
++		if options.MaxHeightCells <= 0 {
++			options.MaxHeightCells = len(kittyDiacritics)
++		} else {
++			options.MaxHeightCells = min(options.MaxHeightCells, len(kittyDiacritics))
++		}
++		if options.ImageID <= 0 {
++			options.ImageID = AllocateImageID()
++		}
++	}
+ 	// Reduce Kitty's cell-aligned distortion without shrinking iTerm2 reservations.
+ 	size := CalculateImageCellSize(imageDimensions, maxWidth, options.MaxHeightCells, GetCellDimensions(), caps.Images == ImageProtocolKitty)
+ 	switch caps.Images {
+@@ -588,6 +605,14 @@
+ 			})
+ 		}
+ 		seq := EncodeKitty(base64Data, size.Columns, size.Rows, options.ImageID, options.MoveCursor == nil || *options.MoveCursor)
++		if insideTmux() {
++			for row := range size.Rows {
++				if row > 0 {
++					seq += "\n"
++				}
++				seq += kittyPlaceholderRow(options.ImageID, size.Columns, row)
++			}
++		}
+ 		return &renderedImage{Sequence: seq, Columns: size.Columns, Rows: size.Rows, ImageID: options.ImageID}
+ 	case ImageProtocolITerm2:
+ 		seq := EncodeITerm2(base64Data, ITerm2Options{Width: size.Columns, Height: "auto", PreserveAspectRatio: options.PreserveAspectRatio})
+diff --git a/tui/tmux_images.go b/tui/tmux_images.go
+new file mode 100644
+--- /dev/null
++++ b/tui/tmux_images.go
+@@ -0,0 +1,128 @@
++package tui
++
++import (
++	"context"
++	"fmt"
++	"os"
++	"strings"
++
++	"github.com/MichaelKinsy/PiG/internal/linkerexec"
++)
++
++const tmuxDCS = "\x1bPtmux;"
++
++var tmuxImageProbe = probeTmuxImages
++
++func insideTmux() bool {
++	return os.Getenv("TMUX") != "" || strings.HasPrefix(strings.ToLower(os.Getenv("TERM")), "tmux")
++}
++
++// Probe the attached client, not inherited outer-terminal environment hints.
++// A failed or timed-out probe leaves the existing text fallback in use.
++func probeTmuxImages() ImageProtocol {
++	ctx, cancel := context.WithTimeout(context.Background(), tmuxProbeTimeout)
++	defer cancel()
++	out, err := linkerexec.CommandContext(ctx, "tmux", "display-message", "-p", "#{allow-passthrough}\n#{client_termtype}\n#{client_termname}").Output()
++	if err != nil {
++		return ""
++	}
++	return tmuxImageProtocol(string(out))
++}
++
++func tmuxImageProtocol(output string) ImageProtocol {
++	fields := strings.Split(strings.TrimSpace(strings.ToLower(output)), "\n")
++	if len(fields) != 3 || (fields[0] != "on" && fields[0] != "all") {
++		return ""
++	}
++	for _, terminal := range fields[1:] {
++		switch terminal {
++		case "kitty", "xterm-kitty", "ghostty", "xterm-ghostty", "wezterm":
++			return ImageProtocolKitty
++		}
++	}
++	return ""
++}
++
++func wrapTmuxKitty(command string) string {
++	if !insideTmux() {
++		return command
++	}
++	return tmuxDCS + strings.ReplaceAll(command, "\x1b", "\x1b\x1b") + "\x1b\\"
++}
++
++// unwrapTmuxKitty is limited to the envelopes emitted by this encoder.
++func unwrapTmuxKitty(line string) string {
++	var result strings.Builder
++	for {
++		start := strings.Index(line, tmuxDCS)
++		if start < 0 {
++			result.WriteString(line)
++			break
++		}
++		result.WriteString(line[:start])
++		rest := line[start+len(tmuxDCS):]
++		var payload strings.Builder
++		end := -1
++		for i := 0; i < len(rest); i++ {
++			if rest[i] == '\x1b' && i+1 < len(rest) {
++				if rest[i+1] == '\x1b' {
++					payload.WriteByte('\x1b')
++					i++
++					continue
++				}
++				if rest[i+1] == '\\' {
++					end = i + 2
++					break
++				}
++			}
++			payload.WriteByte(rest[i])
++		}
++		if end < 0 {
++			result.WriteString(line[start:])
++			break
++		}
++		result.WriteString(payload.String())
++		line = rest[end:]
++	}
++	return result.String()
++}
++
++func wrapKittyCommands(line string) string {
++	var result strings.Builder
++	for {
++		start := strings.Index(line, kittyPrefix)
++		if start < 0 {
++			result.WriteString(line)
++			break
++		}
++		end := strings.Index(line[start:], "\x1b\\")
++		if end < 0 {
++			result.WriteString(line)
++			break
++		}
++		end += start + 2
++		result.WriteString(line[:start])
++		result.WriteString(wrapTmuxKitty(line[start:end]))
++		line = line[end:]
++	}
++	return result.String()
++}
++
++// Kitty's fixed row/column diacritic mapping, not a Unicode codepoint offset.
++// https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders
++var kittyDiacritics = []rune{
++	0x0305, 0x030D, 0x030E, 0x0310, 0x0312, 0x033D, 0x033E, 0x033F, 0x0346, 0x034A, 0x034B, 0x034C, 0x0350, 0x0351, 0x0352, 0x0357, 0x035B, 0x0363, 0x0364, 0x0365, 0x0366, 0x0367, 0x0368, 0x0369, 0x036A, 0x036B, 0x036C, 0x036D, 0x036E, 0x036F, 0x0483, 0x0484, 0x0485, 0x0486, 0x0487, 0x0592, 0x0593, 0x0594, 0x0595, 0x0597, 0x0598, 0x0599, 0x059C, 0x059D, 0x059E, 0x059F, 0x05A0, 0x05A1, 0x05A8, 0x05A9, 0x05AB, 0x05AC, 0x05AF, 0x05C4, 0x0610, 0x0611, 0x0612, 0x0613, 0x0614, 0x0615, 0x0616, 0x0617, 0x0657, 0x0658, 0x0659, 0x065A, 0x065B, 0x065D, 0x065E, 0x06D6, 0x06D7, 0x06D8, 0x06D9, 0x06DA, 0x06DB, 0x06DC, 0x06DF, 0x06E0, 0x06E1, 0x06E2, 0x06E4, 0x06E7, 0x06E8, 0x06EB, 0x06EC, 0x0730, 0x0732, 0x0733, 0x0735, 0x0736, 0x073A, 0x073D, 0x073F, 0x0740, 0x0741, 0x0743, 0x0745, 0x0747, 0x0749, 0x074A, 0x07EB, 0x07EC, 0x07ED, 0x07EE, 0x07EF, 0x07F0, 0x07F1, 0x07F3, 0x0816, 0x0817, 0x0818, 0x0819, 0x081B, 0x081C, 0x081D, 0x081E, 0x081F, 0x0820, 0x0821, 0x0822, 0x0823, 0x0825, 0x0826, 0x0827, 0x0829, 0x082A, 0x082B, 0x082C, 0x082D, 0x0951, 0x0953, 0x0954, 0x0F82, 0x0F83, 0x0F86, 0x0F87, 0x135D, 0x135E, 0x135F, 0x17DD, 0x193A, 0x1A17, 0x1A75, 0x1A76, 0x1A77, 0x1A78, 0x1A79, 0x1A7A, 0x1A7B, 0x1A7C, 0x1B6B, 0x1B6D, 0x1B6E, 0x1B6F, 0x1B70, 0x1B71, 0x1B72, 0x1B73, 0x1CD0, 0x1CD1, 0x1CD2, 0x1CDA, 0x1CDB, 0x1CE0, 0x1DC0, 0x1DC1, 0x1DC3, 0x1DC4, 0x1DC5, 0x1DC6, 0x1DC7, 0x1DC8, 0x1DC9, 0x1DCB, 0x1DCC, 0x1DD1, 0x1DD2, 0x1DD3, 0x1DD4, 0x1DD5, 0x1DD6, 0x1DD7, 0x1DD8, 0x1DD9, 0x1DDA, 0x1DDB, 0x1DDC, 0x1DDD, 0x1DDE, 0x1DDF, 0x1DE0, 0x1DE1, 0x1DE2, 0x1DE3, 0x1DE4, 0x1DE5, 0x1DE6, 0x1DFE, 0x20D0, 0x20D1, 0x20D4, 0x20D5, 0x20D6, 0x20D7, 0x20DB, 0x20DC, 0x20E1, 0x20E7, 0x20E9, 0x20F0, 0x2CEF, 0x2CF0, 0x2CF1, 0x2DE0, 0x2DE1, 0x2DE2, 0x2DE3, 0x2DE4, 0x2DE5, 0x2DE6, 0x2DE7, 0x2DE8, 0x2DE9, 0x2DEA, 0x2DEB, 0x2DEC, 0x2DED, 0x2DEE, 0x2DEF, 0x2DF0, 0x2DF1, 0x2DF2, 0x2DF3, 0x2DF4, 0x2DF5, 0x2DF6, 0x2DF7, 0x2DF8, 0x2DF9, 0x2DFA, 0x2DFB, 0x2DFC, 0x2DFD, 0x2DFE, 0x2DFF, 0xA66F, 0xA67C, 0xA67D, 0xA6F0, 0xA6F1, 0xA8E0, 0xA8E1, 0xA8E2, 0xA8E3, 0xA8E4, 0xA8E5, 0xA8E6, 0xA8E7, 0xA8E8, 0xA8E9, 0xA8EA, 0xA8EB, 0xA8EC, 0xA8ED, 0xA8EE, 0xA8EF, 0xA8F0, 0xA8F1, 0xAAB0, 0xAAB2, 0xAAB3, 0xAAB7, 0xAAB8, 0xAABE, 0xAABF, 0xAAC1, 0xFE20, 0xFE21, 0xFE22, 0xFE23, 0xFE24, 0xFE25, 0xFE26, 0x10A0F, 0x10A38, 0x1D185, 0x1D186, 0x1D187, 0x1D188, 0x1D189, 0x1D1AA, 0x1D1AB, 0x1D1AC, 0x1D1AD, 0x1D242, 0x1D243, 0x1D244,
++}
++
++func kittyPlaceholderRow(imageID, columns, row int) string {
++	var line strings.Builder
++	fmt.Fprintf(&line, "\x1b[39;59m\x1b[38;2;%d;%d;%dm", (imageID>>16)&255, (imageID>>8)&255, imageID&255)
++	for col := range columns {
++		line.WriteRune('\U0010eeee')
++		line.WriteRune(kittyDiacritics[row])
++		line.WriteRune(kittyDiacritics[col])
++		line.WriteRune(kittyDiacritics[(imageID>>24)&255])
++	}
++	line.WriteString("\x1b[39;59m")
++	return line.String()
++}
+diff --git a/tui/tmux_images_test.go b/tui/tmux_images_test.go
+new file mode 100644
+--- /dev/null
++++ b/tui/tmux_images_test.go
+@@ -0,0 +1,137 @@
++package tui
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++func TestTmuxImageDetection(t *testing.T) {
++	for _, tc := range []struct {
++		output string
++		want   ImageProtocol
++	}{
++		{"on\nxterm-kitty\nkitty\n", ImageProtocolKitty},
++		{"all\nxterm-ghostty\nghostty", ImageProtocolKitty},
++		{"on\nxterm-256color\nWezTerm", ImageProtocolKitty},
++		{"off\nxterm-kitty\nkitty", ""},
++		{"on\ntmux-256color\ntmux", ""},
++		{"on\nxterm-256color\n", ""},
++		{"", ""},
++	} {
++		if got := tmuxImageProtocol(tc.output); got != tc.want {
++			t.Errorf("probe %q: %q, want %q", tc.output, got, tc.want)
++		}
++	}
++	t.Setenv("TMUX", "test")
++	t.Setenv("TERM", "tmux-256color")
++	t.Setenv("KITTY_WINDOW_ID", "inherited")
++	previous := tmuxImageProbe
++	t.Cleanup(func() { tmuxImageProbe = previous })
++	for _, protocol := range []ImageProtocol{"", ImageProtocolKitty} {
++		tmuxImageProbe = func() ImageProtocol { return protocol }
++		caps := detectCapabilitiesFromEnvironment(func() bool { return true }, "linux")
++		if caps.Images != protocol || !caps.Hyperlinks {
++			t.Fatalf("capabilities: %+v", caps)
++		}
++	}
++}
++
++func TestTmuxKittyTransport(t *testing.T) {
++	t.Setenv("TMUX", "test")
++	command := "\x1b_Ga=d,q=2\x1b\\"
++	want := "\x1bPtmux;\x1b\x1b_Ga=d,q=2\x1b\x1b\\\x1b\\"
++	if got := wrapTmuxKitty(command); got != want {
++		t.Fatalf("wrapper: %q", got)
++	}
++	for _, size := range []int{4, 4096, 4097, 9000} {
++		data := strings.Repeat("A", size)
++		encoded := EncodeKitty(data, 3, 2, 42, false)
++		raw := unwrapTmuxKitty(encoded)
++		if strings.Count(encoded, tmuxDCS) != (size+4095)/4096 {
++			t.Fatalf("unwrapped chunk at size %d", size)
++		}
++		if !strings.Contains(raw, "U=1") {
++			t.Fatal("missing virtual placement")
++		}
++		var payload strings.Builder
++		for _, part := range strings.Split(raw, "\x1b_G")[1:] {
++			controls, chunk, ok := strings.Cut(part, ";")
++			if !ok || !strings.Contains(controls, "q=2") {
++				t.Fatalf("reply not suppressed: %q", controls)
++			}
++			payload.WriteString(strings.TrimSuffix(chunk, "\x1b\\"))
++		}
++		if payload.String() != data {
++			t.Fatal("transfer changed image data")
++		}
++	}
++	for _, deletion := range []string{DeleteKittyImage(42), DeleteAllKittyImages(), DeleteAllKittyPlacements()} {
++		if !strings.HasPrefix(deletion, tmuxDCS) {
++			t.Fatalf("bare deletion: %q", deletion)
++		}
++	}
++	t.Setenv("TMUX", "")
++	t.Setenv("TERM", "xterm-kitty")
++	if wrapTmuxKitty(command) != command {
++		t.Fatal("wrapped outside tmux")
++	}
++	if got := EncodeKitty("AAAA", 3, 2, 42, false); got != "\x1b_Ga=T,f=100,q=2,C=1,c=3,r=2,i=42;AAAA\x1b\\" {
++		t.Fatalf("direct rendering changed: %q", got)
++	}
++}
++
++func TestTmuxKittyPlaceholderLifecycle(t *testing.T) {
++	t.Setenv("TMUX", "test")
++	previous := GetCapabilities()
++	SetCapabilities(TerminalCapabilities{Images: ImageProtocolKitty})
++	t.Cleanup(func() { SetCapabilities(previous) })
++	dims := ImageDimensions{WidthPx: 36, HeightPx: 54}
++	preview := NewImage(strings.Repeat("A", 9000), "image/png", DefaultImageTheme(), ImageOptions{MaxWidthCells: 4, MaxHeightCells: 3, ImageID: 0xab123456}, &dims)
++	lines := preview.Render(6)
++	if len(lines) != 3 {
++		t.Fatalf("rows: %d", len(lines))
++	}
++	for row, line := range lines {
++		if widthx.VisibleWidth(line) != 4 {
++			t.Fatalf("row %d width: %d", row, widthx.VisibleWidth(line))
++		}
++		if !strings.HasSuffix(line, kittyPlaceholderRow(0xab123456, 4, row)) {
++			t.Fatalf("row %d has wrong coordinates", row)
++		}
++	}
++	if !strings.Contains(lines[0], "U=1") {
++		t.Fatal("no virtual placement")
++	}
++	placement, ok := GetKittyImagePlacement(lines[0])
++	if !ok || !strings.HasPrefix(placement.Sequence, tmuxDCS) || !strings.Contains(placement.Sequence, "U=1") {
++		t.Fatalf("placement: %+v, %v", placement, ok)
++	}
++	if strings.Contains(placement.ReplacementLine, "AAAA") || !strings.HasSuffix(placement.ReplacementLine, kittyPlaceholderRow(0xab123456, 4, 0)) {
++		t.Fatal("cached placement lost cells or retained payload")
++	}
++	cropped := CropKittyImageLine(lines[0], 1, 2)
++	if !strings.HasSuffix(cropped, kittyPlaceholderRow(0xab123456, 4, 1)) || !strings.Contains(cropped, "r=3") {
++		t.Fatal("crop resized virtual placement or lost row coordinates")
++	}
++	if _, ok := GetKittyImagePlacement(cropped); !ok {
++		t.Fatal("cropped upload cannot be cached")
++	}
++	view := NewScrollView(preview, ScrollViewOptions{Scrollbar: "never"})
++	RenderLayoutFrame(view, 6, 1, nil)
++	view.ScrollTo(2)
++	frame := RenderLayoutFrame(view, 6, 1, nil)
++	if !strings.Contains(frame.Lines[0], tmuxDCS) || !strings.HasSuffix(frame.Lines[0], kittyPlaceholderRow(0xab123456, 4, 2)) {
++		t.Fatal("scrolling past placeholder rows lost the upload")
++	}
++	renderer := &TuiAltScreen{uploadedKittyImages: map[int]cachedKittyImage{}}
++	first, _ := renderer.prepareKittyScreen(frame.Lines)
++	second, _ := renderer.prepareKittyScreen(frame.Lines)
++	if !strings.Contains(first[0], "AAAA") || strings.Contains(second[0], "AAAA") || !strings.Contains(second[0], "U=1") {
++		t.Fatal("upload cache did not preserve the virtual placement")
++	}
++	if _, ok := GetKittyImagePlacement(tmuxDCS + "broken"); ok {
++		t.Fatal("accepted an incomplete envelope")
++	}
++}
+diff --git a/tui/widthx/grapheme_range.go b/tui/widthx/grapheme_range.go
+--- a/tui/widthx/grapheme_range.go
++++ b/tui/widthx/grapheme_range.go
+@@ -103,6 +103,23 @@
+ 		return "", 0
+ 	}
+ 	switch s[pos+1] {
++	case 'P':
++		if !strings.HasPrefix(s[pos:], "\x1bPtmux;") {
++			return "", 0
++		}
++		for j := pos + 7; j+1 < len(s); j++ {
++			if s[j] != '\x1b' {
++				continue
++			}
++			if s[j+1] == '\x1b' {
++				j++
++				continue
++			}
++			if s[j+1] == '\\' {
++				return s[pos : j+2], j + 2 - pos
++			}
++		}
++		return "", 0
+ 	case '[':
+ 		for j := pos + 2; j < len(s); j++ {
+ 			c := s[j]
