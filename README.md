@@ -907,6 +907,20 @@ The extension checks before idle input starts a new run, after an agent run has 
 - A follow-up that an extension sends while a run is active, such as `Continue the interrupted task.` from `auto-models`, does not wait for compaction. The next tool-use turn end checks the limit.
 - The reserve is read from the project `.pig/settings.json` whether or not the project is trusted, which only moves the cap.
 
+## context-prune
+
+`/context-prune on|off|status` switches a model-free pruner. It is off by default and the setting is per user, in `<agent dir>/context-prune.json` (mode 0600). A damaged file is reported and counts as off.
+At the start of each agent run, the pruner decides which old content the requests of that run leave out. The decisions stay fixed for the whole run, so the request prefix does not change between its requests and the provider prefix cache keeps working. The session history is not changed. These are the targets:
+
+- A `read` result when the same path and range was read again later, or the file was edited or written later.
+- An `edit` result when the file was edited, written, or read again later.
+- A `todo` result when a later `todo` result exists.
+- A `bash` result over 8,192 characters. It keeps the first 4,096 and the last 1,024 characters.
+- A skill body, such as an earlier copy of `todo-solver`, when the same skill appears again later.
+
+Nothing changes in the newest 8 messages, in error results, or in results with images. A prune is skipped when it would remove less than 20,000 characters, because it changes earlier request text and so invalidates the provider prefix cache from that point on. The first request that follows a prune is billed without a cache hit from the first changed message. The saving is not measured against that cost. `/context-prune status` shows an estimate of about four characters per token.
+The pruned text stays in the session file but not in the request. A model that needs a pruned file reads it again.
+
 ## Closing menus
 
 Every menu this repository draws closes with both `Esc` and `q`: the `/todos` viewer, the auto-models dashboard and pickers, and the `ask_user_question` questionnaire (also `Ctrl+C`). Where `q` is a letter it stays a letter: the auto-models pickers that have a search box, the questionnaire's typed-answer row, and its note editor. There `Esc` is the only key, and the hint line names `q` only where it works.
