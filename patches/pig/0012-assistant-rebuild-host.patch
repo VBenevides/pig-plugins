@@ -1,0 +1,97 @@
+diff --git a/tui/assistant_message_block.go b/tui/assistant_message_block.go
+--- a/tui/assistant_message_block.go
++++ b/tui/assistant_message_block.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"strings"
++	"sync"
+ 
+ 	"github.com/MichaelKinsy/PiG/internal/jsstring"
+ )
+@@ -40,6 +41,9 @@
+ 	finished bool
+ 	// previousSegments is the scratch copy SetContent takes of segments.
+ 	previousSegments []assistantSegment
++	// rebuildMu serializes child-list publication, including scratch reuse and clearing.
++	// Container's lock protects its copy, not the scratch slice passed to SetChildren.
++	rebuildMu sync.Mutex
+ 	// childScratch is the scratch list updateContent hands to the content container.
+ 	childScratch []Component
+ 	// spacers, thinkingRuns and terminalError are the children updateContent keeps across updates (see updateContent).
+@@ -413,6 +417,9 @@
+ // The spacers, the thinking runs' mouse regions and the diagnostic lines are kept across updates while what they show is unchanged, so a
+ // streamed delta neither allocates them again nor makes the container render them again.
+ func (b *AssistantMessageComponent) updateContent() {
++	b.rebuildMu.Lock()
++	defer b.rebuildMu.Unlock()
++
+ 	children := b.childScratch[:0]
+ 	if len(b.segments) > 0 {
+ 		children = append(children, b.spacer(0))
+diff --git a/tui/assistant_message_rebuild_race_test.go b/tui/assistant_message_rebuild_race_test.go
+new file mode 100644
+--- /dev/null
++++ b/tui/assistant_message_rebuild_race_test.go
+@@ -0,0 +1,61 @@
++package tui
++
++import (
++	"strings"
++	"sync"
++	"testing"
++)
++
++// Concurrent invalidation must not publish the cleared scratch slice as the
++// assistant's child list. Warm the retained children first so the test isolates
++// rebuilding an unchanged message, not concurrent message mutation.
++func TestAssistantConcurrentContentRebuild(t *testing.T) {
++	for _, scenario := range []struct {
++		name, stopReason string
++		hidden           bool
++	}{
++		{name: "visible-thinking"},
++		{name: "hidden-thinking", hidden: true},
++		{name: "error", stopReason: "error"},
++		{name: "aborted", stopReason: "aborted"},
++	} {
++		t.Run(scenario.name, func(t *testing.T) {
++			b := NewAssistantMessageComponent(&AssistantMessage{
++				Content: []AssistantContentBlock{
++					{Type: "thinking", Thinking: "retained plan"},
++					{Type: "text", Text: "retained answer"},
++				},
++				StopReason: scenario.stopReason,
++			}, scenario.hidden, nil, "", nil, nil)
++			b.Render(80)
++			var wg sync.WaitGroup
++			for range 4 {
++				wg.Add(1)
++				go func() {
++					defer wg.Done()
++					for range 2000 {
++						b.Invalidate()
++					}
++				}()
++			}
++			// Rendering races with invalidation in the product too. Container's lock
++			// must see only complete published lists, never another rebuild's scratch.
++			for range 200 {
++				b.Render(80)
++			}
++			wg.Wait()
++			for i, child := range b.contentContainer.Children() {
++				if child == nil {
++					t.Fatalf("child %d is nil after concurrent rebuilds", i)
++				}
++			}
++			got := strings.Join(b.Render(80), "\n")
++			if !strings.Contains(got, "retained answer") {
++				t.Fatalf("answer was lost: %q", got)
++			}
++			if !scenario.hidden && !strings.Contains(got, "retained plan") {
++				t.Fatalf("thinking was lost: %q", got)
++			}
++		})
++	}
++}
