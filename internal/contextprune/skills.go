@@ -57,6 +57,9 @@ func textBlocks(message map[string]any) map[int]string {
 // Malformed, nested, or ambiguous envelopes are retained. Text and image blocks
 // are not joined, so their boundaries and metadata survive pruning.
 func SkillBodies(message map[string]any) []SkillBody {
+	if message["role"] != "user" {
+		return nil
+	}
 	key := messageKey(message)
 	if key == "" {
 		return nil
@@ -153,10 +156,11 @@ func skillHeader(line string) (string, string, bool) {
 	return name, location, name != "" && location != ""
 }
 
-func skillEditsDecision(bodies []SkillBody, eligible func(SkillBody) bool, reason string) Decision {
+func skillEditsDecision(bodies []SkillBody, eligible func(SkillBody) string) Decision {
 	var d Decision
 	for _, body := range bodies {
-		if !eligible(body) {
+		reason := eligible(body)
+		if reason == "" {
 			continue
 		}
 		marker := fmt.Sprintf("[pruned: skill %s (%s); %s]", body.Name, body.ID, reason)

@@ -150,8 +150,8 @@ func TestRepeatedSkillBodyKeepsTheNewest(t *testing.T) {
 	first, last := user(skill), user(skill)
 	first["timestamp"], last["timestamp"] = 1, 2
 	messages := history(first, user("work"), last)
-	out, changed := Apply(messages, Decide(messages, small))
-	if changed != 1 || !strings.Contains(resultText(t, out[0]), "identical skill body loaded later") || resultText(t, out[2]) != skill {
+	out, changed := Apply(messages, Decide(messages, finishedSettings(first)))
+	if changed != 1 || !strings.Contains(resultText(t, out[0]), "explicitly finished") || resultText(t, out[2]) != skill {
 		t.Fatalf("older skill body must be replaced: changed=%d %q", changed, resultText(t, out[0]))
 	}
 }

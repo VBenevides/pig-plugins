@@ -21,6 +21,9 @@ type Settings struct {
 	BashMaxChars int
 	// BashHeadChars and BashTailChars are the parts of a long shell result that stay.
 	BashHeadChars, BashTailChars int
+	// SkillReasons contains explicitly eligible invocation IDs and their prune reasons.
+	// A missing ID is protected, even when an identical skill appears later.
+	SkillReasons map[string]string
 }
 
 // DefaultSettings follow the DeepSeek Harness tool-result pruner limits for shell output.
@@ -70,7 +73,6 @@ func Decide(messages []any, settings Settings) Decisions {
 	results := map[string]int{}        // Tool call ID to the index of its result message.
 	byPath := map[string][]pathEvent{} // Path to the reads and edits that touch it, in order.
 	lastTodo := -1
-	skills := map[string]bool{} // Exact bodies seen later, not merely matching names.
 	messageCounts := map[string]int{}
 	for _, raw := range messages {
 		m, _ := raw.(map[string]any)
@@ -124,13 +126,10 @@ func Decide(messages []any, settings Settings) Decisions {
 		case "user":
 			bodies := SkillBodies(message)
 			if index < protectedFrom && messageCounts[messageKey(message)] == 1 {
-				d := skillEditsDecision(bodies, func(b SkillBody) bool { return skills[b.Text] }, "identical skill body loaded later")
+				d := skillEditsDecision(bodies, func(b SkillBody) string { return settings.SkillReasons[b.ID] })
 				if len(d.SkillEdits) > 0 {
 					decisions[messageKey(message)] = d
 				}
-			}
-			for _, b := range bodies {
-				skills[b.Text] = true
 			}
 		}
 	}

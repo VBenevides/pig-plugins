@@ -23,11 +23,13 @@ const usage = "usage: /context-prune [status] | on | off | skills list|finish|ke
 
 // state holds the decisions of the current run.
 type state struct {
-	mu        sync.Mutex
-	enabled   bool
-	fresh     bool // Decide again at the next request, because a run or a session change started.
-	decisions prune.Decisions
-	lastCount int
+	mu                           sync.Mutex
+	enabled                      bool
+	fresh                        bool // Decide again at the next request, because a run or a session change started.
+	decisions                    prune.Decisions
+	lastCount                    int
+	skillReasons                 map[string]string
+	skillsRetained, skillsPruned int
 }
 
 // Extension returns the extension.
@@ -73,6 +75,24 @@ func Extension() *sdk.Extension {
 	e.OnEvent(sdk.EventSessionTree, reset)
 	e.OnEvent(sdk.EventSessionCompact, reset)
 
+	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, data map[string]any) (any, error) {
+		if !explicitInteraction(data) {
+			return nil, nil
+		}
+		age, err := prune.SkillMaxAge(file())
+		if err != nil {
+			ctx.Notify(fmt.Sprintf("context-prune: interaction age unavailable: %v", err), "error")
+			return nil, nil
+		}
+		if age == 0 {
+			return nil, nil
+		}
+		if err := ctx.AppendEntry(prune.InteractionType, map[string]any{}); err != nil {
+			return nil, fmt.Errorf("record skill interaction: %w", err)
+		}
+		return nil, nil
+	})
+
 	e.OnEvent(sdk.EventContext, func(ctx sdk.Context, data map[string]any) (any, error) {
 		messages, _ := data["messages"].([]any)
 		pruned := st.apply(messages, func() bool { return overLimit(ctx) })
@@ -90,9 +110,22 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 	if err != nil {
 		ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, err), "error")
 	}
+	reasons := map[string]string{}
+	maxAge, ageErr := prune.SkillMaxAge(file)
+	if ageErr != nil {
+		ctx.Notify(fmt.Sprintf("context-prune: skill pruning is off: %v", ageErr), "error")
+	} else {
+		entries, readErr := ctx.SessionManager().GetBranch(nil)
+		if readErr != nil {
+			ctx.Notify(fmt.Sprintf("context-prune: skill state unavailable: %v", readErr), "error")
+		} else {
+			reasons = prune.SkillReasons(prune.Lifetimes(entries), maxAge)
+		}
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.enabled, st.fresh = enabled, true
+	st.skillReasons = reasons
 }
 
 // overLimit reports whether the context passes the limit that /compact-settings set. A context that passes it
@@ -119,16 +152,29 @@ func (st *state) apply(messages []any, overLimit func() bool) []any {
 	if !st.enabled {
 		return nil
 	}
+	settings := prune.DefaultSettings
+	settings.SkillReasons = st.skillReasons
 	if st.fresh {
-		st.decisions = prune.Decide(messages, prune.DefaultSettings)
+		st.decisions = prune.Decide(messages, settings)
 		st.fresh = false
 	} else if overLimit() {
-		if more := prune.Decide(messages, prune.DefaultSettings); more.Saved() > st.decisions.Saved() {
+		if more := prune.Decide(messages, settings); more.Saved() > st.decisions.Saved() {
 			st.decisions = more
 		}
 	}
 	pruned, changed := prune.Apply(messages, st.decisions)
 	st.lastCount = changed
+	st.skillsPruned, st.skillsRetained = 0, 0
+	for _, raw := range messages {
+		m, _ := raw.(map[string]any)
+		st.skillsRetained += len(prune.SkillBodies(m))
+	}
+	for _, raw := range pruned {
+		m, _ := raw.(map[string]any)
+		st.skillsPruned += len(prune.SkillBodies(m))
+	}
+	st.skillsPruned = st.skillsRetained - st.skillsPruned
+	st.skillsRetained -= st.skillsPruned
 	if changed == 0 {
 		return nil
 	}
@@ -169,6 +215,6 @@ func (st *state) status(file string) (string, string) {
 		state = "on"
 	}
 	chars := st.decisions.Saved()
-	return fmt.Sprintf("%s: %s\ncurrent run: %d messages pruned in the last request, about %d characters (roughly %d tokens, an estimate) left out of each request",
-		Name, state, st.lastCount, chars, chars/prune.CharsPerToken), "info"
+	return fmt.Sprintf("%s: %s\ncurrent run: %d messages pruned in the last request, about %d characters (roughly %d tokens, an estimate) left out of each request\nskill bodies: %d retained, %d pruned; only explicitly finished or released-and-expired bodies are eligible; recent messages and minimum savings still apply",
+		Name, state, st.lastCount, chars, chars/prune.CharsPerToken, st.skillsRetained, st.skillsPruned), "info"
 }

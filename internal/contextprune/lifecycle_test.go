@@ -70,3 +70,32 @@ func TestSkillLifetimeActionsAndUnknownIDs(t *testing.T) {
 		t.Fatal("accepted unknown action")
 	}
 }
+
+func TestSkillExpiryRequiresExplicitRelease(t *testing.T) {
+	for _, action := range []string{"", "active", "keep", "release", "finish"} {
+		entries := []map[string]any{messageEntry(skillMessage("rules", "task", 1))}
+		id := Lifetimes(entries)[0].ID
+		if action != "" {
+			data, err := SkillTransition(entries, id, action)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries = append(entries, stateEntry(data))
+		}
+		for range 5 {
+			entries = append(entries, map[string]any{"type": "custom", "customType": InteractionType})
+		}
+		got := Lifetimes(entries)
+		if got[0].Age != 5 {
+			t.Fatal("wrong interaction age")
+		}
+		_, eligible := SkillReasons(got, 3)[id]
+		if eligible != (action == "release" || action == "finish") {
+			t.Fatalf("wrong eligibility for %q", action)
+		}
+		_, eligible = SkillReasons(got, 0)[id]
+		if eligible != (action == "finish") {
+			t.Fatalf("default expiry affected %q", action)
+		}
+	}
+}

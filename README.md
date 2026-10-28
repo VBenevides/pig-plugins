@@ -917,9 +917,10 @@ At the start of each agent run, the pruner decides which old content the request
 - An `edit` result when the file was edited, written, or read again later.
 - A `todo` result when a later `todo` result exists.
 - A `bash` result over 8,192 characters. It keeps the first 4,096 and the last 1,024 characters.
-- A skill body, such as an earlier copy of `todo-solver`, when the same skill appears again later.
+- A skill body explicitly marked finished, even if loaded only once. Active, retained, and unknown invocations stay protected regardless of age or duplicates.
 
-Nothing changes in the newest 8 messages, in error results, or in results with images. A prune is skipped when it would remove less than 20,000 characters, because it changes earlier request text and so invalidates the provider prefix cache from that point on. The first request that follows a prune is billed without a cache hit from the first changed message. The saving is not measured against that cost. `/context-prune status` shows an estimate of about four characters per token.
+Nothing changes in the newest 8 messages or error results. Images stay intact, including images beside a skill envelope. A prune is skipped when it would remove less than 20,000 characters. Changing earlier request text invalidates the provider prefix cache from that point on. Net cost savings are not measured. `/context-prune status` shows estimates, plus retained and pruned skill-body counts.
+Skill pruning replaces only complete envelopes outside code fences. It preserves surrounding user requests, other text blocks, images, and message metadata. Malformed or ambiguous envelopes stay unchanged.
 The pruned text stays in the session file but not in the request. A model that needs a pruned file reads it again.
 When `/compact-settings` has a limit and the context passes it inside a run, the pruner decides again at the next request and adds more targets. This costs one cache miss, as a summary would. `compact-settings` then skips the summary when the estimate says that this is enough.
 
@@ -928,6 +929,12 @@ Use `/context-prune skills finish|keep|active|release [invocation-id]` to record
 `finish` records completion, `keep` protects the body, `active` records ongoing work, and `release` permits optional age-based expiry.
 State changes persist in session entries and follow branch history. A new prompt, nested skill, interrupted run, or compaction does not imply completion.
 These commands control context retention only. They never authorize or execute a skill.
+
+Optional expiry is off by default. `/context-prune skills expire-after <1-10000>` permits expiry of explicitly released (`idle`) invocations.
+Only subsequent explicit, non-command user inputs count toward age while expiry is enabled. Tool turns and extension follow-ups do not count.
+Use `/context-prune skills expire-after off` to disable expiry. Active, retained, and unknown invocations never expire.
+Finished or expired bodies still respect the newest-8-message window and the 20,000-character minimum saving. A command may therefore make no immediate reduction.
+Original skill bodies remain in the session history. Retention commands do not infer completion from an assistant response or authorize a skill.
 
 ## Closing menus
 
