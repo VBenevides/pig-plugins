@@ -32,6 +32,8 @@ type Decision struct {
 	Text string
 	// Saved is how many characters the replacement removes.
 	Saved int
+	// SkillEdits replace only validated skill envelopes, never the whole request.
+	SkillEdits []SkillEdit
 }
 
 // Decisions maps a tool call ID, or a skill message key, to its replacement.
@@ -68,7 +70,14 @@ func Decide(messages []any, settings Settings) Decisions {
 	results := map[string]int{}        // Tool call ID to the index of its result message.
 	byPath := map[string][]pathEvent{} // Path to the reads and edits that touch it, in order.
 	lastTodo := -1
-	skills := map[string]int{} // Skill name to the index of its newest message.
+	skills := map[string]bool{} // Exact bodies seen later, not merely matching names.
+	messageCounts := map[string]int{}
+	for _, raw := range messages {
+		m, _ := raw.(map[string]any)
+		if m["role"] == "user" {
+			messageCounts[messageKey(m)]++
+		}
+	}
 	for index, raw := range messages {
 		message, _ := raw.(map[string]any)
 		switch message["role"] {
@@ -87,22 +96,19 @@ func Decide(messages []any, settings Settings) Decisions {
 			case "todo":
 				lastTodo = index
 			}
-		case "user":
-			if name := skillName(message); name != "" {
-				skills[name] = index
-			}
 		}
 	}
 
 	protectedFrom := len(messages) - settings.KeepRecent
 	decisions := Decisions{}
-	for index, raw := range messages {
-		if index >= protectedFrom {
-			break
-		}
+	for index := len(messages) - 1; index >= 0; index-- {
+		raw := messages[index]
 		message, _ := raw.(map[string]any)
 		switch message["role"] {
 		case "toolResult":
+			if index >= protectedFrom {
+				continue
+			}
 			id, _ := message["toolCallId"].(string)
 			call, ok := calls[id]
 			if !ok {
@@ -116,14 +122,15 @@ func Decide(messages []any, settings Settings) Decisions {
 				decisions[id] = Decision{Text: replacement, Saved: len(text) - len(replacement)}
 			}
 		case "user":
-			name := skillName(message)
-			if name == "" || skills[name] == index {
-				continue
+			bodies := SkillBodies(message)
+			if index < protectedFrom && messageCounts[messageKey(message)] == 1 {
+				d := skillEditsDecision(bodies, func(b SkillBody) bool { return skills[b.Text] }, "identical skill body loaded later")
+				if len(d.SkillEdits) > 0 {
+					decisions[messageKey(message)] = d
+				}
 			}
-			text, ok := plainText(message)
-			replacement := fmt.Sprintf("[pruned: skill %s was loaded again later in this conversation]", name)
-			if ok && len(replacement) < len(text) {
-				decisions[SkillKey(index)] = Decision{Text: replacement, Saved: len(text) - len(replacement)}
+			for _, b := range bodies {
+				skills[b.Text] = true
 			}
 		}
 	}
@@ -263,24 +270,6 @@ func plainText(message map[string]any) (string, bool) {
 	return text.String(), true
 }
 
-// skillName returns the skill name of a user message that carries a skill body, or "".
-func skillName(message map[string]any) string {
-	text, ok := plainText(message)
-	if !ok {
-		return ""
-	}
-	const prefix = `<skill name="`
-	if !strings.HasPrefix(text, prefix) {
-		return ""
-	}
-	rest := text[len(prefix):]
-	end := strings.IndexByte(rest, '"')
-	if end <= 0 {
-		return ""
-	}
-	return rest[:end]
-}
-
 // Apply returns a copy of the message list with the decisions applied. Messages that no decision names are shared
 // with the input, and the input is not changed.
 func Apply(messages []any, decisions Decisions) ([]any, int) {
@@ -303,11 +292,16 @@ func Apply(messages []any, decisions Decisions) ([]any, int) {
 				}
 			}
 		case "user":
-			if skillName(message) != "" {
-				decision, found = decisions[SkillKey(index)]
-			}
+			decision, found = decisions[messageKey(message)]
 		}
 		if !found {
+			continue
+		}
+		if len(decision.SkillEdits) > 0 {
+			if replaced, ok := applySkillEdits(message, decision); ok {
+				out[index] = replaced
+				changed++
+			}
 			continue
 		}
 		if _, ok := plainText(message); !ok {

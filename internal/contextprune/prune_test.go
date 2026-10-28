@@ -146,10 +146,12 @@ func TestSmallSavingIsNotWorthBreakingTheCache(t *testing.T) {
 }
 
 func TestRepeatedSkillBodyKeepsTheNewest(t *testing.T) {
-	skill := `<skill name="todo-solver" location="/x">` + strings.Repeat("rules ", 100)
-	messages := history(user(skill), user("work"), user(skill))
+	skill := `<skill name="todo-solver" location="/x">` + "\n" + strings.Repeat("rules ", 100) + "\n</skill>"
+	first, last := user(skill), user(skill)
+	first["timestamp"], last["timestamp"] = 1, 2
+	messages := history(first, user("work"), last)
 	out, changed := Apply(messages, Decide(messages, small))
-	if changed != 1 || !strings.Contains(resultText(t, out[0]), "loaded again later") || resultText(t, out[2]) != skill {
+	if changed != 1 || !strings.Contains(resultText(t, out[0]), "identical skill body loaded later") || resultText(t, out[2]) != skill {
 		t.Fatalf("older skill body must be replaced: changed=%d %q", changed, resultText(t, out[0]))
 	}
 }
