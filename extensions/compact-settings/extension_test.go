@@ -285,3 +285,54 @@ func TestTurnBoundaryCompactionDoesNotRepeatWhileContextStaysAboveTheLimit(t *te
 		t.Fatalf("want one summary request and a finished task; got %d summaries of %d requests; stderr: %s", summaries, len(mock.Requests()), result.Stderr)
 	}
 }
+
+// A compact can fail for a reason that passes, such as a usage limit. The next prompt is a new attempt, even
+// though the context has the same size.
+func TestIdleInputRetriesACompactionThatFailedAtTheSameSize(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Text: "first", PromptTokens: 60000},
+		pigtest.HTTPError(400, "summary deliberately rejected"),
+		pigtest.Text("saved summary"),
+		pigtest.Text("second answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "first prompt " + strings.Repeat("history ", 200), "unique-next-question"},
+	})
+	requests := mock.Requests()
+	if len(requests) != 4 {
+		t.Fatalf("want task, failed summary, retried summary, answer; got %d; notices: %q; stderr: %s", len(requests), result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(requestText(t, requests[2]), "ONLY output the structured summary") || strings.Contains(requestText(t, requests[2]), "unique-next-question") {
+		t.Errorf("the third request must be the retried summary: %s", requestText(t, requests[2]))
+	}
+}
+
+// An assistant error carries no usage. The size of the earlier valid reply must still trigger the compact.
+func TestIdleInputCompactsAfterAnAssistantError(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Text: "first", PromptTokens: 60000},
+		pigtest.HTTPError(400, "request rejected"),
+		pigtest.Text("saved summary"),
+		pigtest.Text("second answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"first prompt " + strings.Repeat("history ", 200), "failing prompt", "/compact-settings limit absolute 50k", "unique-next-question"},
+	})
+	requests := mock.Requests()
+	if len(requests) != 4 {
+		t.Fatalf("want task, error, summary, answer; got %d; notices: %q; stderr: %s", len(requests), result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(requestText(t, requests[2]), "ONLY output the structured summary") {
+		t.Errorf("the third request must be the summary: %s", requestText(t, requests[2]))
+	}
+}

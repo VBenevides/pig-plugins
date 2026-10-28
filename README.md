@@ -903,7 +903,8 @@ The extension checks before idle input starts a new run, after an agent run has 
 
 - A compact inside a run aborts the run. The extension then sends `Continue the interrupted task.` to resume it, also after a failed compact. After a mid-run compact, the next one waits until the context grows 25% above the first size measured afterwards, so a context that stays above the limit does not compact every turn.
 - Like a manual `/compact`, the host rejects a prompt typed while that compacting runs ("Cannot submit a prompt while compaction is in progress"); send it again afterwards.
-- A failed compacting is reported and not retried at the same context size.
+- A failed compacting is reported. The settled and mid-run checks do not retry it at the same context size. A new prompt from the user does retry it, because the cause, such as a usage limit, may have passed.
+- A follow-up that an extension sends while a run is active, such as `Continue the interrupted task.` from `auto-models`, does not wait for compaction. The next tool-use turn end checks the limit.
 - The reserve is read from the project `.pig/settings.json` whether or not the project is trusted, which only moves the cap.
 
 ## Closing menus

@@ -29,7 +29,7 @@ type state struct {
 	mu         sync.Mutex
 	compacting bool
 	done       chan struct{} // Closed by the compact callback, never while a waiter holds mu.
-	failedAt   int           // Context size at which compacting last failed; the same size is not retried.
+	failedAt   int           // Context size at which compacting last failed; settled and turn hooks do not retry it.
 	// afterCompact is set when a mid-run compact finishes, and floor holds the first context size measured after
 	// it. A mid-run compact repeats only after the context grew past that floor: the summary and kept messages can
 	// stay above the limit, and compacting again cannot shrink them. The settled hook clears both.
@@ -62,7 +62,7 @@ func Extension() *sdk.Extension {
 		},
 	})
 
-	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, _ map[string]any) (any, error) {
+	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, data map[string]any) (any, error) {
 		idle, err := ctx.IsIdle()
 		if err != nil {
 			return nil, fmt.Errorf("%s: check idle before input: %w", Name, err)
@@ -70,7 +70,12 @@ func Extension() *sdk.Extension {
 		if !idle {
 			return nil, nil
 		}
-		if err := st.trigger(ctx, false); err != nil {
+		// An extension's own prompt, such as the resume after a failed compact, is not a new attempt by the user.
+		from := fromInput
+		if origin, _ := data["source"].(string); origin == "extension" {
+			from = fromSettle
+		}
+		if err := st.trigger(ctx, from); err != nil {
 			return nil, err
 		}
 		st.mu.Lock()
@@ -91,7 +96,7 @@ func Extension() *sdk.Extension {
 	// agent_before_settle was tried and deadlocks, because the compact aborts the run that is waiting for it.
 	e.OnEvent(sdk.EventAgentSettled, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		st.endRun()
-		return nil, st.trigger(ctx, false)
+		return nil, st.trigger(ctx, fromSettle)
 	})
 
 	// A tool-use turn means the run goes on to another model request. Without this check a long autonomous run
@@ -101,7 +106,7 @@ func Extension() *sdk.Extension {
 		if !continuesRun(data) {
 			return nil, nil
 		}
-		return nil, st.trigger(ctx, true)
+		return nil, st.trigger(ctx, fromTurn)
 	})
 	return e
 }
@@ -211,10 +216,20 @@ func continuesRun(data map[string]any) bool {
 	return stop == "toolUse"
 }
 
+// source says which hook asks for a compact.
+type source int
+
+const (
+	fromInput  source = iota // A prompt about to start a run. It retries a size that failed before, because a new prompt is a new attempt and the cause may have passed.
+	fromSettle               // A run that just ended.
+	fromTurn                 // A tool-use turn that ended inside a run.
+)
+
 // trigger starts a compact when the context passes a user-set limit. The compact runs in the background; a
-// failure is reported and the same context size is not retried. With resume set, a finished compact sends
+// failure is reported and the other hooks do not retry the same context size. From a turn, a finished compact sends
 // resumePrompt, because the compact aborted a run that had more work to do.
-func (st *state) trigger(ctx sdk.Context, resume bool) error {
+func (st *state) trigger(ctx sdk.Context, from source) error {
+	resume := from == fromTurn
 	limits, err := compactlimit.Load(compactlimit.File(os.Getenv))
 	if err != nil {
 		ctx.Notify("compact-settings: limit ignored, PiG's own threshold applies: "+err.Error(), "warning")
@@ -237,7 +252,7 @@ func (st *state) trigger(ctx sdk.Context, resume bool) error {
 	if resume && st.afterCompact {
 		st.afterCompact, st.floor = false, tokens
 	}
-	if st.compacting || !result.ShouldCompact(tokens) || tokens == st.failedAt || (resume && st.floor > 0 && tokens <= st.floor+st.floor/4) {
+	if st.compacting || !result.ShouldCompact(tokens) || (from != fromInput && tokens == st.failedAt) || (resume && st.floor > 0 && tokens <= st.floor+st.floor/4) {
 		return nil
 	}
 	st.compacting = true
