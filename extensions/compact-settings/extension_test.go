@@ -408,6 +408,9 @@ func TestSamePressureNeedsASummaryWhenPruningIsOff(t *testing.T) {
 	home := pigtest.NewHome(t)
 	writeSettings(t, home, "")
 	writeBigRunFiles(t, home)
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":false}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	mock := bigRunMock()
 	defer mock.Close()
 	home.RunRPC(t, mock, pigtest.RPCOptions{

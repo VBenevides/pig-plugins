@@ -16,12 +16,12 @@ const FileName = "context-prune.json"
 // File returns the settings file path.
 func File(getenv func(string) string) string { return agentdir.File(getenv, FileName) }
 
-// Enabled reads the switch. A missing file means off, because pruning is opt-in. A damaged file returns an error
-// and false, so a bad file never turns pruning on.
+// Enabled reads the switch. A missing file or key means on, because pruning is on by default. A damaged file
+// returns an error and false, so pruning is off until the file is fixed.
 func Enabled(file string) (bool, error) {
 	data, err := os.ReadFile(file)
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+		return true, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("read %s: %w", file, err)
@@ -32,7 +32,7 @@ func Enabled(file string) (bool, error) {
 	}
 	value, present := object["enabled"]
 	if !present {
-		return false, nil
+		return true, nil
 	}
 	enabled, ok := value.(bool)
 	if !ok {

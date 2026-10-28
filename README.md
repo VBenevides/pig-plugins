@@ -910,7 +910,7 @@ The extension checks before idle input starts a new run, after an agent run has 
 
 ## context-prune
 
-`/context-prune on|off|status` switches a model-free pruner. It is off by default and the setting is per user, in `<agent dir>/context-prune.json` (mode 0600). A damaged file is reported and counts as off.
+`/context-prune on|off|status` switches a model-free pruner. It is on by default, and `/context-prune off` turns it off. The setting is per user, in `<agent dir>/context-prune.json` (mode 0600). A damaged file is reported and counts as off.
 At the start of each agent run, the pruner decides which old content the requests of that run leave out. The decisions stay fixed for the whole run, so the request prefix does not change between its requests and the provider prefix cache keeps working. The session history is not changed. These are the targets:
 
 - A `read` result when the same path and range was read again later, or the file was edited or written later.

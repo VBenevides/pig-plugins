@@ -53,8 +53,15 @@ func runTwoTasks(t *testing.T, prompts ...string) ([]string, pigtest.RPCResult) 
 	return bodies, result
 }
 
-func TestPruningIsOffByDefault(t *testing.T) {
+func TestPruningIsOnByDefault(t *testing.T) {
 	bodies, _ := runTwoTasks(t, "task one", "task two")
+	if len(bodies) != 6 || !strings.Contains(bodies[5], "[pruned:") {
+		t.Fatalf("the next run must be pruned with no setting; got %d requests", len(bodies))
+	}
+}
+
+func TestPruningOffStopsPruning(t *testing.T) {
+	bodies, _ := runTwoTasks(t, "/context-prune off", "task one", "task two")
 	if len(bodies) != 6 {
 		t.Fatalf("want 6 model requests, got %d", len(bodies))
 	}
@@ -99,7 +106,7 @@ func TestCommandValidatesPersistsAndReports(t *testing.T) {
 	if len(notices) != 5 {
 		t.Fatalf("notices = %q; stderr %s", notices, result.Stderr)
 	}
-	for i, want := range []string{"context-prune: off", "usage:", "context-prune: on", "context-prune: on", "context-prune: off"} {
+	for i, want := range []string{"context-prune: on", "usage:", "context-prune: on", "context-prune: on", "context-prune: off"} {
 		if !strings.Contains(notices[i], want) {
 			t.Errorf("notice %d lacks %q: %s", i, want, notices[i])
 		}
