@@ -906,6 +906,7 @@ The extension checks before idle input starts a new run, after an agent run has 
 - A failed compacting is reported. The settled and mid-run checks do not retry it at the same context size. A new prompt from the user does retry it, because the cause, such as a usage limit, may have passed.
 - A follow-up that an extension sends while a run is active, such as `Continue the interrupted task.` from `auto-models`, does not wait for compaction. The next tool-use turn end checks the limit.
 - The reserve is read from the project `.pig/settings.json` whether or not the project is trusted, which only moves the cap.
+- When `/context-prune` is on and its estimate says that pruning brings the context under the limit, no summary is made. The pruner applies the saving, and the check at the next tool-use turn end summarizes if the context did not fall.
 
 ## context-prune
 
@@ -920,6 +921,7 @@ At the start of each agent run, the pruner decides which old content the request
 
 Nothing changes in the newest 8 messages, in error results, or in results with images. A prune is skipped when it would remove less than 20,000 characters, because it changes earlier request text and so invalidates the provider prefix cache from that point on. The first request that follows a prune is billed without a cache hit from the first changed message. The saving is not measured against that cost. `/context-prune status` shows an estimate of about four characters per token.
 The pruned text stays in the session file but not in the request. A model that needs a pruned file reads it again.
+When `/compact-settings` has a limit and the context passes it inside a run, the pruner decides again at the next request and adds more targets. This costs one cache miss, as a summary would. `compact-settings` then skips the summary when the estimate says that this is enough.
 
 ## Closing menus
 

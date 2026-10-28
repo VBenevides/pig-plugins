@@ -126,3 +126,44 @@ func TestDamagedSettingsFileIsReportedAndPrunesNothing(t *testing.T) {
 		t.Fatalf("a damaged file must be reported: %q; stderr %s", result.Notices(), result.Stderr)
 	}
 }
+
+func prunableHistory() []any {
+	read := func(id string) []any {
+		return []any{
+			map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "toolCall", "id": id, "name": "read", "arguments": map[string]any{"path": "big.txt"}}}},
+			map[string]any{"role": "toolResult", "toolCallId": id, "toolName": "read", "content": []any{map[string]any{"type": "text", "text": strings.Repeat("x", 30000)}}},
+		}
+	}
+	messages := []any{map[string]any{"role": "user", "content": "task"}}
+	messages = append(messages, read("one")...)
+	messages = append(messages, read("two")...)
+	for i := 0; i < 10; i++ {
+		messages = append(messages, map[string]any{"role": "user", "content": "filler"})
+	}
+	return messages
+}
+
+func TestDecisionsStayFixedInsideARunUnlessTheContextPassesTheLimit(t *testing.T) {
+	st := &state{enabled: true, fresh: true}
+	early := prunableHistory()[:3] // Only one read: nothing to prune yet.
+	if st.apply(early, func() bool { return false }) != nil {
+		t.Fatal("a single read must not be pruned")
+	}
+	full := prunableHistory()
+	if st.apply(full, func() bool { return false }) != nil {
+		t.Fatal("decisions made at the start of the run must not change without pressure")
+	}
+	pruned := st.apply(full, func() bool { return true })
+	if pruned == nil || !strings.Contains(resultOf(t, pruned[2]), "[pruned:") {
+		t.Fatal("pressure must add decisions for the stale read")
+	}
+	if again := st.apply(full, func() bool { return false }); again == nil || !strings.Contains(resultOf(t, again[2]), "[pruned:") {
+		t.Fatal("the new decisions stay for the rest of the run")
+	}
+}
+
+func resultOf(t *testing.T, message any) string {
+	t.Helper()
+	blocks := message.(map[string]any)["content"].([]any)
+	return blocks[0].(map[string]any)["text"].(string)
+}

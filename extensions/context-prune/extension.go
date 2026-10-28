@@ -12,6 +12,7 @@ import (
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
+	"github.com/VBenevides/pig-plugins/internal/compactlimit"
 	prune "github.com/VBenevides/pig-plugins/internal/contextprune"
 )
 
@@ -19,9 +20,6 @@ import (
 const Name = "context-prune"
 
 const usage = "usage: /context-prune [status] | on | off"
-
-// charsPerToken is a rough ratio that turns saved characters into an estimate. It is not a measurement.
-const charsPerToken = 4
 
 // state holds the decisions of the current run.
 type state struct {
@@ -66,9 +64,9 @@ func Extension() *sdk.Extension {
 	e.OnEvent(sdk.EventSessionTree, reset)
 	e.OnEvent(sdk.EventSessionCompact, reset)
 
-	e.OnEvent(sdk.EventContext, func(_ sdk.Context, data map[string]any) (any, error) {
+	e.OnEvent(sdk.EventContext, func(ctx sdk.Context, data map[string]any) (any, error) {
 		messages, _ := data["messages"].([]any)
-		pruned := st.apply(messages)
+		pruned := st.apply(messages, func() bool { return overLimit(ctx) })
 		if pruned == nil {
 			return nil, nil
 		}
@@ -88,8 +86,25 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 	st.enabled, st.fresh = enabled, true
 }
 
-// apply returns the pruned message list, or nil when nothing changes.
-func (st *state) apply(messages []any) []any {
+// overLimit reports whether the context passes the limit that /compact-settings set. A context that passes it
+// inside a run gets a new round of decisions, so pruning can relieve the pressure and a summary is not needed.
+func overLimit(ctx sdk.Context) bool {
+	limits, err := compactlimit.Load(compactlimit.File(os.Getenv))
+	if err != nil || !limits.IsSet() {
+		return false
+	}
+	use, err := ctx.GetContextUsage()
+	if err != nil || use == nil || use.Tokens == nil {
+		return false
+	}
+	result := compactlimit.Effective(limits, use.ContextWindow, compactlimit.ReserveTokens(os.Getenv, ctx.Cwd()))
+	return result.ShouldCompact(*use.Tokens)
+}
+
+// apply returns the pruned message list, or nil when nothing changes. The decisions stay fixed inside a run, except
+// that more are added when the context is over the limit. That change costs one prefix cache miss, as a summary
+// would, and it only happens when the pruner can remove more than it already does.
+func (st *state) apply(messages []any, overLimit func() bool) []any {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if !st.enabled {
@@ -98,6 +113,10 @@ func (st *state) apply(messages []any) []any {
 	if st.fresh {
 		st.decisions = prune.Decide(messages, prune.DefaultSettings)
 		st.fresh = false
+	} else if overLimit() {
+		if more := prune.Decide(messages, prune.DefaultSettings); more.Saved() > st.decisions.Saved() {
+			st.decisions = more
+		}
 	}
 	pruned, changed := prune.Apply(messages, st.decisions)
 	st.lastCount = changed
@@ -142,5 +161,5 @@ func (st *state) status(file string) (string, string) {
 	}
 	chars := st.decisions.Saved()
 	return fmt.Sprintf("%s: %s\ncurrent run: %d messages pruned in the last request, about %d characters (roughly %d tokens, an estimate) left out of each request",
-		Name, state, st.lastCount, chars, chars/charsPerToken), "info"
+		Name, state, st.lastCount, chars, chars/prune.CharsPerToken), "info"
 }

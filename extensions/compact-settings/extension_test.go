@@ -336,3 +336,137 @@ func TestIdleInputCompactsAfterAnAssistantError(t *testing.T) {
 		t.Errorf("the third request must be the summary: %s", requestText(t, requests[2]))
 	}
 }
+
+func bigRunMock() *pigtest.MockLLM {
+	read := func(path string, tokens int) pigtest.Reply {
+		return pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("read", map[string]any{"path": path})}, PromptTokens: tokens}
+	}
+	return pigtest.NewMockLLM(
+		read("big.txt", 10), read("big.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 60000),
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+}
+
+func writeBigRunFiles(t *testing.T, home *pigtest.Home) {
+	t.Helper()
+	files := map[string]string{"big.txt": strings.Repeat(strings.Repeat("x", 99)+"\n", 1000), "a.txt": "a\n", "b.txt": "b\n"}
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(home.Work, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func countSummaryRequests(t *testing.T, mock *pigtest.MockLLM) int {
+	t.Helper()
+	count := 0
+	for _, request := range mock.Requests() {
+		if strings.Contains(requestText(t, request), "ONLY output the structured summary") {
+			count++
+		}
+	}
+	return count
+}
+
+func pruneExtensionDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs("../context-prune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// When pruning alone brings the context under the limit, the run continues with no summary request.
+func TestPruningThatRelievesThePressureSkipsTheSummary(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	writeBigRunFiles(t, home)
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock := bigRunMock()
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t), pruneExtensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 0 {
+		t.Fatalf("pruning relieves the pressure, but %d summary requests ran; notices %q; stderr %s", got, result.Notices(), result.Stderr)
+	}
+	requests := mock.Requests()
+	if len(requests) != 9 || !strings.Contains(requestText(t, requests[8]), "[pruned:") {
+		t.Fatalf("the request after the pressure must be pruned; got %d requests; stderr %s", len(requests), result.Stderr)
+	}
+}
+
+// Without pruning the same run needs a summary.
+func TestSamePressureNeedsASummaryWhenPruningIsOff(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	writeBigRunFiles(t, home)
+	mock := bigRunMock()
+	defer mock.Close()
+	home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t), pruneExtensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 1 {
+		t.Fatalf("want one summary request, got %d", got)
+	}
+}
+
+// Pruning that cannot remove enough does not replace the summary.
+func TestPruningThatCannotRelieveThePressureStillSummarizes(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("bash", map[string]any{"command": "echo tool-output"})}, PromptTokens: 60000},
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t), pruneExtensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 1 {
+		t.Fatalf("want one summary request, got %d", got)
+	}
+}
+
+// When the pruner does not lower the context, the next turn end summarizes instead of waiting again.
+func TestMidRunReliefThatDoesNotHappenFallsBackToASummary(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	writeBigRunFiles(t, home)
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func(path string, tokens int) pigtest.Reply {
+		return pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("read", map[string]any{"path": path})}, PromptTokens: tokens}
+	}
+	mock := pigtest.NewMockLLM(
+		read("big.txt", 10), read("big.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10),
+		read("b.txt", 60000), read("a.txt", 60000),
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	// Only compact-settings is loaded, so nothing applies the pruning that it counted on.
+	home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 1 {
+		t.Fatalf("want one summary request after the relief failed, got %d", got)
+	}
+}

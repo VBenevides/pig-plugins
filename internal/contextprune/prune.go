@@ -3,6 +3,7 @@
 package contextprune
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -325,4 +326,37 @@ func Apply(messages []any, decisions Decisions) ([]any, int) {
 		changed++
 	}
 	return out, changed
+}
+
+// CharsPerToken is a rough ratio that turns characters into a token estimate. It is not a measurement.
+const CharsPerToken = 4
+
+// SavedTokens estimates the tokens that pruning would remove from a message list.
+func SavedTokens(messages []any, settings Settings) int {
+	return Decide(messages, settings).Saved() / CharsPerToken
+}
+
+// MessagesFromEntries returns the messages of session entries that come after the last compaction, in order. The
+// messages that compaction kept from before its cut are not included, so a saving computed from the result can
+// be lower than the true one, never higher.
+func MessagesFromEntries(entries []json.RawMessage) []any {
+	var messages []any
+	for _, raw := range entries {
+		var entry struct {
+			Type    string `json:"type"`
+			Message any    `json:"message"`
+		}
+		if json.Unmarshal(raw, &entry) != nil {
+			continue
+		}
+		switch entry.Type {
+		case "compaction":
+			messages = nil
+		case "message":
+			if entry.Message != nil {
+				messages = append(messages, entry.Message)
+			}
+		}
+	}
+	return messages
 }

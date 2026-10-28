@@ -15,6 +15,7 @@ import (
 
 	"github.com/VBenevides/pig-plugins/internal/betterfooter"
 	"github.com/VBenevides/pig-plugins/internal/compactlimit"
+	prune "github.com/VBenevides/pig-plugins/internal/contextprune"
 )
 
 // Name is the extension identity.
@@ -35,6 +36,9 @@ type state struct {
 	// stay above the limit, and compacting again cannot shrink them. The settled hook clears both.
 	afterCompact bool
 	floor        int
+	// reliefAt is the context size at which a mid-run check left the work to the pruner. A mid-run compact starts
+	// when the size did not fall afterwards, because the pruner did not help.
+	reliefAt int
 }
 
 // Extension returns the extension.
@@ -202,8 +206,32 @@ func trimPercent(value float64) string {
 // endRun clears what a finished run learned about its own mid-run compacts.
 func (st *state) endRun() {
 	st.mu.Lock()
-	st.afterCompact, st.floor = false, 0
+	st.afterCompact, st.floor, st.reliefAt = false, 0, 0
 	st.mu.Unlock()
+}
+
+// pruningRelieves reports whether the model-free pruner, when it is on, removes enough from the request to bring
+// the context under the limit, so a summary is not needed. The next run, or the next request inside a run, applies
+// it. The caller holds st.mu.
+func (st *state) pruningRelieves(ctx sdk.Context, from source, tokens, limit int) bool {
+	enabled, err := prune.Enabled(prune.File(os.Getenv))
+	if err != nil || !enabled {
+		return false
+	}
+	if from == fromTurn && st.reliefAt > 0 && tokens >= st.reliefAt {
+		return false
+	}
+	entries, err := ctx.GetEntries()
+	if err != nil {
+		return false
+	}
+	if tokens-prune.SavedTokens(prune.MessagesFromEntries(entries), prune.DefaultSettings) > limit {
+		return false
+	}
+	if from == fromTurn {
+		st.reliefAt = tokens
+	}
+	return true
 }
 
 // resumePrompt continues a run that a mid-run compact interrupted.
@@ -255,6 +283,10 @@ func (st *state) trigger(ctx sdk.Context, from source) error {
 	if st.compacting || !result.ShouldCompact(tokens) || (from != fromInput && tokens == st.failedAt) || (resume && st.floor > 0 && tokens <= st.floor+st.floor/4) {
 		return nil
 	}
+	if st.pruningRelieves(ctx, from, tokens, result.Limit) {
+		return nil
+	}
+	st.reliefAt = 0
 	st.compacting = true
 	done := make(chan struct{})
 	st.done = done
