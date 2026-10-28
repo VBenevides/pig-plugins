@@ -923,6 +923,12 @@ Nothing changes in the newest 8 messages, in error results, or in results with i
 The pruned text stays in the session file but not in the request. A model that needs a pruned file reads it again.
 When `/compact-settings` has a limit and the context passes it inside a run, the pruner decides again at the next request and adds more targets. This costs one cache miss, as a summary would. `compact-settings` then skips the summary when the estimate says that this is enough.
 
+`/context-prune skills list` shows skill envelopes and their invocation identifiers in the active branch. New invocations have an unknown lifetime.
+Use `/context-prune skills finish|keep|active|release [invocation-id]` to record an explicit retention state. Without an identifier, the command opens a selection dialog.
+`finish` records completion, `keep` protects the body, `active` records ongoing work, and `release` permits optional age-based expiry.
+State changes persist in session entries and follow branch history. A new prompt, nested skill, interrupted run, or compaction does not imply completion.
+These commands control context retention only. They never authorize or execute a skill.
+
 ## Closing menus
 
 Every menu this repository draws closes with both `Esc` and `q`: the `/todos` viewer, the auto-models dashboard and pickers, and the `ask_user_question` questionnaire (also `Ctrl+C`). Where `q` is a letter it stays a letter: the auto-models pickers that have a search box, the questionnaire's typed-answer row, and its note editor. There `Esc` is the only key, and the hint line names `q` only where it works.

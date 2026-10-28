@@ -19,7 +19,7 @@ import (
 // Name is the extension identity.
 const Name = "context-prune"
 
-const usage = "usage: /context-prune [status] | on | off"
+const usage = "usage: /context-prune [status] | on | off | skills list|finish|keep|active|release [invocation-id]"
 
 // state holds the decisions of the current run.
 type state struct {
@@ -40,7 +40,7 @@ func Extension() *sdk.Extension {
 		Description: "Prune stale tool results from model requests (/context-prune on|off|status)",
 		GetArgumentCompletions: func(prefix string) ([]sdk.AutocompleteItem, error) {
 			var items []sdk.AutocompleteItem
-			for _, value := range []string{"status", "on", "off"} {
+			for _, value := range []string{"status", "on", "off", "skills list", "skills finish", "skills keep", "skills active", "skills release"} {
 				if strings.HasPrefix(value, prefix) {
 					items = append(items, sdk.AutocompleteItem{Value: value, Label: value})
 				}
@@ -48,6 +48,15 @@ func Extension() *sdk.Extension {
 			return items, nil
 		},
 		Handler: func(ctx sdk.Context, args string) error {
+			if words := strings.Fields(args); len(words) > 0 && words[0] == "skills" {
+				message, err := st.skillCommand(ctx, args)
+				if err != nil {
+					ctx.Notify(fmt.Sprintf("context-prune: %v", err), "error")
+					return nil
+				}
+				ctx.Notify(message, "info")
+				return nil
+			}
 			message, level := st.command(file(), args)
 			ctx.Notify(message, level)
 			return nil
