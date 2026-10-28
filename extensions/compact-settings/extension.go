@@ -30,6 +30,11 @@ type state struct {
 	compacting bool
 	done       chan struct{} // Closed by the compact callback, never while a waiter holds mu.
 	failedAt   int           // Context size at which compacting last failed; the same size is not retried.
+	// afterCompact is set when a mid-run compact finishes, and floor holds the first context size measured after
+	// it. A mid-run compact repeats only after the context grew past that floor: the summary and kept messages can
+	// stay above the limit, and compacting again cannot shrink them. The settled hook clears both.
+	afterCompact bool
+	floor        int
 }
 
 // Extension returns the extension.
@@ -65,7 +70,7 @@ func Extension() *sdk.Extension {
 		if !idle {
 			return nil, nil
 		}
-		if err := st.trigger(ctx); err != nil {
+		if err := st.trigger(ctx, false); err != nil {
 			return nil, err
 		}
 		st.mu.Lock()
@@ -85,7 +90,18 @@ func Extension() *sdk.Extension {
 	// while the compact is in progress ("Cannot submit a prompt while compaction is in progress"). Waiting inside
 	// agent_before_settle was tried and deadlocks, because the compact aborts the run that is waiting for it.
 	e.OnEvent(sdk.EventAgentSettled, func(ctx sdk.Context, _ map[string]any) (any, error) {
-		return nil, st.trigger(ctx)
+		st.endRun()
+		return nil, st.trigger(ctx, false)
+	})
+
+	// A tool-use turn means the run goes on to another model request. Without this check a long autonomous run
+	// grows far past the limit, because the two hooks above only fire between runs. The compact aborts the run, so
+	// it resumes with a follow-up message once the compact finishes.
+	e.OnEvent(sdk.EventTurnEnd, func(ctx sdk.Context, data map[string]any) (any, error) {
+		if !continuesRun(data) {
+			return nil, nil
+		}
+		return nil, st.trigger(ctx, true)
 	})
 	return e
 }
@@ -178,9 +194,27 @@ func trimPercent(value float64) string {
 	return strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.4f", value), "0"), ".")
 }
 
+// endRun clears what a finished run learned about its own mid-run compacts.
+func (st *state) endRun() {
+	st.mu.Lock()
+	st.afterCompact, st.floor = false, 0
+	st.mu.Unlock()
+}
+
+// resumePrompt continues a run that a mid-run compact interrupted.
+const resumePrompt = "Continue the interrupted task."
+
+// continuesRun reports whether the turn that just ended requested tool calls, so another model request follows.
+func continuesRun(data map[string]any) bool {
+	message, _ := data["message"].(map[string]any)
+	stop, _ := message["stopReason"].(string)
+	return stop == "toolUse"
+}
+
 // trigger starts a compact when the context passes a user-set limit. The compact runs in the background; a
-// failure is reported and the same context size is not retried.
-func (st *state) trigger(ctx sdk.Context) error {
+// failure is reported and the same context size is not retried. With resume set, a finished compact sends
+// resumePrompt, because the compact aborted a run that had more work to do.
+func (st *state) trigger(ctx sdk.Context, resume bool) error {
 	limits, err := compactlimit.Load(compactlimit.File(os.Getenv))
 	if err != nil {
 		ctx.Notify("compact-settings: limit ignored, PiG's own threshold applies: "+err.Error(), "warning")
@@ -200,7 +234,10 @@ func (st *state) trigger(ctx sdk.Context) error {
 	tokens := *use.Tokens
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if st.compacting || !result.ShouldCompact(tokens) || tokens == st.failedAt {
+	if resume && st.afterCompact {
+		st.afterCompact, st.floor = false, tokens
+	}
+	if st.compacting || !result.ShouldCompact(tokens) || tokens == st.failedAt || (resume && st.floor > 0 && tokens <= st.floor+st.floor/4) {
 		return nil
 	}
 	st.compacting = true
@@ -213,11 +250,30 @@ func (st *state) trigger(ctx sdk.Context) error {
 		st.done = nil
 		st.mu.Unlock()
 	}
+	// The compact aborts the run in both outcomes, so a failed compact resumes too. The size that failed is not
+	// retried, which keeps a failing compact from looping.
+	resumeRun := func() {
+		if !resume {
+			return
+		}
+		if err := ctx.SendUserMessage(resumePrompt, "followUp"); err != nil {
+			ctx.Notify(fmt.Sprintf("compact-settings: could not resume the task after compacting: %v", err), "error")
+		}
+	}
 	ctx.CompactWithOptions(sdk.CompactOptions{
-		OnComplete: func(map[string]any) { finish(-1) },
+		OnComplete: func(map[string]any) {
+			finish(-1)
+			if resume {
+				st.mu.Lock()
+				st.afterCompact, st.floor = true, 0
+				st.mu.Unlock()
+			}
+			resumeRun()
+		},
 		OnError: func(err error) {
 			finish(tokens)
 			ctx.Notify(fmt.Sprintf("compact-settings: compacting at %s tokens failed: %v", betterfooter.FormatTokens(tokens), err), "error")
+			resumeRun()
 		},
 	})
 	return nil

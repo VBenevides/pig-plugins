@@ -181,3 +181,107 @@ func TestIdleInputContinuesAfterCompactionFailure(t *testing.T) {
 		t.Fatalf("missing compaction failure notice: %q", result.Notices())
 	}
 }
+
+func requestText(t *testing.T, request map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(request["messages"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func finalAssistantText(events []map[string]any, want string) bool {
+	for _, event := range events {
+		if event["type"] != "message_end" {
+			continue
+		}
+		data, err := json.Marshal(event["message"])
+		if err == nil && strings.Contains(string(data), `"role":"assistant"`) && strings.Contains(string(data), want) {
+			return true
+		}
+	}
+	return false
+}
+
+// A run that passes the limit after a tool result must compact before the next model request, then continue.
+func TestTurnBoundaryCompactsInsideRunAndResumes(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("bash", map[string]any{"command": "echo tool-output"})}, PromptTokens: 60000},
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	requests := mock.Requests()
+	if len(requests) != 3 {
+		t.Fatalf("want task, summary, resumed requests; got %d; notices: %q; stderr: %s", len(requests), result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(requestText(t, requests[1]), "ONLY output the structured summary") {
+		t.Errorf("the second request must be the compaction summary request: %s", requestText(t, requests[1]))
+	}
+	if !strings.Contains(requestText(t, requests[2]), "saved summary") {
+		t.Errorf("the resumed request must carry the summary: %s", requestText(t, requests[2]))
+	}
+	if !finalAssistantText(result.Events, "final answer") {
+		t.Errorf("the task did not resume after compaction; stderr: %s", result.Stderr)
+	}
+}
+
+// A compaction that fails mid-run must not stop the run or retry at the same size.
+func TestTurnBoundaryCompactionFailureLetsTheRunContinue(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("bash", map[string]any{"command": "echo tool-output"})}, PromptTokens: 60000},
+		pigtest.HTTPError(400, "summary deliberately rejected"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if !finalAssistantText(result.Events, "final answer") {
+		t.Fatalf("the run must continue after a failed compaction; notices: %q; stderr: %s", result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(strings.Join(result.Notices(), "\n"), "compacting at 60k tokens failed") {
+		t.Errorf("missing compaction failure notice: %q", result.Notices())
+	}
+}
+
+// A compact cannot shrink a context whose floor is above the limit, so it must not repeat on every turn.
+func TestTurnBoundaryCompactionDoesNotRepeatWhileContextStaysAboveTheLimit(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	call := pigtest.Call("bash", map[string]any{"command": "echo tool-output"})
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{call}, PromptTokens: 60000},
+		pigtest.Text("saved summary"),
+		pigtest.Reply{Calls: []pigtest.ToolCall{call}, PromptTokens: 60000},
+		pigtest.Reply{Calls: []pigtest.ToolCall{call}, PromptTokens: 61000},
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	summaries := 0
+	for _, request := range mock.Requests() {
+		if strings.Contains(requestText(t, request), "ONLY output the structured summary") {
+			summaries++
+		}
+	}
+	if summaries != 1 || !finalAssistantText(result.Events, "final answer") {
+		t.Fatalf("want one summary request and a finished task; got %d summaries of %d requests; stderr: %s", summaries, len(mock.Requests()), result.Stderr)
+	}
+}
