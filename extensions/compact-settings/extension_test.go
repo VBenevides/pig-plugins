@@ -181,3 +181,295 @@ func TestIdleInputContinuesAfterCompactionFailure(t *testing.T) {
 		t.Fatalf("missing compaction failure notice: %q", result.Notices())
 	}
 }
+
+func requestText(t *testing.T, request map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(request["messages"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func finalAssistantText(events []map[string]any, want string) bool {
+	for _, event := range events {
+		if event["type"] != "message_end" {
+			continue
+		}
+		data, err := json.Marshal(event["message"])
+		if err == nil && strings.Contains(string(data), `"role":"assistant"`) && strings.Contains(string(data), want) {
+			return true
+		}
+	}
+	return false
+}
+
+// A run that passes the limit after a tool result must compact before the next model request, then continue.
+func TestTurnBoundaryCompactsInsideRunAndResumes(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("bash", map[string]any{"command": "echo tool-output"})}, PromptTokens: 60000},
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	requests := mock.Requests()
+	if len(requests) != 3 {
+		t.Fatalf("want task, summary, resumed requests; got %d; notices: %q; stderr: %s", len(requests), result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(requestText(t, requests[1]), "ONLY output the structured summary") {
+		t.Errorf("the second request must be the compaction summary request: %s", requestText(t, requests[1]))
+	}
+	if !strings.Contains(requestText(t, requests[2]), "saved summary") {
+		t.Errorf("the resumed request must carry the summary: %s", requestText(t, requests[2]))
+	}
+	if !finalAssistantText(result.Events, "final answer") {
+		t.Errorf("the task did not resume after compaction; stderr: %s", result.Stderr)
+	}
+}
+
+// A compaction that fails mid-run must not stop the run or retry at the same size.
+func TestTurnBoundaryCompactionFailureLetsTheRunContinue(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("bash", map[string]any{"command": "echo tool-output"})}, PromptTokens: 60000},
+		pigtest.HTTPError(400, "summary deliberately rejected"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if !finalAssistantText(result.Events, "final answer") {
+		t.Fatalf("the run must continue after a failed compaction; notices: %q; stderr: %s", result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(strings.Join(result.Notices(), "\n"), "compacting at 60k tokens failed") {
+		t.Errorf("missing compaction failure notice: %q", result.Notices())
+	}
+}
+
+// A compact cannot shrink a context whose floor is above the limit, so it must not repeat on every turn.
+func TestTurnBoundaryCompactionDoesNotRepeatWhileContextStaysAboveTheLimit(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	call := pigtest.Call("bash", map[string]any{"command": "echo tool-output"})
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{call}, PromptTokens: 60000},
+		pigtest.Text("saved summary"),
+		pigtest.Reply{Calls: []pigtest.ToolCall{call}, PromptTokens: 60000},
+		pigtest.Reply{Calls: []pigtest.ToolCall{call}, PromptTokens: 61000},
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	summaries := 0
+	for _, request := range mock.Requests() {
+		if strings.Contains(requestText(t, request), "ONLY output the structured summary") {
+			summaries++
+		}
+	}
+	if summaries != 1 || !finalAssistantText(result.Events, "final answer") {
+		t.Fatalf("want one summary request and a finished task; got %d summaries of %d requests; stderr: %s", summaries, len(mock.Requests()), result.Stderr)
+	}
+}
+
+// A compact can fail for a reason that passes, such as a usage limit. The next prompt is a new attempt, even
+// though the context has the same size.
+func TestIdleInputRetriesACompactionThatFailedAtTheSameSize(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Text: "first", PromptTokens: 60000},
+		pigtest.HTTPError(400, "summary deliberately rejected"),
+		pigtest.Text("saved summary"),
+		pigtest.Text("second answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "first prompt " + strings.Repeat("history ", 200), "unique-next-question"},
+	})
+	requests := mock.Requests()
+	if len(requests) != 4 {
+		t.Fatalf("want task, failed summary, retried summary, answer; got %d; notices: %q; stderr: %s", len(requests), result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(requestText(t, requests[2]), "ONLY output the structured summary") || strings.Contains(requestText(t, requests[2]), "unique-next-question") {
+		t.Errorf("the third request must be the retried summary: %s", requestText(t, requests[2]))
+	}
+}
+
+// An assistant error carries no usage. The size of the earlier valid reply must still trigger the compact.
+func TestIdleInputCompactsAfterAnAssistantError(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Text: "first", PromptTokens: 60000},
+		pigtest.HTTPError(400, "request rejected"),
+		pigtest.Text("saved summary"),
+		pigtest.Text("second answer"),
+	)
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"first prompt " + strings.Repeat("history ", 200), "failing prompt", "/compact-settings limit absolute 50k", "unique-next-question"},
+	})
+	requests := mock.Requests()
+	if len(requests) != 4 {
+		t.Fatalf("want task, error, summary, answer; got %d; notices: %q; stderr: %s", len(requests), result.Notices(), result.Stderr)
+	}
+	if !strings.Contains(requestText(t, requests[2]), "ONLY output the structured summary") {
+		t.Errorf("the third request must be the summary: %s", requestText(t, requests[2]))
+	}
+}
+
+func bigRunMock() *pigtest.MockLLM {
+	read := func(path string, tokens int) pigtest.Reply {
+		return pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("read", map[string]any{"path": path})}, PromptTokens: tokens}
+	}
+	return pigtest.NewMockLLM(
+		read("big.txt", 10), read("big.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 60000),
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+}
+
+func writeBigRunFiles(t *testing.T, home *pigtest.Home) {
+	t.Helper()
+	files := map[string]string{"big.txt": strings.Repeat(strings.Repeat("x", 99)+"\n", 1000), "a.txt": "a\n", "b.txt": "b\n"}
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(home.Work, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func countSummaryRequests(t *testing.T, mock *pigtest.MockLLM) int {
+	t.Helper()
+	count := 0
+	for _, request := range mock.Requests() {
+		if strings.Contains(requestText(t, request), "ONLY output the structured summary") {
+			count++
+		}
+	}
+	return count
+}
+
+func pruneExtensionDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs("../context-prune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// When pruning alone brings the context under the limit, the run continues with no summary request.
+func TestPruningThatRelievesThePressureSkipsTheSummary(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	writeBigRunFiles(t, home)
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock := bigRunMock()
+	defer mock.Close()
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t), pruneExtensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 0 {
+		t.Fatalf("pruning relieves the pressure, but %d summary requests ran; notices %q; stderr %s", got, result.Notices(), result.Stderr)
+	}
+	requests := mock.Requests()
+	if len(requests) != 9 || !strings.Contains(requestText(t, requests[8]), "[pruned:") {
+		t.Fatalf("the request after the pressure must be pruned; got %d requests; stderr %s", len(requests), result.Stderr)
+	}
+}
+
+// Without pruning the same run needs a summary.
+func TestSamePressureNeedsASummaryWhenPruningIsOff(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	writeBigRunFiles(t, home)
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":false}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock := bigRunMock()
+	defer mock.Close()
+	home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t), pruneExtensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 1 {
+		t.Fatalf("want one summary request, got %d", got)
+	}
+}
+
+// Pruning that cannot remove enough does not replace the summary.
+func TestPruningThatCannotRelieveThePressureStillSummarizes(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mock := pigtest.NewMockLLM(
+		pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("bash", map[string]any{"command": "echo tool-output"})}, PromptTokens: 60000},
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t), pruneExtensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 1 {
+		t.Fatalf("want one summary request, got %d", got)
+	}
+}
+
+// When the pruner does not lower the context, the next turn end summarizes instead of waiting again.
+func TestMidRunReliefThatDoesNotHappenFallsBackToASummary(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	writeSettings(t, home, "")
+	writeBigRunFiles(t, home)
+	if err := os.WriteFile(filepath.Join(home.AgentDir(), "context-prune.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func(path string, tokens int) pigtest.Reply {
+		return pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("read", map[string]any{"path": path})}, PromptTokens: tokens}
+	}
+	mock := pigtest.NewMockLLM(
+		read("big.txt", 10), read("big.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10),
+		read("b.txt", 60000), read("a.txt", 60000),
+		pigtest.Text("saved summary"),
+		pigtest.Text("final answer"),
+	)
+	defer mock.Close()
+	// Only compact-settings is loaded, so nothing applies the pruning that it counted on.
+	home.RunRPC(t, mock, pigtest.RPCOptions{
+		Extensions: []string{extensionDir(t)},
+		Prompts:    []string{"/compact-settings limit absolute 50k", "unique-task-prompt"},
+	})
+	if got := countSummaryRequests(t, mock); got != 1 {
+		t.Fatalf("want one summary request after the relief failed, got %d", got)
+	}
+}

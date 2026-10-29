@@ -45,6 +45,8 @@ extensions:
     origins: [local:./extensions/goal]
   - name: compact-settings
     origins: [local:./extensions/compact-settings]
+  - name: context-prune
+    origins: [local:./extensions/context-prune]
   - name: user-resources
     origins: [local:./extensions/user-resources]
 discovery:

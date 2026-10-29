@@ -899,12 +899,42 @@ A relative limit is a percentage of the model's context window (`50`, `62.5`, `5
 The effective limit is `min(relative, absolute, window - reserveTokens)`, where `reserveTokens` is PiG's `compaction.reserveTokens` (default 16384, read from the global and the project `settings.json`). PiG's own threshold therefore always remains the upper bound, and with nothing set behavior is unchanged. A value at or above that cap is saved but reported as clamped, so a later switch to a larger-window model can use it. With an unknown window, or a window not above the reserve, PiG's own behavior applies.
 Settings are per user, in `<agent dir>/compact-settings.json` (mode 0600). A damaged file is reported and ignored; PiG's own threshold keeps working.
 `better-footer` shows a user-set effective limit in parentheses after the context window, for example `84k/1.0M (250k)`. It is hidden when nothing is set, when a value is clamped to PiG's own cap, or when the window is unknown. The footer rereads the settings about once a second, so a change appears within that time.
-The extension checks before idle input starts a new run and after an agent run has settled. It uses the same compacting path as `/compact`, so native and custom summaries share one trigger. Idle input waits for compaction before the question reaches the model. Active-run steering and follow-up input do not wait, because manual compaction aborts and waits for the active run. Limits:
+The extension checks before idle input starts a new run, after an agent run has settled, and at the end of each turn that calls tools. It uses the same compacting path as `/compact`, so native and custom summaries share one trigger. Idle input waits for compaction before the question reaches the model. Active-run steering and follow-up input do not wait, because manual compaction aborts and waits for the active run. Limits:
 
-- PiG's own check after each model reply cannot be changed from an extension, so inside one long run the context can pass a limit until the run ends.
+- A compact inside a run aborts the run. The extension then sends `Continue the interrupted task.` to resume it, also after a failed compact. After a mid-run compact, the next one waits until the context grows 25% above the first size measured afterwards, so a context that stays above the limit does not compact every turn.
 - Like a manual `/compact`, the host rejects a prompt typed while that compacting runs ("Cannot submit a prompt while compaction is in progress"); send it again afterwards.
-- A failed compacting is reported and not retried at the same context size.
+- A failed compacting is reported. The settled and mid-run checks do not retry it at the same context size. A new prompt from the user does retry it, because the cause, such as a usage limit, may have passed.
+- A follow-up that an extension sends while a run is active, such as `Continue the interrupted task.` from `auto-models`, does not wait for compaction. The next tool-use turn end checks the limit.
 - The reserve is read from the project `.pig/settings.json` whether or not the project is trusted, which only moves the cap.
+- When `/context-prune` is on and its estimate says that pruning brings the context under the limit, no summary is made. The pruner applies the saving, and the check at the next tool-use turn end summarizes if the context did not fall.
+
+## context-prune
+
+`/context-prune on|off|status` switches a model-free pruner. It is on by default, and `/context-prune off` turns it off. The setting is per user, in `<agent dir>/context-prune.json` (mode 0600). A damaged file is reported and counts as off.
+At the start of each agent run, the pruner decides which old content the requests of that run leave out. The decisions stay fixed for the whole run, so the request prefix does not change between its requests and the provider prefix cache keeps working. The session history is not changed. These are the targets:
+
+- A `read` result when the same path and range was read again later, or the file was edited or written later.
+- An `edit` result when the file was edited, written, or read again later.
+- A `todo` result when a later `todo` result exists.
+- A `bash` result over 8,192 characters. It keeps the first 4,096 and the last 1,024 characters.
+- A skill body explicitly marked finished, even if loaded only once. Active, retained, and unknown invocations stay protected regardless of age or duplicates.
+
+Nothing changes in the newest 8 messages or error results. Images stay intact, including images beside a skill envelope. A prune is skipped when it would remove less than 20,000 characters. Changing earlier request text invalidates the provider prefix cache from that point on. Net cost savings are not measured. `/context-prune status` shows estimates, plus retained and pruned skill-body counts.
+Skill pruning replaces only complete envelopes outside code fences. It preserves surrounding user requests, other text blocks, images, and message metadata. Malformed or ambiguous envelopes stay unchanged.
+The pruned text stays in the session file but not in the request. A model that needs a pruned file reads it again.
+When `/compact-settings` has a limit and the context passes it inside a run, the pruner decides again at the next request and adds more targets. This costs one cache miss, as a summary would. `compact-settings` then skips the summary when the estimate says that this is enough.
+
+`/context-prune skills list` shows skill envelopes and their invocation identifiers in the active branch. New invocations have an unknown lifetime.
+Use `/context-prune skills finish|keep|active|release [invocation-id]` to record an explicit retention state. Without an identifier, the command opens a selection dialog.
+`finish` records completion, `keep` protects the body, `active` records ongoing work, and `release` permits optional age-based expiry.
+State changes persist in session entries and follow branch history. A new prompt, nested skill, interrupted run, or compaction does not imply completion.
+These commands control context retention only. They never authorize or execute a skill.
+
+Optional expiry is off by default. `/context-prune skills expire-after <1-10000>` permits expiry of explicitly released (`idle`) invocations.
+Only subsequent explicit, non-command user inputs count toward age while expiry is enabled. Tool turns and extension follow-ups do not count.
+Use `/context-prune skills expire-after off` to disable expiry. Active, retained, and unknown invocations never expire.
+Finished or expired bodies still respect the newest-8-message window and the 20,000-character minimum saving. A command may therefore make no immediate reduction.
+Original skill bodies remain in the session history. Retention commands do not infer completion from an assistant response or authorize a skill.
 
 ## Closing menus
 

@@ -2,6 +2,29 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.7] - 2026-10-28
+
+### Features
+
+- Add deterministic context pruning without a model call, enabled by default. `/context-prune on|off|status` controls the saved setting and shows estimated savings.
+- Replace stale source reads, edit results, older todo results, and repeated skill bodies in model requests. Trim oversized shell output while preserving its beginning and end.
+- Preserve the session history, recent messages, error results, and results with images. Skip small savings to limit prefix-cache invalidation.
+- Keep pruning decisions stable within a run unless context passes the configured limit. Skip the compaction summary when estimated pruning savings are sufficient.
+
+### Bugfixes
+
+- Check configured compaction limits after tool-use turns inside long runs, rather than only between runs. Resume the task after compaction succeeds or fails.
+- Prevent repeated mid-run compaction until context grows 25% above the first size measured after compaction.
+- Retry a failed compaction when a new user prompt arrives at the same context size. Keep extension-generated follow-ups outside that retry.
+- Fall back to a summary at the next tool-use turn boundary when expected pruning does not reduce context.
+- Serialize assistant child-list rebuilds to prevent nil-pointer crashes during concurrent invalidation and rendering.
+
+### Other
+
+- Bundle `context-prune` in the development binary and document its settings, cache tradeoffs, and interaction with automatic compaction.
+- Add unit and real-host regression tests for pruning rules, default settings, compaction retries, task continuation, and prune-first fallback behavior.
+- Apply the assistant-rendering host patch in bundled builds. Add concurrent rendering regressions for visible thinking, hidden thinking, error, and aborted messages.
+
 ## [0.2.6] - 2026-10-26
 
 ### Features

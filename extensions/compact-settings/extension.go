@@ -15,6 +15,7 @@ import (
 
 	"github.com/VBenevides/pig-plugins/internal/betterfooter"
 	"github.com/VBenevides/pig-plugins/internal/compactlimit"
+	prune "github.com/VBenevides/pig-plugins/internal/contextprune"
 )
 
 // Name is the extension identity.
@@ -29,7 +30,15 @@ type state struct {
 	mu         sync.Mutex
 	compacting bool
 	done       chan struct{} // Closed by the compact callback, never while a waiter holds mu.
-	failedAt   int           // Context size at which compacting last failed; the same size is not retried.
+	failedAt   int           // Context size at which compacting last failed; settled and turn hooks do not retry it.
+	// afterCompact is set when a mid-run compact finishes, and floor holds the first context size measured after
+	// it. A mid-run compact repeats only after the context grew past that floor: the summary and kept messages can
+	// stay above the limit, and compacting again cannot shrink them. The settled hook clears both.
+	afterCompact bool
+	floor        int
+	// reliefAt is the context size at which a mid-run check left the work to the pruner. A mid-run compact starts
+	// when the size did not fall afterwards, because the pruner did not help.
+	reliefAt int
 }
 
 // Extension returns the extension.
@@ -57,7 +66,7 @@ func Extension() *sdk.Extension {
 		},
 	})
 
-	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, _ map[string]any) (any, error) {
+	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, data map[string]any) (any, error) {
 		idle, err := ctx.IsIdle()
 		if err != nil {
 			return nil, fmt.Errorf("%s: check idle before input: %w", Name, err)
@@ -65,7 +74,12 @@ func Extension() *sdk.Extension {
 		if !idle {
 			return nil, nil
 		}
-		if err := st.trigger(ctx); err != nil {
+		// An extension's own prompt, such as the resume after a failed compact, is not a new attempt by the user.
+		from := fromInput
+		if origin, _ := data["source"].(string); origin == "extension" {
+			from = fromSettle
+		}
+		if err := st.trigger(ctx, from); err != nil {
 			return nil, err
 		}
 		st.mu.Lock()
@@ -85,7 +99,18 @@ func Extension() *sdk.Extension {
 	// while the compact is in progress ("Cannot submit a prompt while compaction is in progress"). Waiting inside
 	// agent_before_settle was tried and deadlocks, because the compact aborts the run that is waiting for it.
 	e.OnEvent(sdk.EventAgentSettled, func(ctx sdk.Context, _ map[string]any) (any, error) {
-		return nil, st.trigger(ctx)
+		st.endRun()
+		return nil, st.trigger(ctx, fromSettle)
+	})
+
+	// A tool-use turn means the run goes on to another model request. Without this check a long autonomous run
+	// grows far past the limit, because the two hooks above only fire between runs. The compact aborts the run, so
+	// it resumes with a follow-up message once the compact finishes.
+	e.OnEvent(sdk.EventTurnEnd, func(ctx sdk.Context, data map[string]any) (any, error) {
+		if !continuesRun(data) {
+			return nil, nil
+		}
+		return nil, st.trigger(ctx, fromTurn)
 	})
 	return e
 }
@@ -178,9 +203,61 @@ func trimPercent(value float64) string {
 	return strings.TrimSuffix(strings.TrimRight(fmt.Sprintf("%.4f", value), "0"), ".")
 }
 
+// endRun clears what a finished run learned about its own mid-run compacts.
+func (st *state) endRun() {
+	st.mu.Lock()
+	st.afterCompact, st.floor, st.reliefAt = false, 0, 0
+	st.mu.Unlock()
+}
+
+// pruningRelieves reports whether the model-free pruner, when it is on, removes enough from the request to bring
+// the context under the limit, so a summary is not needed. The next run, or the next request inside a run, applies
+// it. The caller holds st.mu.
+func (st *state) pruningRelieves(ctx sdk.Context, from source, tokens, limit int) bool {
+	enabled, err := prune.Enabled(prune.File(os.Getenv))
+	if err != nil || !enabled {
+		return false
+	}
+	if from == fromTurn && st.reliefAt > 0 && tokens >= st.reliefAt {
+		return false
+	}
+	entries, err := ctx.GetEntries()
+	if err != nil {
+		return false
+	}
+	if tokens-prune.SavedTokens(prune.MessagesFromEntries(entries), prune.DefaultSettings) > limit {
+		return false
+	}
+	if from == fromTurn {
+		st.reliefAt = tokens
+	}
+	return true
+}
+
+// resumePrompt continues a run that a mid-run compact interrupted.
+const resumePrompt = "Continue the interrupted task."
+
+// continuesRun reports whether the turn that just ended requested tool calls, so another model request follows.
+func continuesRun(data map[string]any) bool {
+	message, _ := data["message"].(map[string]any)
+	stop, _ := message["stopReason"].(string)
+	return stop == "toolUse"
+}
+
+// source says which hook asks for a compact.
+type source int
+
+const (
+	fromInput  source = iota // A prompt about to start a run. It retries a size that failed before, because a new prompt is a new attempt and the cause may have passed.
+	fromSettle               // A run that just ended.
+	fromTurn                 // A tool-use turn that ended inside a run.
+)
+
 // trigger starts a compact when the context passes a user-set limit. The compact runs in the background; a
-// failure is reported and the same context size is not retried.
-func (st *state) trigger(ctx sdk.Context) error {
+// failure is reported and the other hooks do not retry the same context size. From a turn, a finished compact sends
+// resumePrompt, because the compact aborted a run that had more work to do.
+func (st *state) trigger(ctx sdk.Context, from source) error {
+	resume := from == fromTurn
 	limits, err := compactlimit.Load(compactlimit.File(os.Getenv))
 	if err != nil {
 		ctx.Notify("compact-settings: limit ignored, PiG's own threshold applies: "+err.Error(), "warning")
@@ -200,9 +277,16 @@ func (st *state) trigger(ctx sdk.Context) error {
 	tokens := *use.Tokens
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if st.compacting || !result.ShouldCompact(tokens) || tokens == st.failedAt {
+	if resume && st.afterCompact {
+		st.afterCompact, st.floor = false, tokens
+	}
+	if st.compacting || !result.ShouldCompact(tokens) || (from != fromInput && tokens == st.failedAt) || (resume && st.floor > 0 && tokens <= st.floor+st.floor/4) {
 		return nil
 	}
+	if st.pruningRelieves(ctx, from, tokens, result.Limit) {
+		return nil
+	}
+	st.reliefAt = 0
 	st.compacting = true
 	done := make(chan struct{})
 	st.done = done
@@ -213,11 +297,30 @@ func (st *state) trigger(ctx sdk.Context) error {
 		st.done = nil
 		st.mu.Unlock()
 	}
+	// The compact aborts the run in both outcomes, so a failed compact resumes too. The size that failed is not
+	// retried, which keeps a failing compact from looping.
+	resumeRun := func() {
+		if !resume {
+			return
+		}
+		if err := ctx.SendUserMessage(resumePrompt, "followUp"); err != nil {
+			ctx.Notify(fmt.Sprintf("compact-settings: could not resume the task after compacting: %v", err), "error")
+		}
+	}
 	ctx.CompactWithOptions(sdk.CompactOptions{
-		OnComplete: func(map[string]any) { finish(-1) },
+		OnComplete: func(map[string]any) {
+			finish(-1)
+			if resume {
+				st.mu.Lock()
+				st.afterCompact, st.floor = true, 0
+				st.mu.Unlock()
+			}
+			resumeRun()
+		},
 		OnError: func(err error) {
 			finish(tokens)
 			ctx.Notify(fmt.Sprintf("compact-settings: compacting at %s tokens failed: %v", betterfooter.FormatTokens(tokens), err), "error")
+			resumeRun()
 		},
 	})
 	return nil
