@@ -13,7 +13,7 @@ func TestProviderRequestRetainsUserTextAroundSkill(t *testing.T) {
 	home := pigtest.NewHome(t)
 	mock := pigtest.NewMockLLM()
 	defer mock.Close()
-	envelope := `<skill name="review" location="/skills/review/SKILL.md">` + "\n" + strings.Repeat("RULE_BODY_", 3000) + "\n</skill>"
+	envelope := `<skill name="review" location="/skills/review/SKILL.md">` + "\n" + strings.Repeat("RULE_BODY_", 4000) + "\n</skill>"
 	prompts := []string{envelope + "\nUNIQUE_ORIGINAL_REQUEST", "/context-prune skills finish"}
 	for range 6 {
 		prompts = append(prompts, "next interaction")
@@ -85,7 +85,7 @@ func TestSkillExpiryPolicyAtTheProviderBoundary(t *testing.T) {
 			home := pigtest.NewHome(t)
 			mock := pigtest.NewMockLLM()
 			defer mock.Close()
-			envelope := `<skill name="review" location="/x">` + "\n" + strings.Repeat("OLD_SKILL_BODY_", 2000) + "\n</skill>\nKEEP_REQUEST"
+			envelope := `<skill name="review" location="/x">` + "\n" + strings.Repeat("OLD_SKILL_BODY_", 3000) + "\n</skill>\nKEEP_REQUEST"
 			prompts := []string{envelope, "/context-prune skills expire-after " + scenario.expiry}
 			if scenario.action != "" {
 				prompts = append(prompts, "/context-prune skills "+scenario.action)

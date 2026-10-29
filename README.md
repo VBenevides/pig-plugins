@@ -207,6 +207,8 @@ are covered independently.
 
 Cursor generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. Cursor streams use cancellable backpressure to bound unread events; native compaction drains them before awaiting results. These integration controls require `0005-provider-recovery-host.patch` and `0006-provider-recovery-sdk.patch`, applied by the bundled build.
 
+Codex WebSocket uploads have a separate 60-second write deadline. Cancellation closes a blocked upload immediately, and failed sockets leave the cache. An upload failure retries once with full context on a fresh WebSocket before the existing SSE fallback is considered; cancellation never retries. This recovery runs before any response is exposed, without replaying local tools. Debug stats retain the upload retry count and last upload error. The bundled build applies `0013-codex-upload-host.patch`; no transport setting changes are required.
+
 ### Text input
 
 Ctrl+Backspace and Ctrl+W delete the previous word. Page Up moves to the start of the first line.
@@ -911,18 +913,21 @@ The extension checks before idle input starts a new run, after an agent run has 
 ## context-prune
 
 `/context-prune on|off|status` switches a model-free pruner. It is on by default, and `/context-prune off` turns it off. The setting is per user, in `<agent dir>/context-prune.json` (mode 0600). A damaged file is reported and counts as off.
-At the start of each agent run, the pruner decides which old content the requests of that run leave out. The decisions stay fixed for the whole run, so the request prefix does not change between its requests and the provider prefix cache keeps working. The session history is not changed. These are the targets:
 
-- A `read` result when the same path and range was read again later, or the file was edited or written later.
+`/context-prune now` prepares a prune immediately without an LLM call. It bypasses the 8-turn cadence and minimum-saving threshold, but still protects recent tool groups, errors, images and active skills. The command reports the prepared saving; the pruned view applies to the next model request. Saved history is unchanged. If pruning is off, use `/context-prune on` first.
+
+The pruner checks each model request. It selects targets at run start and refreshes after every 8 tool-use turns, independently of the compaction threshold. Context pressure can trigger an earlier refresh. Decisions stay fixed between batches to preserve the provider prefix cache. Full session history remains unchanged. These are the targets:
+
+- A `read` result when the same path and range was read again later, or the file was edited or written later. With durable session storage, older unique reads and `code_search`, `code_overview`, and `ast_search` output can also be masked.
 - An `edit` result when the file was edited, written, or read again later.
 - A `todo` result when a later `todo` result exists.
 - A `bash` result over 8,192 characters. It keeps the first 4,096 and the last 1,024 characters.
 - A skill body explicitly marked finished, even if loaded only once. Active, retained, and unknown invocations stay protected regardless of age or duplicates.
 
-Nothing changes in the newest 8 messages or error results. Images stay intact, including images beside a skill envelope. A prune is skipped when it would remove less than 20,000 characters. Changing earlier request text invalidates the provider prefix cache from that point on. Net cost savings are not measured. `/context-prune status` shows estimates, plus retained and pruned skill-body counts.
+The newest 10 assistant tool-call groups stay intact, including all parallel results within each group. The newest 8 messages also stay intact. Error results and images are never masked. A batch must remove at least 32,000 additional characters, roughly 8k tokens. Previous savings do not count toward a new batch. Small batches wait for a later refresh. Changing earlier request text invalidates the provider prefix cache from that point on. Net cost savings are not measured. `/context-prune status` shows the policy, saving estimates, and retained and pruned skill-body counts.
 Skill pruning replaces only complete envelopes outside code fences. It preserves surrounding user requests, other text blocks, images, and message metadata. Malformed or ambiguous envelopes stay unchanged.
-The pruned text stays in the session file but not in the request. A model that needs a pruned file reads it again.
-When `/compact-settings` has a limit and the context passes it inside a run, the pruner decides again at the next request and adds more targets. This costs one cache miss, as a summary would. `compact-settings` then skips the summary when the estimate says that this is enough.
+The pruned text stays in the session file but not in the request. When a session file is available, tool-output placeholders include its path and the original `toolCallId`. Use `bash` to extract the saved `toolResult` from that JSONL file, or re-read a file for current content. Do not rerun a side-effecting command to recover its output. In-memory sessions retain unique reads and search results because they have no durable recovery source.
+The compaction limit is unchanged. When context exceeds it, the pruner attempts an earlier batch. `compact-settings` skips the LLM summary when its conservative estimate says pruning is sufficient. If context does not fall, the next tool-use turn end falls back to compaction.
 
 `/context-prune skills list` shows skill envelopes and their invocation identifiers in the active branch. New invocations have an unknown lifetime.
 Use `/context-prune skills finish|keep|active|release [invocation-id]` to record an explicit retention state. Without an identifier, the command opens a selection dialog.
@@ -933,7 +938,7 @@ These commands control context retention only. They never authorize or execute a
 Optional expiry is off by default. `/context-prune skills expire-after <1-10000>` permits expiry of explicitly released (`idle`) invocations.
 Only subsequent explicit, non-command user inputs count toward age while expiry is enabled. Tool turns and extension follow-ups do not count.
 Use `/context-prune skills expire-after off` to disable expiry. Active, retained, and unknown invocations never expire.
-Finished or expired bodies still respect the newest-8-message window and the 20,000-character minimum saving. A command may therefore make no immediate reduction.
+Finished or expired bodies still respect the newest-8-message window and the 32,000-character minimum saving. A command may therefore make no immediate reduction.
 Original skill bodies remain in the session history. Retention commands do not infer completion from an assistant response or authorize a skill.
 
 ## Closing menus
