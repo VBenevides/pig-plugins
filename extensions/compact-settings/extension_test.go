@@ -342,7 +342,8 @@ func bigRunMock() *pigtest.MockLLM {
 		return pigtest.Reply{Calls: []pigtest.ToolCall{pigtest.Call("read", map[string]any{"path": path})}, PromptTokens: tokens}
 	}
 	return pigtest.NewMockLLM(
-		read("big.txt", 10), read("big.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 60000),
+		read("big.txt", 10), read("big.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10),
+		read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 60000),
 		pigtest.Text("saved summary"),
 		pigtest.Text("final answer"),
 	)
@@ -397,7 +398,7 @@ func TestPruningThatRelievesThePressureSkipsTheSummary(t *testing.T) {
 		t.Fatalf("pruning relieves the pressure, but %d summary requests ran; notices %q; stderr %s", got, result.Notices(), result.Stderr)
 	}
 	requests := mock.Requests()
-	if len(requests) != 9 || !strings.Contains(requestText(t, requests[8]), "[pruned:") {
+	if len(requests) != 13 || !strings.Contains(requestText(t, requests[12]), "[pruned:") {
 		t.Fatalf("the request after the pressure must be pruned; got %d requests; stderr %s", len(requests), result.Stderr)
 	}
 }
@@ -459,6 +460,7 @@ func TestMidRunReliefThatDoesNotHappenFallsBackToASummary(t *testing.T) {
 	}
 	mock := pigtest.NewMockLLM(
 		read("big.txt", 10), read("big.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10),
+		read("b.txt", 10), read("a.txt", 10), read("b.txt", 10), read("a.txt", 10),
 		read("b.txt", 60000), read("a.txt", 60000),
 		pigtest.Text("saved summary"),
 		pigtest.Text("final answer"),

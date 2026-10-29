@@ -18,6 +18,7 @@ PATCHES = [
     "0010-tmux-images-host.patch",
     "0011-editor-navigation-host.patch",
     "0012-assistant-rebuild-host.patch",
+    "0013-codex-upload-host.patch",
 ]
 
 class PatchInventoryTest(unittest.TestCase):

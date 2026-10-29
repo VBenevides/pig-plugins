@@ -225,7 +225,13 @@ func (st *state) pruningRelieves(ctx sdk.Context, from source, tokens, limit int
 	if err != nil {
 		return false
 	}
-	if tokens-prune.SavedTokens(prune.MessagesFromEntries(entries), prune.DefaultSettings) > limit {
+	settings := prune.DefaultSettings
+	if file, err := ctx.GetSessionFile(); err != nil {
+		ctx.Notify(fmt.Sprintf("compact-settings: saved-result pruning estimate unavailable: %v", err), "warning")
+	} else if file != nil {
+		settings.SessionFile = *file
+	}
+	if tokens-prune.SavedTokens(prune.MessagesFromEntries(entries), settings) > limit {
 		return false
 	}
 	if from == fromTurn {

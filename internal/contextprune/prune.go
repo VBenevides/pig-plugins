@@ -14,6 +14,11 @@ import (
 type Settings struct {
 	// KeepRecent is the number of newest messages that are never changed.
 	KeepRecent int
+	// KeepRecentGroups protects complete assistant tool-call groups, including parallel results.
+	KeepRecentGroups int
+	// SessionFile permits age-based masking with an exact saved-result recovery reference.
+	// Without durable session storage, only the conservative supersession rules apply.
+	SessionFile string
 	// MinSavingChars is the smallest total saving that is worth a prune. A prune changes earlier request text, so
 	// it invalidates the provider prefix cache from the first changed message on.
 	MinSavingChars int
@@ -26,8 +31,9 @@ type Settings struct {
 	SkillReasons map[string]string
 }
 
-// DefaultSettings follow the DeepSeek Harness tool-result pruner limits for shell output.
-var DefaultSettings = Settings{KeepRecent: 8, MinSavingChars: 20000, BashMaxChars: 8192, BashHeadChars: 4096, BashTailChars: 1024}
+// DefaultSettings batch roughly 8k tokens of savings and protect the latest ten tool-call groups.
+// Shell output retains the existing head and tail limits.
+var DefaultSettings = Settings{KeepRecent: 8, KeepRecentGroups: 10, MinSavingChars: 32000, BashMaxChars: 8192, BashHeadChars: 4096, BashTailChars: 1024}
 
 // Decision replaces the text of one tool result or skill message.
 type Decision struct {
@@ -102,13 +108,28 @@ func Decide(messages []any, settings Settings) Decisions {
 	}
 
 	protectedFrom := len(messages) - settings.KeepRecent
+	toolProtectedFrom := protectedFrom
+	if settings.KeepRecentGroups > 0 {
+		toolProtectedFrom = 0
+		groups := 0
+		for index := len(messages) - 1; index >= 0; index-- {
+			message, _ := messages[index].(map[string]any)
+			if hasToolCalls(message) {
+				groups++
+				if groups == settings.KeepRecentGroups {
+					toolProtectedFrom = min(index, protectedFrom)
+					break
+				}
+			}
+		}
+	}
 	decisions := Decisions{}
 	for index := len(messages) - 1; index >= 0; index-- {
 		raw := messages[index]
 		message, _ := raw.(map[string]any)
 		switch message["role"] {
 		case "toolResult":
-			if index >= protectedFrom {
+			if index >= toolProtectedFrom {
 				continue
 			}
 			id, _ := message["toolCallId"].(string)
@@ -120,8 +141,13 @@ func Decide(messages []any, settings Settings) Decisions {
 			if !ok {
 				continue
 			}
-			if replacement, ok := replacementFor(call, index, text, byPath, lastTodo, settings); ok && len(replacement) < len(text) {
-				decisions[id] = Decision{Text: replacement, Saved: len(text) - len(replacement)}
+			if replacement, ok := replacementFor(call, index, text, byPath, lastTodo, settings); ok {
+				if settings.SessionFile != "" {
+					replacement += fmt.Sprintf("\n[recovery: toolResult with toolCallId %q in session JSONL %q; use bash to extract the saved result, not to rerun the original command]", id, settings.SessionFile)
+				}
+				if len(replacement) < len(text) {
+					decisions[id] = Decision{Text: replacement, Saved: len(text) - len(replacement)}
+				}
 			}
 		case "user":
 			bodies := SkillBodies(message)
@@ -146,6 +172,9 @@ func replacementFor(call toolCall, index int, text string, byPath map[string][]p
 		if later := laterEvent(byPath[path], index, readSpan(call), true); later != "" {
 			return fmt.Sprintf("[pruned: this read of %s is out of date; %s]", path, later), true
 		}
+		if settings.SessionFile != "" {
+			return fmt.Sprintf("[pruned: old read of %s (range %s); re-read for current content or recover the saved result]", path, readSpan(call)), true
+		}
 	case "edit":
 		path := cleanPath(call.args)
 		if later := laterEvent(byPath[path], index, "", false); later != "" {
@@ -158,6 +187,10 @@ func replacementFor(call toolCall, index int, text string, byPath map[string][]p
 	case "bash":
 		if len(text) > settings.BashMaxChars {
 			return truncateMiddle(text, settings.BashHeadChars, settings.BashTailChars), true
+		}
+	case "code_search", "code_overview", "ast_search":
+		if settings.SessionFile != "" {
+			return "[pruned: old search output; recover the saved result or repeat this read-only search]", true
 		}
 	}
 	return "", false
@@ -198,6 +231,21 @@ func validCut(text string, cut int) int {
 		cut--
 	}
 	return cut
+}
+
+// hasToolCalls identifies one tool-use iteration, regardless of parallel call count.
+func hasToolCalls(message map[string]any) bool {
+	if message["role"] != "assistant" {
+		return false
+	}
+	blocks, _ := message["content"].([]any)
+	for _, raw := range blocks {
+		block, _ := raw.(map[string]any)
+		if block["type"] == "toolCall" {
+			return true
+		}
+	}
+	return false
 }
 
 func collectCalls(messages []any) map[string]toolCall {

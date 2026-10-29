@@ -1,0 +1,444 @@
+diff --git a/ai/openai_codex_websocket.go b/ai/openai_codex_websocket.go
+--- a/ai/openai_codex_websocket.go
++++ b/ai/openai_codex_websocket.go
+@@ -142,6 +142,8 @@
+ 	SSEFallbacks            int
+ 	WebSocketFallbackActive bool
+ 	LastWebSocketError      string
++	UploadRetries           int
++	LastUploadError         string
+ }
+ 
+ // codexWebSocketContinuation is what the next request on the connection is compared with (openai-codex-responses.ts
+@@ -705,10 +707,10 @@
+ 
+ // startCodexWebSocket streams the request over the Codex WebSocket. A nil stream with a nil error falls back to SSE; fallback is the transport failure that caused it, or nil when the session's WebSocket is already disabled.
+ func (p *openAIResponsesProvider) startCodexWebSocket(ctx context.Context, endpoint string, body []byte, apiKey, accountID, cacheSessionID string, grammarProps map[string]string, opts StreamOptions) (stream *AssistantMessageEventStream, fallback, err error) {
+-	return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, true, true)
++	return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, true, true, true)
+ }
+ 
+-func (p *openAIResponsesProvider) startCodexWebSocketAttempt(ctx context.Context, endpoint string, body []byte, apiKey, accountID, cacheSessionID string, grammarProps map[string]string, opts StreamOptions, retryConnectionLimit, retryMissingContinuation bool) (stream *AssistantMessageEventStream, fallback, err error) {
++func (p *openAIResponsesProvider) startCodexWebSocketAttempt(ctx context.Context, endpoint string, body []byte, apiKey, accountID, cacheSessionID string, grammarProps map[string]string, opts StreamOptions, retryConnectionLimit, retryMissingContinuation, retryUpload bool) (stream *AssistantMessageEventStream, fallback, err error) {
+ 	if codexWebSocketFallbackActive(cacheSessionID) {
+ 		recordCodexWebSocketSSEFallback(cacheSessionID)
+ 		return nil, nil, nil
+@@ -754,15 +756,22 @@
+ 		acquired.release(false)
+ 		return nil, nil, err
+ 	}
+-	if writeErr := acquired.connection.WriteMessage(websocket.TextMessage, encoded); writeErr != nil {
+-		err := nodeWebSocketError(writeErr)
+-		wasReused := acquired.reused
++	if writeErr := writeCodexWebSocket(ctx, acquired.connection, encoded, codexWebSocketWriteTimeout); writeErr != nil {
++		err := writeErr
+ 		acquired.release(false)
+ 		if ctx.Err() != nil {
+ 			return nil, nil, errCodexAborted
+ 		}
+-		if wasReused {
+-			return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, retryConnectionLimit, retryMissingContinuation)
++		if retryUpload {
++			// No response has been exposed. Discard this socket and retry once over a fresh WebSocket.
++			if cacheSessionID != "" {
++				codexWebSocketSessions.mu.Lock()
++				stats := codexDebugStatsLocked(cacheSessionID)
++				stats.UploadRetries++
++				stats.LastUploadError = err.Error()
++				codexWebSocketSessions.mu.Unlock()
++			}
++			return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, retryConnectionLimit, retryMissingContinuation, false)
+ 		}
+ 		recordCodexWebSocketFailure(cacheSessionID, err)
+ 		recordCodexWebSocketSSEFallback(cacheSessionID)
+@@ -838,7 +847,7 @@
+ 			return nil, nil, errCodexAborted
+ 		}
+ 		if wasReused {
+-			return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, retryConnectionLimit, retryMissingContinuation)
++			return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, retryConnectionLimit, retryMissingContinuation, retryUpload)
+ 		}
+ 		recordCodexWebSocketFailure(cacheSessionID, err)
+ 		recordCodexWebSocketSSEFallback(cacheSessionID)
+@@ -857,12 +866,12 @@
+ 			acquired.entry.continuation = nil
+ 		}
+ 		acquired.release(false)
+-		return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, retryConnectionLimit, false)
++		return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, retryConnectionLimit, false, retryUpload)
+ 	}
+ 	if code == "websocket_connection_limit_reached" {
+ 		acquired.release(false)
+ 		if retryConnectionLimit {
+-			return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, false, retryMissingContinuation)
++			return p.startCodexWebSocketAttempt(ctx, endpoint, body, apiKey, accountID, cacheSessionID, grammarProps, opts, false, retryMissingContinuation, retryUpload)
+ 		}
+ 		message := "Codex error: websocket_connection_limit_reached"
+ 		if _, mapped := mapCodexWebSocketEventFrame(first); mapped != nil {
+diff --git a/ai/codex_websocket_upload.go b/ai/codex_websocket_upload.go
+new file mode 100644
+--- /dev/null
++++ b/ai/codex_websocket_upload.go
+@@ -0,0 +1,49 @@
++package ai
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"net"
++	"time"
++
++	"github.com/gorilla/websocket"
++)
++
++const codexWebSocketWriteTimeout = 60 * time.Second
++
++// Bound uploads separately from response-idle time. Closing is concurrency-safe and interrupts
++// a blocked Gorilla writer without racing its write-deadline field. Join a started callback before
++// returning so it cannot close a socket after the caller returns it to the connection cache.
++func writeCodexWebSocket(ctx context.Context, connection *websocket.Conn, body []byte, timeout time.Duration) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if err := connection.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
++		return fmt.Errorf("Codex WebSocket upload deadline: %w", err)
++	}
++	aborted := make(chan struct{})
++	stopAbort := context.AfterFunc(ctx, func() {
++		_ = connection.Close()
++		close(aborted)
++	})
++	err := connection.WriteMessage(websocket.TextMessage, body)
++	if !stopAbort() {
++		<-aborted
++	}
++	if cancelErr := ctx.Err(); cancelErr != nil {
++		return cancelErr
++	}
++	if err != nil {
++		var networkError net.Error
++		message := fmt.Sprintf("Codex WebSocket upload failed: %v", err)
++		if errors.As(err, &networkError) && networkError.Timeout() {
++			message = fmt.Sprintf("Codex WebSocket upload timed out after %dms", timeout.Milliseconds())
++		}
++		return &codexWebSocketError{name: "Error", message: message, cause: err}
++	}
++	if err := connection.SetWriteDeadline(time.Time{}); err != nil {
++		return fmt.Errorf("Codex WebSocket upload deadline reset: %w", err)
++	}
++	return nil
++}
+diff --git a/ai/codex_websocket_upload_test.go b/ai/codex_websocket_upload_test.go
+new file mode 100644
+--- /dev/null
++++ b/ai/codex_websocket_upload_test.go
+@@ -0,0 +1,308 @@
++package ai
++
++import (
++	"bufio"
++	"context"
++	"crypto/sha1"
++	"encoding/base64"
++	"errors"
++	"fmt"
++	"net"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/gorilla/websocket"
++)
++
++// After the handshake, net.Pipe gives deterministic backpressure without filling OS buffers.
++type uploadTestConn struct {
++	net.Conn
++	armed         atomic.Bool
++	started       chan struct{}
++	once          sync.Once
++	deadlineCap   time.Duration
++	deadlineNanos atomic.Int64
++}
++
++func (c *uploadTestConn) Write(data []byte) (int, error) {
++	if c.armed.Load() {
++		c.once.Do(func() { close(c.started) })
++	}
++	return c.Conn.Write(data)
++}
++
++// Cap only the test socket's deadline so provider tests exercise the real 60s policy quickly.
++func (c *uploadTestConn) SetWriteDeadline(deadline time.Time) error {
++	if !deadline.IsZero() {
++		c.deadlineNanos.Store(time.Until(deadline).Nanoseconds())
++		if c.deadlineCap > 0 {
++			deadline = minTime(deadline, time.Now().Add(c.deadlineCap))
++		}
++	}
++	return c.Conn.SetWriteDeadline(deadline)
++}
++
++func minTime(a, b time.Time) time.Time {
++	if a.Before(b) {
++		return a
++	}
++	return b
++}
++
++func blockedUploadSocket(t *testing.T) (*websocket.Conn, *uploadTestConn) {
++	t.Helper()
++	client, server := net.Pipe()
++	tracked := &uploadTestConn{Conn: client, started: make(chan struct{})}
++	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
++	go func() {
++		request, err := http.ReadRequest(bufio.NewReader(server))
++		if err != nil {
++			t.Error(err)
++			return
++		}
++		digest := sha1.Sum([]byte(request.Header.Get("Sec-WebSocket-Key") + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
++		accept := base64.StdEncoding.EncodeToString(digest[:])
++		_, err = fmt.Fprintf(server, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", accept)
++		if err != nil {
++			t.Error(err)
++		}
++	}()
++	connection, _, err := websocket.NewClient(tracked, &url.URL{Scheme: "ws", Host: "pipe.test"}, nil, 1024, 1024)
++	if err != nil {
++		t.Fatal(err)
++	}
++	tracked.armed.Store(true)
++	return connection, tracked
++}
++
++func TestCodexUploadDeadlineBoundsBlockedWrite(t *testing.T) {
++	connection, _ := blockedUploadSocket(t)
++	done := make(chan error, 1)
++	go func() {
++		done <- writeCodexWebSocket(context.Background(), connection, []byte("request"), 25*time.Millisecond)
++	}()
++	select {
++	case err := <-done:
++		var networkError net.Error
++		if err == nil || !strings.Contains(err.Error(), "Codex WebSocket upload timed out") || !errors.As(err, &networkError) || !networkError.Timeout() {
++			t.Fatalf("want observable upload timeout with the original network cause, got %v", err)
++		}
++	case <-time.After(time.Second):
++		_ = connection.Close()
++		<-done
++		t.Fatal("upload deadline did not interrupt a blocked write")
++	}
++}
++
++func TestCodexUploadCancellationInterruptsBlockedWrite(t *testing.T) {
++	connection, tracked := blockedUploadSocket(t)
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	done := make(chan error, 1)
++	go func() { done <- writeCodexWebSocket(ctx, connection, []byte("request"), time.Minute) }()
++	<-tracked.started
++	cancel()
++	select {
++	case err := <-done:
++		if !errors.Is(err, context.Canceled) {
++			t.Fatalf("want the cancellation cause, got %v", err)
++		}
++	case <-time.After(time.Second):
++		_ = connection.Close()
++		<-done
++		t.Fatal("cancellation did not interrupt a blocked upload")
++	}
++}
++
++func installBlockedUpload(t *testing.T, session, account string, cap time.Duration) *uploadTestConn {
++	t.Helper()
++	connection, tracked := blockedUploadSocket(t)
++	tracked.deadlineCap = cap
++	codexWebSocketSessions.mu.Lock()
++	codexWebSocketSessions.sessions[session] = map[string]*codexWebSocketEntry{account: {connection: connection, createdAt: time.Now()}}
++	codexWebSocketSessions.mu.Unlock()
++	t.Cleanup(func() { CloseOpenAICodexWebSocketSessions(session) })
++	return tracked
++}
++
++func TestCodexUploadTimeoutReconnectsWebSocketWithoutSSE(t *testing.T) {
++	var wsRequests, sseRequests atomic.Int32
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Method == http.MethodPost {
++			sseRequests.Add(1)
++			w.Header().Set("Content-Type", "text/event-stream")
++			_, _ = w.Write([]byte(reviewSSEDone))
++			return
++		}
++		wsRequests.Add(1)
++		connection, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
++		if err != nil {
++			return
++		}
++		defer connection.Close()
++		for {
++			_, request, err := connection.ReadMessage()
++			if err != nil {
++				return
++			}
++			if strings.Contains(string(request), "previous_response_id") {
++				t.Error("fresh socket must upload full context, not cached continuation")
++			}
++			if err := reviewWriteCompleted(connection, "recovered"); err != nil {
++				return
++			}
++		}
++	}))
++	defer server.Close()
++	session, account := t.TempDir(), "upload-account"
++	tracked := installBlockedUpload(t, session, account, 25*time.Millisecond)
++	provider := reviewCodexProvider(t, server.URL, account)
++	options := StreamOptions{Transport: TransportAuto, SessionID: session, TimeoutMs: new(1000)}
++	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
++	defer cancel()
++	stream, err := provider.Stream(ctx, reviewCodexCtx("hello"), options)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if result := stream.Result(); result.StopReason != StopReasonStop || result.ResponseID != "resp_recovered" {
++		t.Fatalf("WebSocket recovery failed: %+v", result)
++	}
++	stats := GetOpenAICodexWebSocketDebugStats(session)
++	if wsRequests.Load() != 1 || sseRequests.Load() != 0 || stats == nil || stats.UploadRetries != 1 || stats.WebSocketFallbackActive || !strings.Contains(stats.LastUploadError, "upload timed out") {
++		t.Fatalf("must recover once over WebSocket without sticky fallback: ws=%d sse=%d stats=%+v", wsRequests.Load(), sseRequests.Load(), stats)
++	}
++	if got := time.Duration(tracked.deadlineNanos.Load()); got < 59*time.Second || got > time.Minute {
++		t.Fatalf("production upload policy must be 60s, got %s", got)
++	}
++}
++
++func TestCodexUploadCancellationDoesNotRetryOrFallBack(t *testing.T) {
++	var requests atomic.Int32
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		requests.Add(1)
++		w.WriteHeader(http.StatusInternalServerError)
++	}))
++	defer server.Close()
++	session, account := t.TempDir(), "cancel-account"
++	tracked := installBlockedUpload(t, session, account, 0)
++	ctx, cancel := context.WithCancel(t.Context())
++	defer cancel()
++	done := make(chan error, 1)
++	go func() {
++		stream, err := reviewCodexProvider(t, server.URL, account).Stream(ctx, reviewCodexCtx("hello"), StreamOptions{Transport: TransportAuto, SessionID: session})
++		if err == nil && stream.Result().StopReason != StopReasonAborted {
++			err = fmt.Errorf("want aborted result")
++		}
++		done <- err
++	}()
++	<-tracked.started
++	cancel()
++	select {
++	case err := <-done:
++		if err != nil && !errors.Is(err, errCodexAborted) && !errors.Is(err, context.Canceled) {
++			t.Fatal(err)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("provider cancellation remained blocked in upload")
++	}
++	if requests.Load() != 0 || GetOpenAICodexWebSocketDebugStats(session) != nil {
++		t.Fatal("cancellation must not reconnect, retry, or enable SSE fallback")
++	}
++	codexWebSocketSessions.mu.Lock()
++	entry := codexWebSocketSessions.sessions[session][account]
++	codexWebSocketSessions.mu.Unlock()
++	if entry != nil {
++		t.Fatal("cancelled socket remained cached")
++	}
++}
++
++func TestCodexUploadFreshSocketRetryIsBoundedBeforeSSE(t *testing.T) {
++	for _, failures := range []int32{1, 2} {
++		t.Run(fmt.Sprint(failures), func(t *testing.T) {
++			var wsRequests, sseRequests atomic.Int32
++			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				if r.Method == http.MethodPost {
++					sseRequests.Add(1)
++					w.Header().Set("Content-Type", "text/event-stream")
++					_, _ = w.Write([]byte(reviewSSEDone))
++					return
++				}
++				attempt := wsRequests.Add(1)
++				connection, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
++				if err != nil {
++					return
++				}
++				defer connection.Close()
++				if attempt <= failures {
++					// Wait until the large upload starts, then reset the socket mid-write.
++					var first [1]byte
++					if _, err := connection.UnderlyingConn().Read(first[:]); err == nil {
++						if tcp, ok := connection.UnderlyingConn().(*net.TCPConn); ok {
++							if err := tcp.SetLinger(0); err != nil {
++								t.Error(err)
++							}
++						}
++					}
++					return
++				}
++				if _, _, err := connection.ReadMessage(); err == nil {
++					if err := reviewWriteCompleted(connection, "fresh"); err != nil {
++						t.Error(err)
++					}
++				}
++			}))
++			defer server.Close()
++			session := t.TempDir()
++			defer CloseOpenAICodexWebSocketSessions(session)
++			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
++			defer cancel()
++			stream, err := reviewCodexProvider(t, server.URL, "fresh-account").Stream(ctx, reviewCodexCtx(strings.Repeat("x", 8<<20)), StreamOptions{Transport: TransportAuto, SessionID: session, TimeoutMs: new(1000)})
++			if err != nil {
++				t.Fatal(err)
++			}
++			if result := stream.Result(); result.StopReason != StopReasonStop {
++				t.Fatalf("recovery failed: %+v", result)
++			}
++			stats := GetOpenAICodexWebSocketDebugStats(session)
++			if wsRequests.Load() != 2 || sseRequests.Load() != failures-1 || stats == nil || stats.UploadRetries != 1 || stats.LastUploadError == "" {
++				t.Fatalf("want at most one fresh WebSocket retry before SSE: ws=%d sse=%d stats=%+v", wsRequests.Load(), sseRequests.Load(), stats)
++			}
++		})
++	}
++}
++
++func TestCodexUploadSuccessStopsCancellationBeforeSocketReuse(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		connection, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
++		if err != nil {
++			return
++		}
++		defer connection.Close()
++		for range 2 {
++			if _, _, err := connection.ReadMessage(); err != nil {
++				return
++			}
++		}
++	}))
++	defer server.Close()
++	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer connection.Close()
++	ctx, cancel := context.WithCancel(t.Context())
++	if err := writeCodexWebSocket(ctx, connection, []byte("first"), time.Second); err != nil {
++		cancel()
++		t.Fatal(err)
++	}
++	cancel()
++	if err := writeCodexWebSocket(t.Context(), connection, []byte("second"), time.Second); err != nil {
++		t.Fatalf("completed upload left a cancellation callback that broke reuse: %v", err)
++	}
++}
