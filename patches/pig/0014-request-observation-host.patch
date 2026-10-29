@@ -1,0 +1,41 @@
+diff --git a/coding/extension/host/inproc/runner.go b/coding/extension/host/inproc/runner.go
+--- a/coding/extension/host/inproc/runner.go
++++ b/coding/extension/host/inproc/runner.go
+@@ -2144,6 +2144,26 @@ func (r *Runner) EmitBeforeProviderRequest(ctx context.Context, payload any) (any,
+ 			}
+ 		}
+ 	}
++	// Observers see the final transformed payload. Give each observer a private
++	// JSON copy, so neither mutation nor a return value can rewrite the request.
++	for _, snapshot := range snapshotEventHandlers(r.extensions, "provider_request_observed") {
++		for _, handler := range snapshot.handlers {
++			data, err := json.Marshal(current)
++			if err != nil {
++				return nil, fmt.Errorf("observe provider request: %w", err)
++			}
++			var copy any
++			if err := json.Unmarshal(data, &copy); err != nil {
++				return nil, fmt.Errorf("copy provider request observation: %w", err)
++			}
++			_, err = callHandler(handler, extension.BeforeProviderRequestEvent{
++				Type: "provider_request_observed", Payload: copy,
++			}, dispatchCtx)
++			if err != nil {
++				r.recordHandlerError(ctx, snapshot.ext.Path, "provider_request_observed", err)
++			}
++		}
++	}
+ 	return current, nil
+ }
+ 
+diff --git a/coding/session_extension_hooks.go b/coding/session_extension_hooks.go
+--- a/coding/session_extension_hooks.go
++++ b/coding/session_extension_hooks.go
+@@ -250,6 +250,6 @@
+ func (s *Session) extensionProviderRequestHook(payload any, _ *ai.Model) (any, error) {
+ 	runner := s.currentRunner()
+-	if runner == nil || !runner.HasHandlers(icodingagent.EventBeforeProviderRequest) {
++	if runner == nil || (!runner.HasHandlers(icodingagent.EventBeforeProviderRequest) && !runner.HasHandlers("provider_request_observed")) {
+ 		return payload, nil
+ 	}
+ 	result, err := runner.EmitBeforeProviderRequest(context.Background(), payload)

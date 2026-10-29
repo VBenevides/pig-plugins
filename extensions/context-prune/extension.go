@@ -35,6 +35,7 @@ type state struct {
 	forcePending                 bool // Manual request survives run start until the next model request.
 	skillReasons                 map[string]string
 	skillsRetained, skillsPruned int
+	lastRequest                  *compactlimit.RequestMeasurement
 }
 
 // Extension returns the extension.
@@ -84,6 +85,16 @@ func Extension() *sdk.Extension {
 	e.OnEvent(sdk.EventSessionStart, reset)
 	e.OnEvent(sdk.EventSessionTree, reset)
 	e.OnEvent(sdk.EventSessionCompact, reset)
+	e.OnEvent(compactlimit.RequestObserved, func(ctx sdk.Context, data map[string]any) (any, error) {
+		measurement, err := compactlimit.ObserveRequest(ctx, data)
+		if err != nil {
+			return nil, err
+		}
+		st.mu.Lock()
+		st.lastRequest = &measurement
+		st.mu.Unlock()
+		return nil, nil
+	})
 
 	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, data map[string]any) (any, error) {
 		if !explicitInteraction(data) {

@@ -38,13 +38,25 @@ type state struct {
 	floor        int
 	// reliefAt is the context size at which a mid-run check left the work to the pruner. A mid-run compact starts
 	// when the size did not fall afterwards, because the pruner did not help.
-	reliefAt int
+	reliefAt    int
+	lastRequest *compactlimit.RequestMeasurement
 }
 
 // Extension returns the extension.
 func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	st := &state{failedAt: -1}
+
+	e.OnEvent(compactlimit.RequestObserved, func(ctx sdk.Context, data map[string]any) (any, error) {
+		measurement, err := compactlimit.ObserveRequest(ctx, data)
+		if err != nil {
+			return nil, err
+		}
+		st.mu.Lock()
+		st.lastRequest = &measurement
+		st.mu.Unlock()
+		return nil, nil
+	})
 
 	e.RegisterCommand("compact-settings", sdk.CommandOptions{
 		Description: "Show or set the automatic compact limit (/compact-settings limit relative <0-100> | absolute <tokens>)",
