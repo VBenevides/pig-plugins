@@ -2,6 +2,26 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.2.8] - 2026-10-29
+
+### Features
+
+- Refresh context pruning every eight tool-use turns, or earlier under context pressure. Keep the latest ten tool-call groups and eight messages intact.
+- Add `/context-prune now` to prepare an immediate prune without an LLM call. Bypass the cadence and minimum savings, but preserve protected content.
+- Mask older unique file reads and search output when saved history is available. Include recovery references without changing the saved output.
+
+### Bugfixes
+
+- Require roughly 8k tokens of additional savings per automatic batch. Do not count previous savings toward new cache changes.
+- Include recoverable old reads in compaction estimates. Skip the summary when estimated pruning savings provide enough space.
+- Bound Codex WebSocket uploads with a 60-second deadline. Let cancellation interrupt blocked writes and remove failed sockets from the cache.
+- Retry a failed upload once on a fresh WebSocket before the existing SSE fallback. Do not retry canceled requests.
+
+### Other
+
+- Add pruning, recovery-reference, manual-command, upload-timeout, cancellation, socket-reuse, and transport-recovery regression tests.
+- Apply the Codex upload host patch in bundled builds. Document the pruning policy, manual command, and WebSocket-first recovery.
+
 ## [0.2.7] - 2026-10-28
 
 ### Features
