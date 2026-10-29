@@ -32,7 +32,7 @@ func TestUniqueOldReadCanAvoidPressureSummary(t *testing.T) {
 		t.Fatalf("age masking should avoid the summary: requests=%d notices=%q stderr=%s", len(requests), result.Notices(), result.Stderr)
 	}
 	last := requestText(t, requests[12])
-	if !strings.Contains(last, "[pruned: old read of big.txt") || !strings.Contains(last, "[recovery: toolResult") {
+	if !strings.Contains(last, "[pruned: old read of big.txt") || !strings.Contains(last, "[recovery: cr1_") || !strings.Contains(last, "use context_recover") {
 		t.Fatal("pressure must mask a unique old read using the durable recovery source")
 	}
 }

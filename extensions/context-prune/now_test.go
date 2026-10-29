@@ -64,7 +64,7 @@ func TestNowCommandPreparesSmallPruneWithoutLLMCall(t *testing.T) {
 			}
 			if manual {
 				notices := strings.Join(result.Notices(), "\n")
-				if !strings.Contains(notices, "now: prepared 1 pruned messages") || !strings.Contains(last, "[recovery: toolResult") {
+				if !strings.Contains(notices, "now: prepared 1 pruned messages") || !strings.Contains(last, "[recovery: cr1_") || !strings.Contains(last, "use context_recover") {
 					t.Fatalf("command must prepare the prune before the next run and retain recovery: %q", notices)
 				}
 			}

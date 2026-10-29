@@ -25,17 +25,20 @@ const RefreshEveryTurns = 8
 
 // state holds the decisions of the current run.
 type state struct {
-	mu                           sync.Mutex
-	enabled                      bool
-	fresh                        bool // Decide again at the next request, because a run or a session change started.
-	decisions                    prune.Decisions
-	lastCount                    int
-	turnsSinceRefresh            int
-	sessionFile                  string
-	forcePending                 bool // Manual request survives run start until the next model request.
-	skillReasons                 map[string]string
-	skillsRetained, skillsPruned int
-	lastRequest                  *compactlimit.RequestMeasurement
+	mu                            sync.Mutex
+	enabled                       bool
+	fresh                         bool // Decide again at the next request, because a run or a session change started.
+	decisions                     prune.Decisions
+	lastCount                     int
+	turnsSinceRefresh             int
+	sessionFile                   string
+	forcePending                  bool // Manual request survives run start until the next model request.
+	skillReasons                  map[string]string
+	skillsRetained, skillsPruned  int
+	lastRequest                   *compactlimit.RequestMeasurement
+	recovery                      map[string]prune.RecoveryRef
+	recoveryLedger                map[string]bool
+	recoveryReady, recoveryFailed bool
 }
 
 // Extension returns the extension.
@@ -43,6 +46,7 @@ func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	st := &state{}
 	file := func() string { return prune.File(os.Getenv) }
+	registerRecovery(e, st)
 
 	e.RegisterCommand(Name, sdk.CommandOptions{
 		Description: "Prune stale tool results from model requests (/context-prune on|off|status|now)",
@@ -126,9 +130,21 @@ func Extension() *sdk.Extension {
 
 	e.OnEvent(sdk.EventContext, func(ctx sdk.Context, data map[string]any) (any, error) {
 		messages, _ := data["messages"].([]any)
-		pruned := st.apply(messages, func() bool { return overLimit(ctx) })
+		pressure := overLimit(ctx)
+		if err := st.refreshRecovery(ctx, pressure); err != nil {
+			ctx.Notify("context-prune: recovery refresh: "+err.Error(), "error")
+		}
+		pruned := st.apply(messages, func() bool { return pressure })
 		if pruned == nil {
 			return nil, nil
+		}
+		if err := st.recordReductions(ctx); err != nil {
+			st.mu.Lock()
+			st.decisions, st.fresh, st.lastCount = nil, true, 0
+			st.skillsRetained += st.skillsPruned
+			st.skillsPruned = 0
+			st.mu.Unlock()
+			return nil, err
 		}
 		return map[string]any{"messages": pruned}, nil
 	})
@@ -142,11 +158,13 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 		ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, err), "error")
 	}
 	reasons := map[string]string{}
+	var entries []map[string]any
 	maxAge, ageErr := prune.SkillMaxAge(file)
 	if ageErr != nil {
 		ctx.Notify(fmt.Sprintf("context-prune: skill pruning is off: %v", ageErr), "error")
 	} else {
-		entries, readErr := ctx.SessionManager().GetBranch(nil)
+		var readErr error
+		entries, readErr = ctx.SessionManager().GetBranch(nil)
 		if readErr != nil {
 			ctx.Notify(fmt.Sprintf("context-prune: skill state unavailable: %v", readErr), "error")
 		} else {
@@ -159,11 +177,18 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 	} else if path != nil {
 		sessionFile = *path
 	}
+	refs, recoveryErr := activeRecoveryReferences(ctx, sessionFile)
+	if recoveryErr != nil {
+		ctx.Notify("context-prune: recovery storage unavailable: "+recoveryErr.Error(), "error")
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.enabled, st.fresh = enabled, true
 	st.skillReasons = reasons
 	st.sessionFile, st.turnsSinceRefresh = sessionFile, 0
+	st.recovery = refs
+	st.recoveryLedger = recoveryLedger(entries)
+	st.recoveryReady, st.recoveryFailed = refs != nil, recoveryErr != nil
 }
 
 // overLimit reports whether the context passes the limit that /compact-settings set. A context that passes it
@@ -197,7 +222,10 @@ func (st *state) applyLocked(messages []any, overLimit func() bool) []any {
 	}
 	settings := prune.DefaultSettings
 	settings.SkillReasons = st.skillReasons
-	settings.SessionFile = st.sessionFile
+	if st.recoveryReady {
+		settings.SessionFile = st.sessionFile
+	}
+	settings.RecoveryHandles = prune.RecoveryHandles(st.recovery)
 	force := st.forcePending
 	st.forcePending = false
 	if force {

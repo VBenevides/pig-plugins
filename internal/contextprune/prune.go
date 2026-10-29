@@ -19,6 +19,8 @@ type Settings struct {
 	// SessionFile permits age-based masking with an exact saved-result recovery reference.
 	// Without durable session storage, only the conservative supersession rules apply.
 	SessionFile string
+	// RecoveryHandles uses active-branch handles instead of repeated full file paths.
+	RecoveryHandles map[string]string
 	// MinSavingChars is the smallest total saving that is worth a prune. A prune changes earlier request text, so
 	// it invalidates the provider prefix cache from the first changed message on.
 	MinSavingChars int
@@ -142,7 +144,9 @@ func Decide(messages []any, settings Settings) Decisions {
 				continue
 			}
 			if replacement, ok := replacementFor(call, index, text, byPath, lastTodo, settings); ok {
-				if settings.SessionFile != "" {
+				if handle := settings.RecoveryHandles[id]; handle != "" {
+					replacement += fmt.Sprintf("\n[recovery: %s; use context_recover]", handle)
+				} else if settings.SessionFile != "" {
 					replacement += fmt.Sprintf("\n[recovery: toolResult with toolCallId %q in session JSONL %q; use bash to extract the saved result, not to rerun the original command]", id, settings.SessionFile)
 				}
 				if len(replacement) < len(text) {
