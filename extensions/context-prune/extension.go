@@ -264,10 +264,12 @@ func (st *state) applyLocked(messages []any, overLimit func() bool) []any {
 		settings.MinSavingChars = 1
 	}
 	if st.fresh {
+		settings.Pressure = overLimit()
 		st.decisions = prune.Decide(messages, settings)
 		st.fresh = false
 		st.turnsSinceRefresh = 0
-	} else if force || st.turnsSinceRefresh >= RefreshEveryTurns || overLimit() {
+	} else if pressure := overLimit(); force || st.turnsSinceRefresh >= RefreshEveryTurns || pressure {
+		settings.Pressure = pressure
 		current, _ := prune.Apply(messages, st.decisions)
 		settings.RecoverySources = st.decisions.ViewSources(messages, settings.RecoverySources)
 		more := prune.Decide(current, settings)

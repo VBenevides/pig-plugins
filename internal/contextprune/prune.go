@@ -26,6 +26,9 @@ type Settings struct {
 	// MinSavingChars is the smallest total saving that is worth a prune. A prune changes earlier request text, so
 	// it invalidates the provider prefix cache from the first changed message on.
 	MinSavingChars int
+	// Pressure lets a budget reduction below MinSavingChars proceed, because the context is near its limit.
+	// Without it, a small budget reduction does not justify a prefix-cache rewrite.
+	Pressure bool
 	// BashMaxChars is the size above which a shell result outside the recent window keeps only its head and tail.
 	BashMaxChars int
 	// BashHeadChars and BashTailChars are the parts of a long shell result that stay.
@@ -60,7 +63,7 @@ type Decision struct {
 	Failure bool
 	// SourceHash rejects stale decisions after text or failure status changes.
 	SourceHash string
-	// BudgetRequired permits useful aggregate-budget reductions below the cache threshold.
+	// BudgetRequired marks an aggregate-budget reduction. Under Pressure it can bypass the cache threshold.
 	BudgetRequired bool
 }
 
@@ -90,8 +93,8 @@ type pathEvent struct {
 	span  string // The read range, empty when it is not a read.
 }
 
-// Decide returns eligible replacements. Aggregate budgets can require useful savings
-// below MinSavingChars. Recent messages, signed state, non-text content, and errors
+// Decide returns eligible replacements. Total savings must reach MinSavingChars, unless
+// Pressure is set and an aggregate budget needs the reduction. Recent messages, signed state, non-text content, and errors
 // without verified durable recovery remain protected.
 func Decide(messages []any, settings Settings) Decisions {
 	calls := collectCalls(messages)
@@ -185,7 +188,7 @@ func Decide(messages []any, settings Settings) Decisions {
 	}
 	decideHistoricalErrors(messages, calls, toolProtectedFrom, settings, decisions)
 	decideHistoricalResults(messages, calls, toolProtectedFrom, settings, decisions)
-	if decisions.Saved() < settings.MinSavingChars && !decisions.BudgetPressure() {
+	if decisions.Saved() < settings.MinSavingChars && !(settings.Pressure && decisions.BudgetPressure()) {
 		return Decisions{}
 	}
 	return decisions

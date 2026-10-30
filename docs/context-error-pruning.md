@@ -23,6 +23,8 @@ The excerpt limit accepts 512 through 16,384 bytes. Invalid values disable pruni
 
 A batch that exceeds the budget reduces failure text to 75 percent of it. The gap prevents repeated tiny rewrites.
 
+A budget reduction must also save at least 32,000 characters (about 8,000 tokens), unless the context is over the `/compact-settings` limit. A smaller saving can cost more in cache rewrites than it saves.
+
 ## Reduction behavior
 
 The budget covers old, unprotected failure text in an accepted batch.

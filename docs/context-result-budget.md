@@ -19,6 +19,8 @@ Invalid values disable pruning with a diagnostic.
 
 A batch that exceeds the budget reduces results to 75 percent of it. The gap prevents a new rewrite after each small result.
 
+A budget reduction must also save at least 32,000 characters (about 8,000 tokens). Each reduction rewrites the cached prefix, so a smaller saving can cost more than it saves. The exception is a context over the `/compact-settings` limit.
+
 ## Protections
 
 - Recent messages and recent tool-call groups stay whole.

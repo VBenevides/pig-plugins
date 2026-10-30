@@ -28,6 +28,7 @@ func historicalResults(t *testing.T, tools []string, size int) ([]any, Settings)
 	settings := DefaultSettings
 	settings.KeepRecent, settings.KeepRecentGroups = 0, 2
 	settings.HistoricalResultBytes = 4096
+	settings.Pressure = true // Budget tests below the cache threshold need pressure.
 	settings.ResultExcerptBytes = 64
 	settings.SessionFile = file
 	settings.RecoveryHandles, settings.RecoverySources = RecoveryMaps(RecoveryReferences(file, entries))
@@ -165,5 +166,27 @@ func TestResultBatchesReduceToALowerTargetAndStayStable(t *testing.T) {
 	settings.RecoverySources = first.ViewSources(messages, settings.RecoverySources)
 	if more := Decide(view, settings); len(more) != 0 {
 		t.Fatalf("stable view was rewritten again: %d", len(more))
+	}
+}
+
+func TestSmallBudgetReductionNeedsPressureOrEnoughSavings(t *testing.T) {
+	tools := make([]string, 40)
+	for index := range tools {
+		tools[index] = "web_fetch"
+	}
+	messages, settings := historicalResults(t, tools, 600)
+	settings.Pressure = false
+	if decisions := Decide(messages, settings); len(decisions) != 0 {
+		t.Fatalf("a small reduction caused a prefix rewrite without pressure: %d decisions, %d saved", len(decisions), decisions.Saved())
+	}
+	settings.Pressure = true
+	decisions := Decide(messages, settings)
+	if len(decisions) == 0 || decisions.Saved() >= settings.MinSavingChars {
+		t.Fatalf("pressure did not allow the small reduction: %d decisions", len(decisions))
+	}
+	settings.Pressure = false
+	settings.MinSavingChars = decisions.Saved()
+	if len(Decide(messages, settings)) == 0 {
+		t.Fatal("a reduction at the minimum saving was rejected")
 	}
 }

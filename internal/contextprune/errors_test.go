@@ -30,6 +30,7 @@ func historicalErrors(t *testing.T, count, size int) ([]any, Settings) {
 	settings := DefaultSettings
 	settings.KeepRecent, settings.KeepRecentGroups = 0, 0
 	settings.HistoricalErrorBytes = 4096
+	settings.Pressure = true // Budget tests below the cache threshold need pressure.
 	settings.SessionFile = file
 	settings.RecoveryHandles, settings.RecoverySources = RecoveryMaps(RecoveryReferences(file, entries))
 	return messages, settings

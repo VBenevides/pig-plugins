@@ -21,7 +21,7 @@ func TestProviderBoundsAccumulatedSmallShellResults(t *testing.T) {
 	}
 	replies := []pigtest.Reply{}
 	for index := range 36 {
-		command := fmt.Sprintf("head -c 3000 /dev/zero | tr '\\0' 'a'; echo marker-%d", index)
+		command := fmt.Sprintf("head -c 4000 /dev/zero | tr '\\0' 'a'; echo marker-%d", index)
 		replies = append(replies, pigtest.Calls(pigtest.Call("bash", map[string]any{"command": command})))
 	}
 	replies = append(replies, pigtest.Text("done"))
@@ -36,7 +36,7 @@ func TestProviderBoundsAccumulatedSmallShellResults(t *testing.T) {
 	if !strings.Contains(latest, "status unchanged; recovery: cr1_") || !strings.Contains(latest, "marker-35") {
 		t.Fatalf("old results were not bounded or newest was changed: %s", result.Notices())
 	}
-	if len(latest) >= len(fmt.Sprint(requests[35]["messages"]))+4000 {
-		t.Fatal("request kept growing at full result size")
+	if markers := strings.Count(latest, "status unchanged; recovery: cr1_"); markers < 10 {
+		t.Fatalf("only %d old results were reduced", markers)
 	}
 }
