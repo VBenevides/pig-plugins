@@ -130,3 +130,40 @@ func TestResultPolicyValidation(t *testing.T) {
 		t.Fatalf("valid: %d %d %v", budget, excerpt, err)
 	}
 }
+
+func resultBytes(t *testing.T, view []any) int {
+	t.Helper()
+	total := 0
+	for _, value := range view {
+		if message := value.(map[string]any); message["role"] == "toolResult" {
+			text, _ := resultPlainBody(message)
+			total += len(text)
+		}
+	}
+	return total
+}
+
+func TestResultBatchesReduceToALowerTargetAndStayStable(t *testing.T) {
+	tools := make([]string, 12)
+	for index := range tools {
+		tools[index] = "web_fetch"
+	}
+	messages, settings := historicalResults(t, tools, 1000)
+	settings.ResultExcerptBytes = 0
+	settings.HistoricalResultBytes = 12500
+	protected := 2 * 1000 // Two protected groups stay whole.
+	if decisions := Decide(messages, settings); len(decisions) != 0 {
+		t.Fatalf("a result set below its budget changed: %d", len(decisions))
+	}
+	settings.HistoricalResultBytes = 9000
+	first := Decide(messages, settings)
+	view, _ := Apply(messages, first)
+	if got := resultBytes(t, view); got > 9000*75/100+protected+len(first)*130 {
+		t.Fatalf("batch kept %d bytes", got)
+	}
+	// A later refresh sees the reduced view and makes no new tiny rewrite.
+	settings.RecoverySources = first.ViewSources(messages, settings.RecoverySources)
+	if more := Decide(view, settings); len(more) != 0 {
+		t.Fatalf("stable view was rewritten again: %d", len(more))
+	}
+}

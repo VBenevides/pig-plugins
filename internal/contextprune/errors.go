@@ -147,7 +147,7 @@ func decideHistoricalErrors(messages []any, calls map[string]toolCall, protected
 	if totalBytes <= settings.HistoricalErrorBytes {
 		return
 	}
-	remaining := max(0, settings.HistoricalErrorBytes-retainedBytes)
+	remaining := max(0, settings.HistoricalErrorBytes*postReductionPercent/100-retainedBytes)
 	for index, failure := range failures {
 		target := max(minimumFailureBytes, min(settings.ErrorExcerptBytes, remaining/(len(failures)-index)))
 		replacement := failureExcerpt(failure.name, failure.text, settings.RecoveryHandles[failure.id], target)

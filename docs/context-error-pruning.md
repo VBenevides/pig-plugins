@@ -21,6 +21,8 @@ The default path is `$HOME/.pig/agent/context-prune.json`.
 The aggregate budget accepts 4,096 through 16,777,216 bytes.
 The excerpt limit accepts 512 through 16,384 bytes. Invalid values disable pruning with a diagnostic.
 
+A batch that exceeds the budget reduces failure text to 75 percent of it. The gap prevents repeated tiny rewrites.
+
 ## Reduction behavior
 
 The budget covers old, unprotected failure text in an accepted batch.

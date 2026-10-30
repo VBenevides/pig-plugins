@@ -7,9 +7,11 @@ import (
 const (
 	DefaultResultBudgetBytes  = 65536
 	DefaultResultExcerptBytes = 128
-	maxResultExcerptBytes     = 4096
-	minimumResultBudgetBytes  = 4096
-	maximumResultBudgetBytes  = 16 << 20
+	// postReductionPercent is the share of a budget that a batch keeps. The gap avoids repeated tiny rewrites.
+	postReductionPercent     = 75
+	maxResultExcerptBytes    = 4096
+	minimumResultBudgetBytes = 4096
+	maximumResultBudgetBytes = 16 << 20
 )
 
 type historicalResult struct {
@@ -47,9 +49,19 @@ func decideHistoricalResults(messages []any, calls map[string]toolCall, protecte
 		}
 		candidates = append(candidates, historicalResult{id: id, name: call.name, text: text})
 	}
-	// Candidates are newest first. Walking in that order keeps the newest results whole.
+	// Candidates are newest first. Keep the newest results whole. Reduce to a lower target, so
+	// the next small result does not cause another cache-invalidating rewrite.
+	total, base := retained, retained
 	for _, result := range candidates {
-		if retained+len(result.text) <= settings.HistoricalResultBytes {
+		total += len(result.text)
+	}
+	if total <= settings.HistoricalResultBytes {
+		return
+	}
+	target := settings.HistoricalResultBytes * postReductionPercent / 100
+	retained = base
+	for _, result := range candidates {
+		if retained+len(result.text) <= target {
 			retained += len(result.text)
 			continue
 		}

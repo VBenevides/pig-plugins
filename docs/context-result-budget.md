@@ -17,6 +17,8 @@ Add these optional keys to the existing `$HOME/.pig/agent/context-prune.json` fi
 The budget accepts 4,096 through 16,777,216 bytes. The excerpt accepts 0 through 4,096 bytes.
 Invalid values disable pruning with a diagnostic.
 
+A batch that exceeds the budget reduces results to 75 percent of it. The gap prevents a new rewrite after each small result.
+
 ## Protections
 
 - Recent messages and recent tool-call groups stay whole.
