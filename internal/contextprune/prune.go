@@ -35,6 +35,8 @@ type Settings struct {
 	SkillReasons map[string]string
 	// HistoricalErrorBytes bounds old recoverable error text in accepted batches.
 	HistoricalErrorBytes, ErrorExcerptBytes int
+	// HistoricalResultBytes bounds old successful results that no tool-specific rule reduced.
+	HistoricalResultBytes, ResultExcerptBytes int
 }
 
 // DefaultSettings batch roughly 8k tokens of savings and protect the latest ten tool-call groups.
@@ -43,6 +45,7 @@ var DefaultSettings = Settings{
 	KeepRecent: 8, KeepRecentGroups: 10, MinSavingChars: 32000,
 	BashMaxChars: 8192, BashHeadChars: 4096, BashTailChars: 1024,
 	HistoricalErrorBytes: DefaultErrorBudgetBytes, ErrorExcerptBytes: DefaultErrorExcerptBytes,
+	HistoricalResultBytes: DefaultResultBudgetBytes, ResultExcerptBytes: DefaultResultExcerptBytes,
 }
 
 // Decision replaces the text of one tool result or skill message.
@@ -181,6 +184,7 @@ func Decide(messages []any, settings Settings) Decisions {
 		}
 	}
 	decideHistoricalErrors(messages, calls, toolProtectedFrom, settings, decisions)
+	decideHistoricalResults(messages, calls, toolProtectedFrom, settings, decisions)
 	if decisions.Saved() < settings.MinSavingChars && !decisions.BudgetPressure() {
 		return Decisions{}
 	}

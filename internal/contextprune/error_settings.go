@@ -54,3 +54,50 @@ func errorPolicyFromObject(object map[string]any) (int, int, error) {
 	}
 	return budget, excerpt, nil
 }
+
+// ResultPolicy reads the optional budget for old successful results.
+func ResultPolicy(file string) (int, int, error) {
+	data, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return DefaultResultBudgetBytes, DefaultResultExcerptBytes, nil
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("read result policy %s: %w", file, err)
+	}
+	object, err := fsutil.DecodeObject(data)
+	if err != nil {
+		return 0, 0, fmt.Errorf("decode result policy %s: %w", file, err)
+	}
+	budget, excerpt, err := resultPolicyFromObject(object)
+	if err != nil {
+		return 0, 0, fmt.Errorf("result policy %s: %w", file, err)
+	}
+	return budget, excerpt, nil
+}
+
+func resultPolicyFromObject(object map[string]any) (int, int, error) {
+	budget, excerpt := DefaultResultBudgetBytes, DefaultResultExcerptBytes
+	for _, field := range []struct {
+		key              string
+		target           *int
+		minimum, maximum int
+	}{
+		{"historicalResultBytes", &budget, minimumResultBudgetBytes, maximumResultBudgetBytes},
+		{"resultExcerptBytes", &excerpt, 0, maxResultExcerptBytes},
+	} {
+		value, exists := object[field.key]
+		if !exists {
+			continue
+		}
+		number, ok := value.(json.Number)
+		if !ok {
+			return 0, 0, fmt.Errorf("%s must be an integer between %d and %d", field.key, field.minimum, field.maximum)
+		}
+		integer, err := number.Int64()
+		if err != nil || integer < int64(field.minimum) || integer > int64(field.maximum) {
+			return 0, 0, fmt.Errorf("%s must be an integer between %d and %d", field.key, field.minimum, field.maximum)
+		}
+		*field.target = int(integer)
+	}
+	return budget, excerpt, nil
+}

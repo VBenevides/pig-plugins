@@ -25,22 +25,23 @@ const RefreshEveryTurns = 8
 
 // state holds the decisions of the current run.
 type state struct {
-	mu                                  sync.Mutex
-	enabled                             bool
-	fresh                               bool // Decide again at the next request, because a run or a session change started.
-	decisions                           prune.Decisions
-	lastCount                           int
-	turnsSinceRefresh                   int
-	sessionFile                         string
-	forcePending                        bool // Manual request survives run start until the next model request.
-	skillReasons                        map[string]string
-	skillsRetained, skillsPruned        int
-	lastRequest                         *compactlimit.RequestMeasurement
-	recovery                            map[string]prune.RecoveryRef
-	recoveryLedger                      map[string]bool
-	recoveryReady, recoveryFailed       bool
-	recoveryHandles, recoverySources    map[string]string
-	errorBudgetBytes, errorExcerptBytes int
+	mu                                    sync.Mutex
+	enabled                               bool
+	fresh                                 bool // Decide again at the next request, because a run or a session change started.
+	decisions                             prune.Decisions
+	lastCount                             int
+	turnsSinceRefresh                     int
+	sessionFile                           string
+	forcePending                          bool // Manual request survives run start until the next model request.
+	skillReasons                          map[string]string
+	skillsRetained, skillsPruned          int
+	lastRequest                           *compactlimit.RequestMeasurement
+	recovery                              map[string]prune.RecoveryRef
+	recoveryLedger                        map[string]bool
+	recoveryReady, recoveryFailed         bool
+	recoveryHandles, recoverySources      map[string]string
+	errorBudgetBytes, errorExcerptBytes   int
+	resultBudgetBytes, resultExcerptBytes int
 }
 
 // Extension returns the extension.
@@ -168,6 +169,15 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 			ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, policyErr), "error")
 		}
 	}
+	resultBudget, resultExcerpt := prune.DefaultResultBudgetBytes, prune.DefaultResultExcerptBytes
+	if err == nil {
+		var policyErr error
+		resultBudget, resultExcerpt, policyErr = prune.ResultPolicy(file)
+		if policyErr != nil {
+			enabled = false
+			ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, policyErr), "error")
+		}
+	}
 	reasons := map[string]string{}
 	var entries []map[string]any
 	maxAge, ageErr := prune.SkillMaxAge(file)
@@ -199,6 +209,7 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 	st.sessionFile, st.turnsSinceRefresh = sessionFile, 0
 	st.setRecoveryLocked(refs)
 	st.errorBudgetBytes, st.errorExcerptBytes = errorBudget, errorExcerpt
+	st.resultBudgetBytes, st.resultExcerptBytes = resultBudget, resultExcerpt
 	st.recoveryLedger = recoveryLedger(entries)
 	st.recoveryReady, st.recoveryFailed = refs != nil, recoveryErr != nil
 }
@@ -237,6 +248,9 @@ func (st *state) applyLocked(messages []any, overLimit func() bool) []any {
 	settings.SkillReasons = st.skillReasons
 	if st.errorBudgetBytes > 0 && st.errorExcerptBytes > 0 {
 		settings.HistoricalErrorBytes, settings.ErrorExcerptBytes = st.errorBudgetBytes, st.errorExcerptBytes
+	}
+	if st.resultBudgetBytes > 0 {
+		settings.HistoricalResultBytes, settings.ResultExcerptBytes = st.resultBudgetBytes, st.resultExcerptBytes
 	}
 	if st.recoveryReady {
 		settings.SessionFile = st.sessionFile
