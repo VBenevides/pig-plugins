@@ -25,20 +25,22 @@ const RefreshEveryTurns = 8
 
 // state holds the decisions of the current run.
 type state struct {
-	mu                            sync.Mutex
-	enabled                       bool
-	fresh                         bool // Decide again at the next request, because a run or a session change started.
-	decisions                     prune.Decisions
-	lastCount                     int
-	turnsSinceRefresh             int
-	sessionFile                   string
-	forcePending                  bool // Manual request survives run start until the next model request.
-	skillReasons                  map[string]string
-	skillsRetained, skillsPruned  int
-	lastRequest                   *compactlimit.RequestMeasurement
-	recovery                      map[string]prune.RecoveryRef
-	recoveryLedger                map[string]bool
-	recoveryReady, recoveryFailed bool
+	mu                                  sync.Mutex
+	enabled                             bool
+	fresh                               bool // Decide again at the next request, because a run or a session change started.
+	decisions                           prune.Decisions
+	lastCount                           int
+	turnsSinceRefresh                   int
+	sessionFile                         string
+	forcePending                        bool // Manual request survives run start until the next model request.
+	skillReasons                        map[string]string
+	skillsRetained, skillsPruned        int
+	lastRequest                         *compactlimit.RequestMeasurement
+	recovery                            map[string]prune.RecoveryRef
+	recoveryLedger                      map[string]bool
+	recoveryReady, recoveryFailed       bool
+	recoveryHandles, recoverySources    map[string]string
+	errorBudgetBytes, errorExcerptBytes int
 }
 
 // Extension returns the extension.
@@ -157,6 +159,15 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 	if err != nil {
 		ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, err), "error")
 	}
+	errorBudget, errorExcerpt := prune.DefaultErrorBudgetBytes, prune.DefaultErrorExcerptBytes
+	if err == nil {
+		var policyErr error
+		errorBudget, errorExcerpt, policyErr = prune.ErrorPolicy(file)
+		if policyErr != nil {
+			enabled = false
+			ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, policyErr), "error")
+		}
+	}
 	reasons := map[string]string{}
 	var entries []map[string]any
 	maxAge, ageErr := prune.SkillMaxAge(file)
@@ -186,7 +197,8 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 	st.enabled, st.fresh = enabled, true
 	st.skillReasons = reasons
 	st.sessionFile, st.turnsSinceRefresh = sessionFile, 0
-	st.recovery = refs
+	st.setRecoveryLocked(refs)
+	st.errorBudgetBytes, st.errorExcerptBytes = errorBudget, errorExcerpt
 	st.recoveryLedger = recoveryLedger(entries)
 	st.recoveryReady, st.recoveryFailed = refs != nil, recoveryErr != nil
 }
@@ -220,12 +232,16 @@ func (st *state) applyLocked(messages []any, overLimit func() bool) []any {
 	if !st.enabled {
 		return nil
 	}
+	st.decisions.DiscardChangedSources(messages)
 	settings := prune.DefaultSettings
 	settings.SkillReasons = st.skillReasons
+	if st.errorBudgetBytes > 0 && st.errorExcerptBytes > 0 {
+		settings.HistoricalErrorBytes, settings.ErrorExcerptBytes = st.errorBudgetBytes, st.errorExcerptBytes
+	}
 	if st.recoveryReady {
 		settings.SessionFile = st.sessionFile
 	}
-	settings.RecoveryHandles = prune.RecoveryHandles(st.recovery)
+	settings.RecoveryHandles, settings.RecoverySources = st.recoveryHandles, st.recoverySources
 	force := st.forcePending
 	st.forcePending = false
 	if force {
@@ -237,14 +253,12 @@ func (st *state) applyLocked(messages []any, overLimit func() bool) []any {
 		st.turnsSinceRefresh = 0
 	} else if force || st.turnsSinceRefresh >= RefreshEveryTurns || overLimit() {
 		current, _ := prune.Apply(messages, st.decisions)
+		settings.RecoverySources = st.decisions.ViewSources(messages, settings.RecoverySources)
 		more := prune.Decide(current, settings)
 		if st.decisions == nil {
 			st.decisions = prune.Decisions{}
 		}
-		for key, decision := range more {
-			decision.Saved += st.decisions[key].Saved
-			st.decisions[key] = decision
-		}
+		st.decisions.MergeView(more, messages)
 		st.turnsSinceRefresh = 0
 	}
 	pruned, changed := prune.Apply(messages, st.decisions)
@@ -294,7 +308,7 @@ func (st *state) now(ctx sdk.Context, file string) (string, string) {
 	st.applyLocked(messages, func() bool { return false })
 	// Run start recomputes decisions, so retain the manual minimum-savings override for that request.
 	st.forcePending = true
-	return fmt.Sprintf("%s: now: prepared %d pruned messages, roughly %d tokens saved. Applies to the next model request; no LLM call. Recent results, errors and images remain protected.", Name, st.lastCount, st.decisions.Saved()/prune.CharsPerToken), "info"
+	return fmt.Sprintf("%s: now: prepared %d pruned messages, roughly %d tokens saved. Applies to the next model request; no LLM call. Recent results, signed content, and images remain protected. Old failures keep their status and recovery handles.", Name, st.lastCount, st.decisions.Saved()/prune.CharsPerToken), "info"
 }
 
 // command runs one /context-prune command and returns the message to show.

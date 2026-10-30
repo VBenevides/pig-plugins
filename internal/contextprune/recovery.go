@@ -22,11 +22,12 @@ const (
 // RecoveryRef binds a handle to one immutable message in the active session branch.
 // It contains no copied payload and grants no source-editing authority.
 type RecoveryRef struct {
-	Handle  string `json:"handle"`
-	EventID string `json:"eventId"`
-	Role    string `json:"role"`
-	CallID  string `json:"callId"`
-	Digest  string `json:"digest"`
+	Handle     string `json:"handle"`
+	EventID    string `json:"eventId"`
+	Role       string `json:"role"`
+	CallID     string `json:"callId"`
+	Digest     string `json:"digest"`
+	SourceHash string `json:"sourceHash,omitempty"`
 }
 
 type RecoveryPage struct {
@@ -75,11 +76,22 @@ func recoveryReference(session, eventID string, message map[string]any) (Recover
 	digest := sha256.Sum256(data)
 	full := hex.EncodeToString(digest[:])
 	hash := sha256.Sum256([]byte(session + "\x00" + eventID + "\x00" + full))
-	return RecoveryRef{Handle: "cr1_" + hex.EncodeToString(hash[:8]), EventID: eventID, Role: role, CallID: id, Digest: full}, true
+	sourceHash := ""
+	if role == "toolResult" {
+		sourceHash, _ = ResultSourceHash(message)
+	}
+	return RecoveryRef{Handle: "cr1_" + hex.EncodeToString(hash[:8]), EventID: eventID, Role: role, CallID: id, Digest: full, SourceHash: sourceHash}, true
 }
 
 func RecoveryHandles(refs map[string]RecoveryRef) map[string]string {
+	handles, _ := RecoveryMaps(refs)
+	return handles
+}
+
+// RecoveryMaps returns only unambiguous handles and verified text/status hashes.
+func RecoveryMaps(refs map[string]RecoveryRef) (map[string]string, map[string]string) {
 	handles := map[string]string{}
+	sources := map[string]string{}
 	ambiguous := map[string]bool{}
 	for handle, ref := range refs {
 		if ref.CallID == "" || ambiguous[ref.CallID] {
@@ -87,12 +99,16 @@ func RecoveryHandles(refs map[string]RecoveryRef) map[string]string {
 		}
 		if existing, ok := handles[ref.CallID]; ok && existing != handle {
 			delete(handles, ref.CallID)
+			delete(sources, ref.CallID)
 			ambiguous[ref.CallID] = true
 			continue
 		}
 		handles[ref.CallID] = handle
+		if ref.SourceHash != "" {
+			sources[ref.CallID] = ref.SourceHash
+		}
 	}
-	return handles
+	return handles, sources
 }
 
 func decodeRecoveryRecord(line []byte) (map[string]any, error) {

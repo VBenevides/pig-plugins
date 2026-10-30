@@ -133,20 +133,26 @@ func (st *state) refreshRecovery(ctx sdk.Context, pressure bool) error {
 		err = fmt.Errorf("saved recovery source is no longer available; retaining full history")
 	}
 	if err != nil {
-		st.recovery, st.decisions, st.fresh = nil, nil, true
+		st.setRecoveryLocked(nil)
+		st.decisions, st.fresh = nil, true
 		st.recoveryReady, st.recoveryFailed = false, true
 		return err
 	}
-	st.recovery = refs
+	st.setRecoveryLocked(refs)
 	st.recoveryReady = refs != nil
 	st.recoveryFailed = false
 	return nil
 }
 
+func (st *state) setRecoveryLocked(refs map[string]prune.RecoveryRef) {
+	st.recovery = refs
+	st.recoveryHandles, st.recoverySources = prune.RecoveryMaps(refs)
+}
+
 func (st *state) recordReductions(ctx sdk.Context) error {
 	st.mu.Lock()
 	keys := []string{}
-	handles := prune.RecoveryHandles(st.recovery)
+	handles := st.recoveryHandles
 	for callID, decision := range st.decisions {
 		handle := handles[callID]
 		if handle != "" && strings.Contains(decision.Text, "[recovery: "+handle+";") {
