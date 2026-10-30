@@ -129,6 +129,9 @@ func Decide(messages []any, settings Settings) Decisions {
 	for index := len(messages) - 1; index >= 0; index-- {
 		raw := messages[index]
 		message, _ := raw.(map[string]any)
+		if ReplaySensitive(message) {
+			continue
+		}
 		switch message["role"] {
 		case "toolResult":
 			if index >= toolProtectedFrom {
@@ -299,6 +302,9 @@ func readSpan(call toolCall) string {
 // plainText returns the text of a message whose content is only text, and false for anything else, such as an image
 // or an error result, which the pruner leaves alone.
 func plainText(message map[string]any) (string, bool) {
+	if ReplaySensitive(message) {
+		return "", false
+	}
 	if failed, _ := message["isError"].(bool); failed {
 		return "", false
 	}
@@ -333,6 +339,9 @@ func Apply(messages []any, decisions Decisions) ([]any, int) {
 	for index, raw := range messages {
 		out[index] = raw
 		message, _ := raw.(map[string]any)
+		if ReplaySensitive(message) {
+			continue
+		}
 		var decision Decision
 		var found bool
 		switch message["role"] {
