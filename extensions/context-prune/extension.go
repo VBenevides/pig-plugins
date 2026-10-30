@@ -36,6 +36,8 @@ type state struct {
 	skillReasons                          map[string]string
 	skillsRetained, skillsPruned          int
 	lastRequest                           *compactlimit.RequestMeasurement
+	composition                           prune.Composition
+	composed                              bool
 	recovery                              map[string]prune.RecoveryRef
 	recoveryLedger                        map[string]bool
 	recoveryReady, recoveryFailed         bool
@@ -286,6 +288,11 @@ func (st *state) applyLocked(messages []any, overLimit func() bool) []any {
 		m, _ := raw.(map[string]any)
 		st.skillsPruned += len(prune.SkillBodies(m))
 	}
+	view := messages
+	if changed > 0 {
+		view = pruned
+	}
+	st.composition, st.composed = prune.Compose(view, max(0, len(view)-prune.DefaultSettings.KeepRecent)), true
 	st.skillsPruned = st.skillsRetained - st.skillsPruned
 	st.skillsRetained -= st.skillsPruned
 	if changed == 0 {
@@ -360,6 +367,43 @@ func (st *state) status(file string) (string, string) {
 		state = "on"
 	}
 	chars := st.decisions.Saved()
-	return fmt.Sprintf("%s: %s\ncurrent run: %d messages pruned in the last request, about %d characters (roughly %d tokens, an estimate) left out of each request\npolicy: refresh every %d tool-use turns or under pressure; protect %d tool-call groups and %d newest messages; require %d new characters (roughly %d tokens) per batch\nskill bodies: %d retained, %d pruned; only explicitly finished or released-and-expired bodies are eligible; recent messages and minimum savings still apply",
-		Name, state, st.lastCount, chars, chars/prune.CharsPerToken, RefreshEveryTurns, prune.DefaultSettings.KeepRecentGroups, prune.DefaultSettings.KeepRecent, prune.DefaultSettings.MinSavingChars, prune.DefaultSettings.MinSavingChars/prune.CharsPerToken, st.skillsRetained, st.skillsPruned), "info"
+	lines := []string{
+		fmt.Sprintf("%s: %s", Name, state),
+		fmt.Sprintf("current run: %d messages pruned in the last request, about %d characters (roughly %d tokens, an estimate) left out of each request", st.lastCount, chars, chars/prune.CharsPerToken),
+		fmt.Sprintf("policy: refresh every %d tool-use turns or under pressure; protect %d tool-call groups and %d newest messages; require %d new characters (roughly %d tokens) per batch", RefreshEveryTurns, prune.DefaultSettings.KeepRecentGroups, prune.DefaultSettings.KeepRecent, prune.DefaultSettings.MinSavingChars, prune.DefaultSettings.MinSavingChars/prune.CharsPerToken),
+		fmt.Sprintf("budgets: old failures %d bytes, old results %d bytes; batches reduce to 75 percent of a budget", st.errorBudgetBytes, st.resultBudgetBytes),
+		fmt.Sprintf("skill bodies: %d retained, %d pruned; only explicitly finished or released-and-expired bodies are eligible; recent messages and minimum savings still apply", st.skillsRetained, st.skillsPruned),
+		"folding: off; the extension SDK has no trusted endpoint and credential identity yet",
+	}
+	if st.composed {
+		c := st.composition
+		lines = append(lines, fmt.Sprintf("composition (message bytes in the last view, not tokens; fixed instructions and tool schemas excluded): user %d, assistant %d, call arguments %d, results %d, failures %d, recovery notices %d, images %d", c.UserText, c.AssistantText, c.CallArguments, c.ResultText, c.FailureText, c.RecoveryNotices, c.Media),
+			fmt.Sprintf("results: %d reduced of %d; %d bytes in the newest %d messages stay whole", c.ResultsReduced, c.ResultsTotal, c.ProtectedResults, prune.DefaultSettings.KeepRecent))
+	}
+	if st.lastRequest != nil {
+		confidence := "text-only byte estimate; not a billed-token count"
+		if st.lastRequest.UnboundedMedia {
+			confidence = "media or opaque state has unknown token cost; the estimate is a lower bound"
+		}
+		lines = append(lines, fmt.Sprintf("last request: about %d tokens plus %d reserved for output; %s", st.lastRequest.Tokens, st.lastRequest.OutputReserve, confidence))
+	} else {
+		lines = append(lines, "last request: not measured; this host did not report a request observation")
+	}
+	if fallback := st.fallbackReasonLocked(saved); fallback != "" {
+		lines = append(lines, "fallback: "+fallback)
+	}
+	return strings.Join(lines, "\n"), "info"
+}
+
+// fallbackReasonLocked says why reduction is limited. Each reason names an action.
+func (st *state) fallbackReasonLocked(saved bool) string {
+	switch {
+	case !saved:
+		return "pruning is off. Use /context-prune on. Host compaction still works."
+	case st.recoveryFailed:
+		return "saved-history recovery failed, so old results keep their full text. Check the session file, then start a new run."
+	case !st.recoveryReady:
+		return "saved-history recovery is not ready yet, so age-based pruning waits. Send a message to start a run."
+	}
+	return ""
 }
