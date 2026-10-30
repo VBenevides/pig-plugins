@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -66,8 +67,20 @@ func resolve(getenv func(string) string) (map[string][]string, error) {
 		"themePaths":  {cfg.ThemePaths, "themes"},
 	} {
 		if spec.configured == nil {
-			if isDir(filepath.Join(dir, spec.fallback)) {
-				result[key] = []string{filepath.Join(dir, spec.fallback)}
+			defaultDir := filepath.Join(dir, spec.fallback)
+			if !isDir(defaultDir) {
+				continue
+			}
+			if key != "skillPaths" || ouroAvailable() {
+				result[key] = []string{defaultDir}
+				continue
+			}
+			entries, err := skillEntriesWithoutOuro(defaultDir)
+			if err != nil {
+				return nil, err
+			}
+			if len(entries) > 0 {
+				result[key] = entries
 			}
 			continue
 		}
@@ -76,6 +89,32 @@ func resolve(getenv func(string) string) (map[string][]string, error) {
 		}
 	}
 	return result, nil
+}
+
+// ouroSkill is hidden from the agent unless the ouro executable is on PATH.
+const ouroSkill = "ouro-quality"
+
+var lookPath = exec.LookPath
+
+func ouroAvailable() bool {
+	_, err := lookPath("ouro")
+	return err == nil
+}
+
+// skillEntriesWithoutOuro lists every entry of the default skills directory except the ouro skill,
+// so the skill appears on the next discovery after ouro becomes available.
+func skillEntriesWithoutOuro(skillsDir string) ([]string, error) {
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return nil, fmt.Errorf("user-resources: read %s: %w", skillsDir, err)
+	}
+	var paths []string
+	for _, entry := range entries {
+		if entry.Name() != ouroSkill {
+			paths = append(paths, filepath.Join(skillsDir, entry.Name()))
+		}
+	}
+	return paths, nil
 }
 
 func load(path string) (config, error) {

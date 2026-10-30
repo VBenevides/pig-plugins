@@ -2,13 +2,16 @@
 
 All notable changes to pig-plugins are documented here.
 
-## [0.2.8] - 2026-10-29
+## [0.2.8] - 2026-10-30
 
 ### Features
 
 - Refresh context pruning every eight tool-use turns, or earlier under context pressure. Keep the latest ten tool-call groups and eight messages intact.
 - Add `/context-prune now` to prepare an immediate prune without an LLM call. Bypass the cadence and minimum savings, but preserve protected content.
 - Mask older unique file reads and search output when saved history is available. Include recovery references without changing the saved output.
+
+- Offer the `ouro-quality` skill only while the `ouro` executable is on PATH. It appears on the next resource discovery after `ouro` becomes available.
+- Make `todo-planner` end `TODO.md` with an Open Points and Questions table (question, impact, recommendation). Show the same points in the response and ask the user to answer them.
 
 ### Bugfixes
 
@@ -19,6 +22,7 @@ All notable changes to pig-plugins are documented here.
 
 ### Other
 
+- Add a regression test for the `ouro-quality` availability gate.
 - Add pruning, recovery-reference, manual-command, upload-timeout, cancellation, socket-reuse, and transport-recovery regression tests.
 - Apply the Codex upload host patch in bundled builds. Document the pruning policy, manual command, and WebSocket-first recovery.
 
