@@ -48,7 +48,7 @@ func (decision Decision) MatchesSource(message map[string]any) bool {
 func (decisions Decisions) DiscardChangedSources(messages []any) {
 	pending := map[string]bool{}
 	for id, decision := range decisions {
-		if decision.SourceHash != "" {
+		if decision.SourceHash != "" && decision.Arguments == nil {
 			pending[id] = true
 		}
 	}
@@ -65,6 +65,7 @@ func (decisions Decisions) DiscardChangedSources(messages []any) {
 	for id := range pending {
 		delete(decisions, id)
 	}
+	decisions.discardChangedArguments(messages)
 }
 
 func (decisions Decisions) BudgetPressure() bool {

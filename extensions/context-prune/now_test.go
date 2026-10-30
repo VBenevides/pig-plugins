@@ -64,7 +64,7 @@ func TestNowCommandPreparesSmallPruneWithoutLLMCall(t *testing.T) {
 			}
 			if manual {
 				notices := strings.Join(result.Notices(), "\n")
-				for _, want := range []string{"composition (message bytes", "call arguments", "results: ", "folding: off", "budgets: old failures 32768 bytes, old results 65536 bytes", "last request: "} {
+				for _, want := range []string{"composition (message bytes", "call arguments", "results: ", "folding: off", "budgets: old failures 32768 bytes, old results 65536 bytes, old edit and write payloads 32768 bytes", "last request: "} {
 					if !strings.Contains(notices, want) {
 						t.Fatalf("status lacks %q: %q", want, notices)
 					}

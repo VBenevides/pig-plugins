@@ -101,3 +101,23 @@ func resultPolicyFromObject(object map[string]any) (int, int, error) {
 	}
 	return budget, excerpt, nil
 }
+
+// ArgumentBudget reads the optional budget for old edit and write payloads.
+func ArgumentBudget(file string) (int, error) {
+	data, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return DefaultArgumentBudgetBytes, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read argument policy %s: %w", file, err)
+	}
+	object, err := fsutil.DecodeObject(data)
+	if err != nil {
+		return 0, fmt.Errorf("decode argument policy %s: %w", file, err)
+	}
+	budget, err := ArgumentPolicy(object)
+	if err != nil {
+		return 0, fmt.Errorf("argument policy %s: %w", file, err)
+	}
+	return budget, nil
+}

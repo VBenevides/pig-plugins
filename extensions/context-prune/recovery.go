@@ -147,15 +147,20 @@ func (st *state) refreshRecovery(ctx sdk.Context, pressure bool) error {
 func (st *state) setRecoveryLocked(refs map[string]prune.RecoveryRef) {
 	st.recovery = refs
 	st.recoveryHandles, st.recoverySources = prune.RecoveryMaps(refs)
+	st.argumentHandles, st.argumentSources = prune.ArgumentRecovery(refs)
 }
 
 func (st *state) recordReductions(ctx sdk.Context) error {
 	st.mu.Lock()
 	keys := []string{}
 	handles := st.recoveryHandles
-	for callID, decision := range st.decisions {
-		handle := handles[callID]
-		if handle != "" && strings.Contains(decision.Text, "[recovery: "+handle+";") {
+	for key, decision := range st.decisions {
+		handle := handles[key]
+		if decision.Arguments != nil {
+			handle = decision.Handle
+		}
+		marked := strings.Contains(decision.Text, "[recovery: "+handle+";") || (decision.Arguments != nil && strings.Contains(fmt.Sprint(decision.Arguments), "recovery: "+handle+";"))
+		if handle != "" && marked {
 			keys = append(keys, "selected/"+handle)
 		}
 	}

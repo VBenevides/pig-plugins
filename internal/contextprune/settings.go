@@ -36,6 +36,9 @@ func Enabled(file string) (bool, error) {
 	if _, _, err := resultPolicyFromObject(object); err != nil {
 		return false, fmt.Errorf("%s: %w", file, err)
 	}
+	if _, err := ArgumentPolicy(object); err != nil {
+		return false, fmt.Errorf("%s: %w", file, err)
+	}
 	value, present := object["enabled"]
 	if !present {
 		return true, nil

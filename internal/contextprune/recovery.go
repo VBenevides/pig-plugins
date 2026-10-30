@@ -28,6 +28,8 @@ type RecoveryRef struct {
 	CallID     string `json:"callId"`
 	Digest     string `json:"digest"`
 	SourceHash string `json:"sourceHash,omitempty"`
+	// ArgHashes is a sorted JSON object of call ID to argument hash. A string keeps the struct comparable.
+	ArgHashes string `json:"argHashes,omitempty"`
 }
 
 type RecoveryPage struct {
@@ -80,7 +82,11 @@ func recoveryReference(session, eventID string, message map[string]any) (Recover
 	if role == "toolResult" {
 		sourceHash, _ = ResultSourceHash(message)
 	}
-	return RecoveryRef{Handle: "cr1_" + hex.EncodeToString(hash[:8]), EventID: eventID, Role: role, CallID: id, Digest: full, SourceHash: sourceHash}, true
+	argHashes := ""
+	if role == "assistant" {
+		argHashes = encodeArgumentHashes(argumentHashes(message))
+	}
+	return RecoveryRef{Handle: "cr1_" + hex.EncodeToString(hash[:8]), EventID: eventID, Role: role, CallID: id, Digest: full, SourceHash: sourceHash, ArgHashes: argHashes}, true
 }
 
 func RecoveryHandles(refs map[string]RecoveryRef) map[string]string {

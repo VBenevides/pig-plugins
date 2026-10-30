@@ -3,7 +3,7 @@
 `/context-prune status` now reports these lines. Existing command forms stay the same.
 
 - **State and policy:** on or off, cadence, protected groups, and minimum savings.
-- **Budgets:** the old-failure and old-result byte budgets, and the 75 percent post-batch target.
+- **Budgets:** the old-failure, old-result, and old edit and write payload byte budgets, and the 75 percent post-batch target.
 - **Composition:** message bytes by category in the last view: user, assistant, call arguments, results, failures, recovery notices, and images.
   Fixed instructions, tool schemas, and media payloads are excluded. These are bytes, not tokens.
 - **Results:** how many results are reduced, and how many bytes stay whole in the newest messages.

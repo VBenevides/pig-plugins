@@ -44,6 +44,8 @@ type state struct {
 	recoveryHandles, recoverySources      map[string]string
 	errorBudgetBytes, errorExcerptBytes   int
 	resultBudgetBytes, resultExcerptBytes int
+	argumentHandles, argumentSources      map[string]string
+	argumentBudgetBytes                   int
 }
 
 // Extension returns the extension.
@@ -180,6 +182,15 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 			ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, policyErr), "error")
 		}
 	}
+	argumentBudget := prune.DefaultArgumentBudgetBytes
+	if err == nil {
+		var policyErr error
+		argumentBudget, policyErr = prune.ArgumentBudget(file)
+		if policyErr != nil {
+			enabled = false
+			ctx.Notify(fmt.Sprintf("%s: pruning is off: %v", Name, policyErr), "error")
+		}
+	}
 	reasons := map[string]string{}
 	var entries []map[string]any
 	maxAge, ageErr := prune.SkillMaxAge(file)
@@ -212,6 +223,7 @@ func (st *state) startRun(ctx sdk.Context, file string) {
 	st.setRecoveryLocked(refs)
 	st.errorBudgetBytes, st.errorExcerptBytes = errorBudget, errorExcerpt
 	st.resultBudgetBytes, st.resultExcerptBytes = resultBudget, resultExcerpt
+	st.argumentBudgetBytes = argumentBudget
 	st.recoveryLedger = recoveryLedger(entries)
 	st.recoveryReady, st.recoveryFailed = refs != nil, recoveryErr != nil
 }
@@ -258,6 +270,10 @@ func (st *state) applyLocked(messages []any, overLimit func() bool) []any {
 		settings.SessionFile = st.sessionFile
 	}
 	settings.RecoveryHandles, settings.RecoverySources = st.recoveryHandles, st.recoverySources
+	settings.ArgumentHandles, settings.ArgumentSources = st.argumentHandles, st.argumentSources
+	if st.argumentBudgetBytes > 0 {
+		settings.HistoricalArgumentBytes = st.argumentBudgetBytes
+	}
 	force := st.forcePending
 	st.forcePending = false
 	if force {
@@ -373,7 +389,7 @@ func (st *state) status(file string) (string, string) {
 		fmt.Sprintf("%s: %s", Name, state),
 		fmt.Sprintf("current run: %d messages pruned in the last request, about %d characters (roughly %d tokens, an estimate) left out of each request", st.lastCount, chars, chars/prune.CharsPerToken),
 		fmt.Sprintf("policy: refresh every %d tool-use turns or under pressure; protect %d tool-call groups and %d newest messages; require %d new characters (roughly %d tokens) per batch", RefreshEveryTurns, prune.DefaultSettings.KeepRecentGroups, prune.DefaultSettings.KeepRecent, prune.DefaultSettings.MinSavingChars, prune.DefaultSettings.MinSavingChars/prune.CharsPerToken),
-		fmt.Sprintf("budgets: old failures %d bytes, old results %d bytes; batches reduce to 75 percent of a budget", st.errorBudgetBytes, st.resultBudgetBytes),
+		fmt.Sprintf("budgets: old failures %d bytes, old results %d bytes, old edit and write payloads %d bytes; batches reduce to 75 percent of a budget", st.errorBudgetBytes, st.resultBudgetBytes, st.argumentBudgetBytes),
 		fmt.Sprintf("skill bodies: %d retained, %d pruned; only explicitly finished or released-and-expired bodies are eligible; recent messages and minimum savings still apply", st.skillsRetained, st.skillsPruned),
 		"folding: off; the extension SDK has no trusted endpoint and credential identity yet",
 	}

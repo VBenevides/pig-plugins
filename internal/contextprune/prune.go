@@ -40,6 +40,10 @@ type Settings struct {
 	HistoricalErrorBytes, ErrorExcerptBytes int
 	// HistoricalResultBytes bounds old successful results that no tool-specific rule reduced.
 	HistoricalResultBytes, ResultExcerptBytes int
+	// HistoricalArgumentBytes bounds old edit and write call payloads that have verified recovery.
+	HistoricalArgumentBytes int
+	// ArgumentHandles and ArgumentSources bind each call ID to its saved assistant event and arguments.
+	ArgumentHandles, ArgumentSources map[string]string
 }
 
 // DefaultSettings batch roughly 8k tokens of savings and protect the latest ten tool-call groups.
@@ -49,6 +53,7 @@ var DefaultSettings = Settings{
 	BashMaxChars: 8192, BashHeadChars: 4096, BashTailChars: 1024,
 	HistoricalErrorBytes: DefaultErrorBudgetBytes, ErrorExcerptBytes: DefaultErrorExcerptBytes,
 	HistoricalResultBytes: DefaultResultBudgetBytes, ResultExcerptBytes: DefaultResultExcerptBytes,
+	HistoricalArgumentBytes: DefaultArgumentBudgetBytes,
 }
 
 // Decision replaces the text of one tool result or skill message.
@@ -65,6 +70,9 @@ type Decision struct {
 	SourceHash string
 	// BudgetRequired marks an aggregate-budget reduction. Under Pressure it can bypass the cache threshold.
 	BudgetRequired bool
+	// Arguments replaces the arguments of one old edit or write call. Handle names the saved assistant event.
+	Arguments map[string]any
+	Handle    string
 }
 
 // Decisions maps a tool call ID, or a skill message key, to its replacement.
@@ -188,6 +196,7 @@ func Decide(messages []any, settings Settings) Decisions {
 	}
 	decideHistoricalErrors(messages, calls, toolProtectedFrom, settings, decisions)
 	decideHistoricalResults(messages, calls, toolProtectedFrom, settings, decisions)
+	decideHistoricalArguments(messages, toolProtectedFrom, settings, decisions)
 	if decisions.Saved() < settings.MinSavingChars && !(settings.Pressure && decisions.BudgetPressure()) {
 		return Decisions{}
 	}
@@ -386,6 +395,12 @@ func Apply(messages []any, decisions Decisions) ([]any, int) {
 					decision, found = decisions[id]
 				}
 			}
+		case "assistant":
+			if replaced, ok := applyArgumentDecisions(message, decisions); ok {
+				out[index] = replaced
+				changed++
+			}
+			continue
 		case "user":
 			decision, found = decisions[messageKey(message)]
 		}
