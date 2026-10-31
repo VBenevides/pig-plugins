@@ -32,6 +32,8 @@ type Reply struct {
 	// Chunks streams these text pieces before the final reply, ChunkDelay apart.
 	Chunks     []string
 	ChunkDelay time.Duration
+	// FromRequest derives a reply from the captured request for protocol recovery tests.
+	FromRequest func(map[string]any) Reply `json:"-"`
 }
 
 // Text is a plain assistant reply.
@@ -94,6 +96,9 @@ func (m *MockLLM) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply, call := m.nextReply(body)
+	if reply.FromRequest != nil {
+		reply = reply.FromRequest(body)
+	}
 
 	if reply.Delay > 0 {
 		time.Sleep(reply.Delay)

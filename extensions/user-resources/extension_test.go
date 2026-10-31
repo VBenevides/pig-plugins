@@ -79,3 +79,34 @@ func TestMalformedConfigIsAnError(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+func TestOuroSkillAppearsOnlyWhenOuroIsAvailable(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"ouro-quality", "other"} {
+		if err := os.MkdirAll(filepath.Join(dir, "skills", name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	orig := lookPath
+	t.Cleanup(func() { lookPath = orig })
+
+	lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	got, err := resolve(env(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{"skillPaths": {filepath.Join(dir, "skills", "other")}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("without ouro: got %v, want %v", got, want)
+	}
+
+	lookPath = func(string) (string, error) { return "/bin/ouro", nil }
+	got, err = resolve(env(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = map[string][]string{"skillPaths": {filepath.Join(dir, "skills")}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("with ouro: got %v, want %v", got, want)
+	}
+}

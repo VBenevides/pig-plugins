@@ -99,7 +99,7 @@ func TestProviderPrunesDuringOneRunWithoutSummaryAndKeepsSavedOutput(t *testing.
 		if i < 16 && strings.Contains(text, "[pruned:") {
 			t.Fatalf("request %d pruned before the first eligible eight-turn batch", i)
 		}
-		if i == 16 && (!strings.Contains(text, "[recovery: toolResult") || strings.Contains(text, "UNIQUE_OLD_READ")) {
+		if i == 16 && (!strings.Contains(text, "[recovery: cr1_") || !strings.Contains(text, "use context_recover") || strings.Contains(text, "UNIQUE_OLD_READ")) {
 			t.Fatal("sixteenth tool turn must mask the unique old read with a recovery reference")
 		}
 	}
@@ -111,7 +111,7 @@ func TestProviderPrunesDuringOneRunWithoutSummaryAndKeepsSavedOutput(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(saved), "UNIQUE_OLD_READ") || strings.Contains(string(saved), "[recovery: toolResult") {
+	if !strings.Contains(string(saved), "UNIQUE_OLD_READ") || strings.Contains(string(saved), "[recovery: cr1_") {
 		t.Fatal("provider masking must not change the saved tool output")
 	}
 }

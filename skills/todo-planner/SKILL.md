@@ -33,7 +33,31 @@ Preserve existing item evidence and archive contents verbatim. Keep required fie
 4. Order items in each section by importance: Critical, High, Medium, Low.
 5. Use a short and clear title and description.
 6. Do not invent evidence.
-7. Create or update the selected TODO path.
+7. Collect every open point or question that blocks or changes the plan.
+   Do not guess answers. Do not invent evidence for them.
+8. Create or update the selected TODO path.
+   End it with an `Open Points and Questions` section (see below).
+9. Show the same open points in the response and ask the user to answer them.
+
+## Open points and questions
+
+End `TODO.md` with this section. Use one table row for each open point:
+
+```markdown
+## Open Points and Questions
+
+| # | Question | Impact | Recommendation |
+|---|----------|--------|----------------|
+| 1 | <open point or question> | <what changes if the answer differs> | <your recommended answer> |
+```
+
+Keep unanswered points from earlier plans. Remove points the user has answered
+and reflect the answer in the affected items. If there are no open points,
+write `None.` under the heading.
+
+In the response, repeat the same points (question, impact, recommendation)
+and ask the user to answer them. Use `ask_user_question` when it is available.
+Do not start implementation before the user answers.
 
 ## Archive completed items
 
@@ -103,6 +127,8 @@ The calling skill must not create another format.
 
 Confirm that each item has all five fields.
 Confirm that each item is in one section.
+Confirm that the last section of `TODO.md` lists all open points with impact and recommendation,
+and that the response shows them and asks the user to answer.
 Confirm that no test result or commit hash is invented.
 Confirm that each moved completed item and all its evidence are in a verified
 archive, and no pre-existing archive changed.

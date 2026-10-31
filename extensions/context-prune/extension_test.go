@@ -91,7 +91,7 @@ func TestPrunesStaleReadsFromTheNextRunOnAndKeepsTheHistory(t *testing.T) {
 	if strings.Count(last, "[pruned: this read of big.txt is out of date") != 1 {
 		t.Fatalf("the older read of big.txt must be replaced once in the next run")
 	}
-	if strings.Contains(last, "needle-line") || !strings.Contains(last, "[recovery: toolResult") {
+	if strings.Contains(last, "needle-line") || !strings.Contains(last, "[recovery: cr1_") || !strings.Contains(last, "use context_recover") {
 		t.Fatal("old reads must be masked with saved-result recovery references")
 	}
 	if !strings.Contains(strings.Join(result.Notices(), "\n"), "context-prune: on") {

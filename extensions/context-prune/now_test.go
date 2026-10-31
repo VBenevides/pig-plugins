@@ -64,7 +64,12 @@ func TestNowCommandPreparesSmallPruneWithoutLLMCall(t *testing.T) {
 			}
 			if manual {
 				notices := strings.Join(result.Notices(), "\n")
-				if !strings.Contains(notices, "now: prepared 1 pruned messages") || !strings.Contains(last, "[recovery: toolResult") {
+				for _, want := range []string{"composition (message bytes", "call arguments", "results: ", "folding: off", "budgets: old failures 32768 bytes, old results 65536 bytes, old edit and write payloads 32768 bytes", "last request: "} {
+					if !strings.Contains(notices, want) {
+						t.Fatalf("status lacks %q: %q", want, notices)
+					}
+				}
+				if !strings.Contains(notices, "now: prepared 1 pruned messages") || !strings.Contains(last, "[recovery: cr1_") || !strings.Contains(last, "use context_recover") {
 					t.Fatalf("command must prepare the prune before the next run and retain recovery: %q", notices)
 				}
 			}

@@ -19,9 +19,16 @@ type Settings struct {
 	// SessionFile permits age-based masking with an exact saved-result recovery reference.
 	// Without durable session storage, only the conservative supersession rules apply.
 	SessionFile string
+	// RecoveryHandles uses active-branch handles instead of repeated full file paths.
+	RecoveryHandles map[string]string
+	// RecoverySources binds each handle to saved text and failure status.
+	RecoverySources map[string]string
 	// MinSavingChars is the smallest total saving that is worth a prune. A prune changes earlier request text, so
 	// it invalidates the provider prefix cache from the first changed message on.
 	MinSavingChars int
+	// Pressure lets a budget reduction below MinSavingChars proceed, because the context is near its limit.
+	// Without it, a small budget reduction does not justify a prefix-cache rewrite.
+	Pressure bool
 	// BashMaxChars is the size above which a shell result outside the recent window keeps only its head and tail.
 	BashMaxChars int
 	// BashHeadChars and BashTailChars are the parts of a long shell result that stay.
@@ -29,11 +36,25 @@ type Settings struct {
 	// SkillReasons contains explicitly eligible invocation IDs and their prune reasons.
 	// A missing ID is protected, even when an identical skill appears later.
 	SkillReasons map[string]string
+	// HistoricalErrorBytes bounds old recoverable error text in accepted batches.
+	HistoricalErrorBytes, ErrorExcerptBytes int
+	// HistoricalResultBytes bounds old successful results that no tool-specific rule reduced.
+	HistoricalResultBytes, ResultExcerptBytes int
+	// HistoricalArgumentBytes bounds old edit and write call payloads that have verified recovery.
+	HistoricalArgumentBytes int
+	// ArgumentHandles and ArgumentSources bind each call ID to its saved assistant event and arguments.
+	ArgumentHandles, ArgumentSources map[string]string
 }
 
 // DefaultSettings batch roughly 8k tokens of savings and protect the latest ten tool-call groups.
 // Shell output retains the existing head and tail limits.
-var DefaultSettings = Settings{KeepRecent: 8, KeepRecentGroups: 10, MinSavingChars: 32000, BashMaxChars: 8192, BashHeadChars: 4096, BashTailChars: 1024}
+var DefaultSettings = Settings{
+	KeepRecent: 8, KeepRecentGroups: 10, MinSavingChars: 32000,
+	BashMaxChars: 8192, BashHeadChars: 4096, BashTailChars: 1024,
+	HistoricalErrorBytes: DefaultErrorBudgetBytes, ErrorExcerptBytes: DefaultErrorExcerptBytes,
+	HistoricalResultBytes: DefaultResultBudgetBytes, ResultExcerptBytes: DefaultResultExcerptBytes,
+	HistoricalArgumentBytes: DefaultArgumentBudgetBytes,
+}
 
 // Decision replaces the text of one tool result or skill message.
 type Decision struct {
@@ -43,6 +64,15 @@ type Decision struct {
 	Saved int
 	// SkillEdits replace only validated skill envelopes, never the whole request.
 	SkillEdits []SkillEdit
+	// Failure permits an error-body reduction without changing its failure flag.
+	Failure bool
+	// SourceHash rejects stale decisions after text or failure status changes.
+	SourceHash string
+	// BudgetRequired marks an aggregate-budget reduction. Under Pressure it can bypass the cache threshold.
+	BudgetRequired bool
+	// Arguments replaces the arguments of one old edit or write call. Handle names the saved assistant event.
+	Arguments map[string]any
+	Handle    string
 }
 
 // Decisions maps a tool call ID, or a skill message key, to its replacement.
@@ -71,9 +101,9 @@ type pathEvent struct {
 	span  string // The read range, empty when it is not a read.
 }
 
-// Decide returns the replacements for a message list. It returns none when the total saving is below
-// MinSavingChars, and it never changes the newest KeepRecent messages, error results, or results with non-text
-// content.
+// Decide returns eligible replacements. Total savings must reach MinSavingChars, unless
+// Pressure is set and an aggregate budget needs the reduction. Recent messages, signed state, non-text content, and errors
+// without verified durable recovery remain protected.
 func Decide(messages []any, settings Settings) Decisions {
 	calls := collectCalls(messages)
 	results := map[string]int{}        // Tool call ID to the index of its result message.
@@ -127,6 +157,9 @@ func Decide(messages []any, settings Settings) Decisions {
 	for index := len(messages) - 1; index >= 0; index-- {
 		raw := messages[index]
 		message, _ := raw.(map[string]any)
+		if ReplaySensitive(message) {
+			continue
+		}
 		switch message["role"] {
 		case "toolResult":
 			if index >= toolProtectedFrom {
@@ -142,7 +175,9 @@ func Decide(messages []any, settings Settings) Decisions {
 				continue
 			}
 			if replacement, ok := replacementFor(call, index, text, byPath, lastTodo, settings); ok {
-				if settings.SessionFile != "" {
+				if handle := settings.RecoveryHandles[id]; handle != "" {
+					replacement += fmt.Sprintf("\n[recovery: %s; use context_recover]", handle)
+				} else if settings.SessionFile != "" {
 					replacement += fmt.Sprintf("\n[recovery: toolResult with toolCallId %q in session JSONL %q; use bash to extract the saved result, not to rerun the original command]", id, settings.SessionFile)
 				}
 				if len(replacement) < len(text) {
@@ -159,7 +194,10 @@ func Decide(messages []any, settings Settings) Decisions {
 			}
 		}
 	}
-	if decisions.Saved() < settings.MinSavingChars {
+	decideHistoricalErrors(messages, calls, toolProtectedFrom, settings, decisions)
+	decideHistoricalResults(messages, calls, toolProtectedFrom, settings, decisions)
+	decideHistoricalArguments(messages, toolProtectedFrom, settings, decisions)
+	if decisions.Saved() < settings.MinSavingChars && !(settings.Pressure && decisions.BudgetPressure()) {
 		return Decisions{}
 	}
 	return decisions
@@ -292,10 +330,16 @@ func readSpan(call toolCall) string {
 	return fmt.Sprintf("%v:%v", offset, limit)
 }
 
-// plainText returns the text of a message whose content is only text, and false for anything else, such as an image
-// or an error result, which the pruner leaves alone.
+// plainText preserves the legacy success-only observation helper.
 func plainText(message map[string]any) (string, bool) {
 	if failed, _ := message["isError"].(bool); failed {
+		return "", false
+	}
+	return resultPlainBody(message)
+}
+
+func resultPlainBody(message map[string]any) (string, bool) {
+	if ReplaySensitive(message) {
 		return "", false
 	}
 	if text, ok := message["content"].(string); ok {
@@ -306,11 +350,21 @@ func plainText(message map[string]any) (string, bool) {
 		return "", false
 	}
 	var text strings.Builder
-	for _, raw := range blocks {
+	for index, raw := range blocks {
 		block, _ := raw.(map[string]any)
 		part, ok := block["text"].(string)
 		if block["type"] != "text" || !ok {
 			return "", false
+		}
+		if len(blocks) > 1 {
+			for key := range block {
+				if key != "type" && key != "text" {
+					return "", false
+				}
+			}
+		}
+		if index > 0 && message["isError"] == true {
+			text.WriteByte('\n')
 		}
 		text.WriteString(part)
 	}
@@ -329,6 +383,9 @@ func Apply(messages []any, decisions Decisions) ([]any, int) {
 	for index, raw := range messages {
 		out[index] = raw
 		message, _ := raw.(map[string]any)
+		if ReplaySensitive(message) {
+			continue
+		}
 		var decision Decision
 		var found bool
 		switch message["role"] {
@@ -338,6 +395,12 @@ func Apply(messages []any, decisions Decisions) ([]any, int) {
 					decision, found = decisions[id]
 				}
 			}
+		case "assistant":
+			if replaced, ok := applyArgumentDecisions(message, decisions); ok {
+				out[index] = replaced
+				changed++
+			}
+			continue
 		case "user":
 			decision, found = decisions[messageKey(message)]
 		}
@@ -351,18 +414,14 @@ func Apply(messages []any, decisions Decisions) ([]any, int) {
 			}
 			continue
 		}
-		if _, ok := plainText(message); !ok {
+		if !decision.MatchesSource(message) {
 			continue
 		}
 		replaced := make(map[string]any, len(message))
 		for key, value := range message {
 			replaced[key] = value
 		}
-		if _, isString := message["content"].(string); isString {
-			replaced["content"] = decision.Text
-		} else {
-			replaced["content"] = []any{map[string]any{"type": "text", "text": decision.Text}}
-		}
+		replaced["content"] = replaceResultText(message, decision.Text)
 		out[index] = replaced
 		changed++
 	}
