@@ -209,7 +209,7 @@ new file mode 100644
 index 0000000..74ca2e9
 --- /dev/null
 +++ b/tui/interaction_pages.go
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,168 @@
 +package tui
 +
 +import (
@@ -252,7 +252,9 @@ index 0000000..74ca2e9
 +	for i, child := range p.children {
 +		switch child.(type) {
 +		case *SkillInvocationMessageComponent:
-+			p.starts = append(p.starts, i)
++			if !skillPrompt {
++				p.starts = append(p.starts, i)
++			}
 +			skillPrompt = true
 +		case *UserMessageComponent:
 +			if !skillPrompt {
@@ -826,6 +828,148 @@ new file mode 100644
 +			restored := NewInteractionPages(NewContainer(before...))
 +			if got := pageText(restored); !strings.Contains(got, "Page 2 / 2") || !strings.Contains(got, "Warning: skill fixture") {
 +				t.Fatalf("rebuilt page lost skill output: %s", got)
++			}
++		})
++	}
++}
+diff --git a/internal/codingagent/interactive_transcript.go b/internal/codingagent/interactive_transcript.go
+--- a/internal/codingagent/interactive_transcript.go
++++ b/internal/codingagent/interactive_transcript.go
+@@ -163,26 +163,41 @@
+ func (m *InteractiveMode) addUserMessageToChat(msg agent.AgentMessage, text string) {
+-	if !m.chatContainer.IsEmpty() {
+-		m.chatContainer.Add(tui.NewSpacer(1))
+-	}
+-	for {
+-		parsed := ParseSkillBlock(text)
+-		if parsed == nil {
+-			if text != "" || len(userMessageImages(msg)) > 0 {
+-				block := m.newUserMessageBlock(text)
+-				block.SetImages(userMessageImages(msg))
+-				m.chatContainer.Add(block)
+-			}
+-			return
+-		}
+-		comp := tui.NewSkillInvocationMessageComponent(tui.ParsedSkillBlock{
+-			Name: parsed.Name, Content: parsed.Content,
+-		}, m.markdownThemeWithSettings(), m.outputPad)
+-		comp.SetExpanded(m.toolsExpanded)
+-		m.chatContainer.Add(comp)
+-		text = parsed.UserMessage
+-		if text == "" && len(userMessageImages(msg)) == 0 {
+-			return
+-		}
+-		m.chatContainer.Add(tui.NewSpacer(1))
+-	}
++	if !m.chatContainer.IsEmpty() {
++		m.chatContainer.Add(tui.NewSpacer(1))
++	}
++	var skillNames []string
++	for {
++		parsed := ParseSkillBlock(text)
++		if parsed == nil {
++			mentioned := map[string]bool{}
++			for _, match := range inlineSkillTokenRe.FindAllStringSubmatch(text, -1) {
++				mentioned[match[1]] = true
++			}
++			var commands []string
++			for _, name := range skillNames {
++				if !mentioned[name] {
++					commands = append(commands, "/skill:"+name)
++				}
++			}
++			if len(commands) > 0 {
++				if text != "" {
++					commands = append(commands, text)
++				}
++				text = strings.Join(commands, " ")
++			}
++			if text != "" || len(userMessageImages(msg)) > 0 {
++				block := m.newUserMessageBlock(text)
++				block.SetImages(userMessageImages(msg))
++				m.chatContainer.Add(block)
++			}
++			return
++		}
++		comp := tui.NewSkillInvocationMessageComponent(tui.ParsedSkillBlock{
++			Name: parsed.Name, Content: parsed.Content,
++		}, m.markdownThemeWithSettings(), m.outputPad)
++		comp.SetExpanded(m.toolsExpanded)
++		m.chatContainer.Add(comp)
++		skillNames = append(skillNames, parsed.Name)
++		text = parsed.UserMessage
++		m.chatContainer.Add(tui.NewSpacer(1))
++	}
+ }
+diff --git a/internal/codingagent/interaction_skill_command_test.go b/internal/codingagent/interaction_skill_command_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/codingagent/interaction_skill_command_test.go
+@@ -0,0 +1,68 @@
++package codingagent
++
++import (
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/agent"
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/coding/extension"
++	"github.com/MichaelKinsy/PiG/tui"
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++func TestInteractionSkillCommandDisplayAndInput(t *testing.T) {
++	skills := []*SkillDef{
++		{Name: "format-commit", FilePath: "/fixture/format-commit/SKILL.md", BaseDir: "/fixture/format-commit", Body: "FORMAT_SENTINEL", SourceInfo: extension.SourceInfo{Source: "inline"}},
++		{Name: "review", FilePath: "/fixture/review/SKILL.md", BaseDir: "/fixture/review", Body: "REVIEW_SENTINEL", SourceInfo: extension.SourceInfo{Source: "inline"}},
++	}
++	for _, prompt := range []string{"/skill:format-commit and commit", "/skill:format-commit", "Please /skill:format-commit then /skill:review and /skill:format-commit", "/skill:unknown and commit"} {
++		t.Run(prompt, func(t *testing.T) {
++			expand := ExpandSkillCommand
++			if !strings.HasPrefix(prompt, "/") {
++				expand = ExpandInlineSkillCommands
++			}
++			expanded, ok, failure := expand(prompt, skills)
++			if failure != nil {
++				t.Fatal(failure)
++			}
++			if !ok {
++				expanded = prompt
++			} else if !strings.Contains(expanded, "FORMAT_SENTINEL") || !strings.Contains(expanded, `location="/fixture/format-commit/SKILL.md"`) {
++				t.Fatalf("wrong agent skill input: %s", expanded)
++			}
++			msg := agent.AgentMessage{User: &agent.UserMessage{Role: agent.RoleUser, Content: ai.UserContentBlocks{ai.TextContent{Text: expanded}}}}
++			before := msg.User.Content.(ai.UserContentBlocks)[0].(ai.TextContent).Text
++			m, _ := newTickRenderProbe(t, "regular")
++			m.chatContainer.Clear()
++			pages := tui.NewInteractionPages(m.chatContainer)
++			m.addUserMessageToChat(agent.AgentMessage{}, "first")
++			pages.Render(160)
++			m.handleAgentEvent(agent.MessageStartEvent{Message: msg})
++			check := func() {
++				t.Helper()
++				got := widthx.StripAnsi(strings.Join(pages.Render(160), "\n"))
++				if !strings.Contains(got, "Page 2 / 2") || !strings.Contains(got, prompt) || strings.Contains(got, "<skill") {
++					t.Fatalf("command display: %s", got)
++				}
++				if ok && !strings.Contains(got, "[skill] format-commit") {
++					t.Fatalf("skill details missing: %s", got)
++				}
++			}
++			check()
++			pages.Move(-1)
++			pages.Move(1)
++			check()
++			entry := contextFixtureEntry(t, "u", "", "message", map[string]any{"message": map[string]any{"role": "user", "timestamp": 1, "content": "first"}})
++			skillEntry := contextFixtureEntry(t, "s", "u", "message", map[string]any{"message": map[string]any{"role": "user", "timestamp": 2, "content": expanded}})
++			m.chatContainer.Clear()
++			m.renderSessionEntryList([]SessionEntry{entry, skillEntry}, false)
++			pages = tui.NewInteractionPages(m.chatContainer)
++			check()
++			if !reflect.DeepEqual(msg.User.Content, ai.UserContentBlocks{ai.TextContent{Text: before}}) {
++				t.Fatal("display changed agent input")
 +			}
 +		})
 +	}

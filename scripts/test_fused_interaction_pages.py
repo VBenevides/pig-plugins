@@ -192,6 +192,12 @@ def check(binary):
             )
             agent = work / "agent"
             agent.mkdir()
+            skill_dir = agent / "skills" / "format-commit"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: format-commit\ndescription: Display fixture only.\n---\n"
+                "SKILL_SENTINEL Do not run commands or create commits.\n"
+            )
             (agent / "models.json").write_text(
                 json.dumps(
                     {
@@ -234,7 +240,6 @@ def check(binary):
                 [
                     str(binary),
                     "--offline",
-                    "--no-skills",
                     "--no-prompt-templates",
                     "--no-context-files",
                     "--no-session",
@@ -270,9 +275,16 @@ def check(binary):
             assert (
                 b"Pending (15)" in transcript and b"Done / Closed (0)" in transcript
             ), transcript.decode(errors="replace")[-8000:]
-            os.write(master, b"second page prompt\r")
+            mark = len(transcript)
+            os.write(master, b"/skill:format-commit second page prompt and commit\r")
             pump(lambda: b"fixture answer 3" in transcript, "second answer")
-            assert b"Page 2 / 2" in transcript
+            second = transcript[mark:]
+            assert b"[skill]" in second and b"format-commit" in second
+            # Count the editor echo and the rendered message, not just the echo.
+            assert (
+                second.count(b"/skill:format-commit second page prompt and commit") >= 2
+            )
+            assert b"Page 2 / 2" in second
             assert "Alt+←/→ or Alt+H/L".encode() in transcript
             pump(lambda: b"Interaction 2/2" in transcript, "second interaction")
             picture.unlink()
@@ -308,8 +320,21 @@ def check(binary):
             assert "first page prompt" in encoded and "second page prompt" in encoded
             assert "fixture answer 2" in encoded and "fixture-todo" in encoded
             assert "Page 1 /" not in encoded and "click to focus" not in encoded
+            assert encoded.count("SKILL_SENTINEL") == 1, encoded
+            assert str(skill_dir / "SKILL.md") in encoded
+            assert f"References are relative to {skill_dir}." in encoded
+            assert "second page prompt and commit" in encoded
+            mark = len(transcript)
+            os.write(master, b"/skill:format-commit third page prompt\r")
+            pump(lambda: b"fixture answer 4" in transcript, "repeated skill answer")
+            assert (
+                transcript[mark:].count(b"/skill:format-commit third page prompt") >= 2
+            )
+            assert b"Page 3 / 3" in transcript[mark:]
+            assert len(bodies) == 4, len(bodies)
+            assert json.dumps(bodies[-1]["messages"]).count("SKILL_SENTINEL") == 2
             print(
-                "PASS: startup header, interaction footer, retained inline images, task columns, page keys, and complete model history"
+                "PASS: startup, skill commands and model input, interaction pages, images, tasks, and complete history"
             )
     finally:
         if slave is not None:
