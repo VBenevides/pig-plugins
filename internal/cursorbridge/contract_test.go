@@ -238,3 +238,26 @@ func TestTraceDoesNotChangeBridgeRequestAndReportsWriteErrors(t *testing.T) {
 		t.Fatalf("trace changed request:\n%s\n%s", plain, traced)
 	}
 }
+
+func TestToolEventFixtures(t *testing.T) {
+	allowed := map[string]bool{"read": true}
+	cases := []struct {
+		name, raw string
+		ok        bool
+	}{
+		{"listed count", `{"interactionUpdate":{"type":"tool-requests-listed","update":{"callCount":1}}}`, true},
+		{"discovery", `{"interactionUpdate":{"type":"tool-call-started","update":{"toolCall":{"type":"GetMcpTools"}}}}`, true},
+		{"owned custom tool", `{"interactionUpdate":{"type":"tool-call-started","update":{"toolCall":{"type":"mcp","args":{"providerIdentifier":"custom-user-tools","toolName":"read"}}}}}`, true},
+		{"undeclared custom tool", `{"interactionUpdate":{"type":"tool-call-started","update":{"toolCall":{"type":"mcp","args":{"providerIdentifier":"custom-user-tools","toolName":"bash"}}}}}`, false},
+		{"foreign provider", `{"interactionUpdate":{"type":"tool-call-started","update":{"toolCall":{"type":"mcp","args":{"providerIdentifier":"other","toolName":"read"}}}}}`, false},
+		{"native shell", `{"interactionUpdate":{"type":"tool-call-started","update":{"toolCall":{"type":"shell"}}}}`, false},
+		{"foreign suffix", `{"sdkMessage":{"type":"tool_call","name":"x__read"}}`, false},
+		{"foreign prefix", `{"sdkMessage":{"type":"tool_call","name":"mcp__other__read"}}`, false},
+	}
+	for _, c := range cases {
+		_, err := classify(json.RawMessage(c.raw), allowed)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: ok=%v err=%v", c.name, c.ok, err)
+		}
+	}
+}
