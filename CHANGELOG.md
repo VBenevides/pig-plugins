@@ -2,6 +2,31 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.3.0] - 2026-11-05
+
+### Features
+
+- Add one fullscreen page per user prompt, with its replies and tool activity. Navigate with Alt+Left/Right or Alt+H/L without changing model context or saved history.
+- Use fullscreen mode when no TUI mode is configured. Explicit regular mode keeps continuous output.
+- Show `Interaction X/Y` after token speed in the footer.
+- Add a scrollable task panel with pending and done columns, all phases, and three visible task rows. Use the mouse wheel to scroll. Click the panel for arrow-key or j/k scrolling. Press Escape to return to the input.
+
+### Bugfixes
+
+- Show the pig icon, versions, and startup information only on the first interaction, including when returning to that page.
+- Render image attachments across page navigation from retained or saved image data instead of only showing path links. Show `[IMAGE NO LONGER AVAILABLE]` when neither source is available.
+- Restore Git change counts when configured conversion filters do not apply to tracked or non-ignored untracked files. Continue to reject counts that require executable filters and do not run fsmonitor.
+
+### Other
+
+- Bundle the interaction-page and task-panel host patches in development builds and include them in patch inventory checks.
+- Add native and fullscreen regression tests for page navigation, startup isolation, image retention, footer counts, task columns, focus, and complete model history.
+- Stop fullscreen fixture processes before removing their temporary home to prevent late writes from recreating test directories.
+
+### Breaking Changes
+
+- Remove Cursor login, direct-provider models, the CLI beta, and Cursor account meters from `/usage`. Select another supported provider and model.
+
 ## [0.2.8] - 2026-10-30
 
 ### Features
