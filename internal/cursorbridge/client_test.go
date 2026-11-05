@@ -17,6 +17,35 @@ import (
 	"time"
 )
 
+// realVersion is the reply the shipped v1.2.0 archive gives: it reports bridge
+// version 1.0.0, so the release tag cannot be used as the contract.
+const realVersion = `{"bridgeVersion":"1.0.0","protocolVersion":"sdk.v1","capabilities":["agent.create","agent.send","run.cancel","cursor.catalog","agent.usage"]}`
+
+func TestBridgeContractIsCheckedByProtocolAndCapabilities(t *testing.T) {
+	for name, reply := range map[string]string{
+		"other protocol":     `{"protocolVersion":"sdk.v2","capabilities":["agent.create","agent.send","run.cancel","cursor.catalog"]}`,
+		"missing capability": `{"protocolVersion":"sdk.v1","capabilities":["agent.create","agent.send","cursor.catalog"]}`,
+		"no capabilities":    `{"protocolVersion":"sdk.v1"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if strings.HasSuffix(r.URL.Path, "GetVersion") {
+					io.WriteString(w, reply)
+					return
+				}
+				io.WriteString(w, `{}`)
+			}))
+			defer server.Close()
+			client, _ := NewClient(server.URL, "token")
+			defer client.Close()
+			if err := client.Check(context.Background()); err == nil {
+				t.Fatal("incompatible bridge accepted")
+			}
+		})
+	}
+}
+
 func frame(w io.Writer, flags byte, value any) {
 	body, _ := json.Marshal(value)
 	header := make([]byte, 5)
@@ -44,7 +73,7 @@ func TestCatalogAndLifecycle(t *testing.T) {
 		case "/sdk.v1.SdkBridgeControlService/Ping":
 			io.WriteString(w, `{"message":"pong"}`)
 		case "/sdk.v1.SdkBridgeControlService/GetVersion":
-			io.WriteString(w, `{"bridgeVersion":"1.2.0","protocolVersion":"sdk.v1"}`)
+			io.WriteString(w, realVersion)
 		case "/sdk.v1.SdkCursorService/ListModels":
 			var in struct {
 				Options struct {
@@ -160,7 +189,7 @@ func TestProcessLifecycle(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "GetVersion") {
-			io.WriteString(w, `{"bridgeVersion":"1.2.0","protocolVersion":"sdk.v1"}`)
+			io.WriteString(w, realVersion)
 		} else {
 			io.WriteString(w, `{}`)
 		}

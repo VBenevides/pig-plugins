@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -127,6 +128,8 @@ func (c *Client) Unary(ctx context.Context, method string, input, output any) er
 	return nil
 }
 
+var requiredCapabilities = []string{"agent.create", "agent.send", "run.cancel", "cursor.catalog"}
+
 type BridgeVersion struct {
 	BridgeVersion   string   `json:"bridgeVersion"`
 	ProtocolVersion string   `json:"protocolVersion"`
@@ -142,8 +145,16 @@ func (c *Client) Check(ctx context.Context) error {
 	if err := c.Unary(ctx, control+"GetVersion", struct{}{}, &version); err != nil {
 		return err
 	}
-	if version.ProtocolVersion != "sdk.v1" || version.BridgeVersion != Version {
-		return errors.New("Cursor bridge version does not match the pinned sdk.v1 contract")
+	// The release tag and the bridge's self-reported version differ (the v1.2.0
+	// archive reports 1.0.0), so the wire protocol and the capabilities PiG uses
+	// are the contract. A bridge without them fails closed.
+	if version.ProtocolVersion != "sdk.v1" {
+		return errors.New("Cursor bridge does not speak the pinned sdk.v1 protocol")
+	}
+	for _, need := range requiredCapabilities {
+		if !slices.Contains(version.Capabilities, need) {
+			return fmt.Errorf("Cursor bridge lacks the %s capability", need)
+		}
 	}
 	return nil
 }
@@ -217,6 +228,31 @@ type Model struct {
 	DisplayName string                `json:"displayName"`
 	Parameters  []ParameterDefinition `json:"parameters"`
 	Variants    []Variant             `json:"variants"`
+}
+
+// User identifies the account behind an API key. Email is a label only and is
+// never a credential.
+type User struct {
+	APIKeyName string `json:"apiKeyName"`
+	UserID     Int64  `json:"userId"`
+	Email      string `json:"userEmail"`
+}
+
+// Me validates an API key and returns its account identity.
+func (c *Client) Me(ctx context.Context, key string) (User, error) {
+	if strings.TrimSpace(key) == "" {
+		return User{}, errors.New("Cursor API key is required")
+	}
+	var result struct {
+		User User `json:"user"`
+	}
+	if err := c.Unary(ctx, catalog+"Me", map[string]any{"options": map[string]string{"apiKey": key}}, &result); err != nil {
+		return User{}, err
+	}
+	if result.User.UserID == 0 && result.User.Email == "" {
+		return User{}, errors.New("Cursor did not identify this API key")
+	}
+	return result.User, nil
 }
 
 func (c *Client) Models(ctx context.Context, key string) ([]Model, error) {
