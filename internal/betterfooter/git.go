@@ -43,6 +43,10 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 // completion (missing, timed out, killed, output too large). The error retains the
 // exit status or cancellation cause, but never includes raw Git stderr.
 func git(ctx context.Context, dir string, env []string, args ...string) (stdout string, code int, ran bool, runErr error) {
+	return gitWithInput(ctx, dir, env, "", args...)
+}
+
+func gitWithInput(ctx context.Context, dir string, env []string, input string, args ...string) (stdout string, code int, ran bool, runErr error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	// Passive inspection must never invoke a configured fsmonitor executable.
@@ -50,6 +54,7 @@ func git(ctx context.Context, dir string, env []string, args ...string) (stdout 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), append([]string{"GIT_OPTIONAL_LOCKS=0"}, env...)...)
+	cmd.Stdin = strings.NewReader(input)
 	var out cappedBuffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -98,7 +103,7 @@ func ParseGitNumstat(output string) (added, removed int) {
 
 // ReadGitChanges counts changes against HEAD through a fresh throwaway index.
 // Never copy cached stat data: its new timestamp can hide same-size racy edits.
-// Conversion-filter repositories are explicitly unsupported for passive counts.
+// Files with executable conversion filters are unsupported for passive counts.
 // Other errors let callers retain previous counts while reporting the failure.
 func ReadGitChanges(ctx context.Context, dir string) (changes GitChanges, ok bool, err error) {
 	repo, code, ran, _ := git(ctx, dir, nil, "rev-parse", "--show-toplevel")
@@ -109,15 +114,10 @@ func ReadGitChanges(ctx context.Context, dir string) (changes GitChanges, ok boo
 	if root == "" {
 		return GitChanges{}, false, nil
 	}
-	// Conversion filters can execute even for intent-to-add and --numstat.
-	// Do not attempt exact converted-content counts in repositories using them.
-	// Query configuration without visiting worktree contents first.
+	// Configuration alone does not mean that a filter applies to this repository.
 	filters, filterCode, ran, runErr := git(ctx, root, nil, "config", "--name-only", "--get-regexp", `^filter\..*\.(clean|process)$`)
 	if !ran || (filterCode != 0 && filterCode != 1) {
 		return GitChanges{}, false, fmt.Errorf("git: could not inspect conversion filter configuration: %w", runErr)
-	}
-	if strings.TrimSpace(filters) != "" {
-		return GitChanges{}, false, ErrPassiveGitCountsUnavailable
 	}
 	_, headCode, ran, runErr := git(ctx, root, nil, "rev-parse", "--verify", "--quiet", "HEAD")
 	if !ran {
@@ -143,6 +143,29 @@ func ReadGitChanges(ctx context.Context, dir string) (changes GitChanges, ok boo
 	}
 	if _, code, ran, err := git(ctx, root, env, seed...); !ran || code != 0 {
 		return GitChanges{}, false, fmt.Errorf("git: could not seed the temporary index: %w", err)
+	}
+	if strings.TrimSpace(filters) != "" {
+		// Inspect tracked and non-ignored untracked paths without converting content.
+		paths, code, ran, runErr := git(ctx, root, env, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+		if !ran || code != 0 {
+			return GitChanges{}, false, fmt.Errorf("git: could not list paths for conversion filters: %w", runErr)
+		}
+		attrs, code, ran, runErr := gitWithInput(ctx, root, env, paths, "check-attr", "-z", "--stdin", "filter")
+		if !ran || code != 0 {
+			return GitChanges{}, false, fmt.Errorf("git: could not inspect conversion filter attributes: %w", runErr)
+		}
+		drivers := make(map[string]bool)
+		for key := range strings.SplitSeq(strings.TrimSpace(filters), "\n") {
+			name := strings.TrimPrefix(key, "filter.")
+			name = name[:strings.LastIndexByte(name, '.')]
+			drivers[name] = true
+		}
+		fields := strings.Split(attrs, "\x00")
+		for i := 2; i < len(fields); i += 3 {
+			if drivers[fields[i]] {
+				return GitChanges{}, false, ErrPassiveGitCountsUnavailable
+			}
+		}
 	}
 	if _, code, ran, err := git(ctx, root, env, "add", "--intent-to-add", "--all", "--", "."); !ran || code != 0 {
 		return GitChanges{}, false, fmt.Errorf("git: could not add untracked files to the temporary index: %w", err)

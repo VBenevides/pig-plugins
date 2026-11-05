@@ -17,7 +17,9 @@ func TestPassiveGitDoesNotExecuteHelpers(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git unavailable")
 	}
-	for _, mode := range []string{"clean", "process", "fsmonitor", "split-index", "unborn", "worktree"} {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, mode := range []string{"clean", "process", "unused-clean", "unused-process", "untracked-filter", "fsmonitor", "split-index", "unborn", "worktree"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			run := func(args ...string) {
@@ -50,9 +52,19 @@ func TestPassiveGitDoesNotExecuteHelpers(t *testing.T) {
 			if mode == "split-index" {
 				run("update-index", "--split-index")
 			}
-			if mode == "clean" || mode == "process" {
-				write(".gitattributes", "* filter=sentinel\n")
-				run("config", "filter.sentinel."+mode, "echo invoked > sentinel; cat")
+			blocked := mode == "clean" || mode == "process" || mode == "untracked-filter"
+			if blocked || mode == "unused-clean" || mode == "unused-process" {
+				pattern, filterMode := "*", mode
+				switch mode {
+				case "unused-clean":
+					pattern, filterMode = "*.lfs", "clean"
+				case "unused-process":
+					pattern, filterMode = "*.lfs", "process"
+				case "untracked-filter":
+					pattern, filterMode = "untracked", "clean"
+				}
+				write(".gitattributes", pattern+" filter=sentinel\n")
+				run("config", "filter.sentinel."+filterMode, "echo invoked > sentinel; cat")
 			} else {
 				// Exercise both Git's fsmonitor and diff helper configuration.
 				write("helper", "#!/bin/sh\necho invoked > sentinel\n")
@@ -77,13 +89,18 @@ func TestPassiveGitDoesNotExecuteHelpers(t *testing.T) {
 			}
 			write("tracked", "after\n")
 			write("untracked", "new\n")
-			_, ok, err := ReadGitChanges(t.Context(), dir)
-			if mode == "clean" || mode == "process" {
+			changes, ok, err := ReadGitChanges(t.Context(), dir)
+			if blocked {
 				if ok || !errors.Is(err, ErrPassiveGitCountsUnavailable) {
 					t.Fatalf("filter conversion must be suppressed: ok=%v err=%v", ok, err)
 				}
 			} else if !ok || err != nil {
 				t.Fatalf("passive counts: ok=%v err=%v", ok, err)
+			}
+			if mode == "unused-clean" || mode == "unused-process" {
+				if changes != (GitChanges{Added: 3, Removed: 1, Dirty: true}) {
+					t.Fatalf("unused filter changed counts: %+v", changes)
+				}
 			}
 			if _, err := os.Stat(filepath.Join(dir, "sentinel")); !os.IsNotExist(err) {
 				t.Fatalf("configured helper executed: %v", err)
