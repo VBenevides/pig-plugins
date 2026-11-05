@@ -46,7 +46,7 @@ func TestAgentContinuation(t *testing.T) {
 	defer server.Close()
 	c, _ := NewClient(server.URL, "token")
 	defer c.Close()
-	id, err := c.Create(context.Background(), "account-key", Selection{ID: "grok"})
+	id, err := c.Create(context.Background(), "account-key", Selection{ID: "grok"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

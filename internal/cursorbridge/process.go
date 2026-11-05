@@ -22,6 +22,7 @@ type Process struct {
 	cmd      *exec.Cmd
 	done     chan struct{}
 	root     string
+	turn     sync.Mutex
 	once     sync.Once
 	closeErr error
 }
