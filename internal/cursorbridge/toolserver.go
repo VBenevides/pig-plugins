@@ -110,6 +110,7 @@ func deny(w http.ResponseWriter, status int, code string) {
 }
 
 func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
+	traceCallbackHit("received")
 	const prefix = "Bearer "
 	got := r.Header.Get("Authorization")
 	if r.Method != http.MethodPost || r.URL.Path != callbackPath ||
@@ -150,8 +151,10 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	if s.agentID == "" || call.AgentID != s.agentID {
 		s.mu.Unlock()
-		s.Fail(errors.New("Cursor tool callback came from an unexpected agent"))
-		deny(w, http.StatusForbidden, "permission_denied")
+		// A late callback from a cancelled earlier agent is refused. It cannot
+		// affect this turn, so it must not fail it.
+		traceCallbackHit("foreign-agent")
+		deny(w, http.StatusConflict, "canceled")
 		return
 	}
 	if !s.allowed[call.ToolName] {

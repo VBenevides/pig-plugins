@@ -527,3 +527,22 @@ func TestManagerStartFailureIsNotCached(t *testing.T) {
 		release()
 	}
 }
+
+func TestToolsAreReplayedFromSystemMessages(t *testing.T) {
+	tool := func(name string) any {
+		return map[string]any{"name": name, "description": name + " tool", "parameters": map[string]any{"type": "object"}}
+	}
+	req := map[string]any{"messages": []any{
+		map[string]any{"role": "system", "content": "rules", "toolsAdded": []any{tool("read"), tool("bash")}},
+		map[string]any{"role": "user", "content": "go"},
+		map[string]any{"role": "system", "content": "", "toolsRemoved": []any{map[string]any{"name": "bash"}}, "toolsAdded": []any{tool("edit")}},
+	}}
+	tools, err := requestTools(req)
+	if err != nil || len(tools) != 2 || tools[0].Name != "read" || tools[1].Name != "edit" {
+		t.Fatalf("%v %+v", err, tools)
+	}
+	prompt, err := render(req, "n")
+	if err != nil || !strings.Contains(prompt, `Available PiG tool names: ["read","edit"]`) {
+		t.Fatalf("%v %q", err, prompt)
+	}
+}

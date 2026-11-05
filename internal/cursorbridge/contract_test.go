@@ -206,3 +206,15 @@ func TestPendingCallbacksAreBoundedAndBearerPrefixIsRequired(t *testing.T) {
 		t.Fatal("invalid bearer prefix accepted")
 	}
 }
+
+func TestToolRequestsListedCountIsNotNativeActivity(t *testing.T) {
+	allowed := map[string]bool{"read": true}
+	raw := json.RawMessage(`{"interactionUpdate":{"type":"tool-requests-listed","update":{"callCount":1,"type":"tool-requests-listed"}}}`)
+	if _, err := classify(raw, allowed); err != nil {
+		t.Fatal(err)
+	}
+	raw = json.RawMessage(`{"interactionUpdate":{"type":"tool-call-started","update":{"toolCall":{"type":"shell"}}}}`)
+	if _, err := classify(raw, allowed); err == nil {
+		t.Fatal("native shell call accepted")
+	}
+}

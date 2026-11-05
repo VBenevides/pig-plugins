@@ -42,7 +42,7 @@ func render(request map[string]any, nonce string) (string, error) {
 	mark := func(role string) string { return "<<<pig-" + nonce + " " + role + ">>>" }
 	var out strings.Builder
 	out.WriteString(hostInstructions + "\n")
-	tools, err := toolDefs(request["tools"])
+	tools, err := requestTools(request)
 	if err != nil {
 		return "", err
 	}

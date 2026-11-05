@@ -147,10 +147,6 @@ func TestUndeclaredToolsAreRefused(t *testing.T) {
 			}
 			finished(w, nil)
 		},
-		"callback from another agent": func(m *mockBridge, w http.ResponseWriter, agent string) {
-			m.post(callbackPath, map[string]any{"agentId": "other", "toolName": "read"})
-			finished(w, nil)
-		},
 		"native shell event": func(m *mockBridge, w http.ResponseWriter, agent string) {
 			frame(w, 0, map[string]any{"sdkMessage": map[string]any{"type": "tool_call", "message": map[string]any{"name": "shell"}}})
 			finished(w, nil)
@@ -326,5 +322,20 @@ func TestTurnsAreSerialized(t *testing.T) {
 	wg.Wait()
 	if peak != 1 {
 		t.Fatalf("concurrent turns shared one bridge: %d", peak)
+	}
+}
+
+func TestLateCallbackFromAnotherAgentIsRefusedWithoutFailingTheTurn(t *testing.T) {
+	m := &mockBridge{t: t}
+	var status int
+	m.onSend = func(m *mockBridge, w http.ResponseWriter, r *http.Request, agent string) {
+		status, _ = m.post(callbackPath, map[string]any{"agentId": "earlier-agent", "toolName": "read"})
+		finished(w, nil)
+	}
+	server := m.server()
+	defer server.Close()
+	out, err := processFor(server).RunTurn(context.Background(), "account-key", Selection{ID: "grok"}, readTool, "prompt", func(Event) error { return nil })
+	if err != nil || len(out.Proposals) != 0 || status != http.StatusConflict {
+		t.Fatalf("%v %+v %d", err, out, status)
 	}
 }

@@ -92,6 +92,7 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 	streamed := false
 	outputBytes := 0
 	result, sendErr := p.Client.Send(runCtx, agentID, prompt, func(data json.RawMessage) error {
+		traceEvent(data)
 		events, violation := classify(data, allowed)
 		if violation != nil {
 			server.Fail(violation)
@@ -112,6 +113,7 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 		}
 		return nil
 	})
+	traceCallbacks(server)
 	proposals, violation := server.Results()
 	switch {
 	case violation != nil:
@@ -152,7 +154,8 @@ func classify(data json.RawMessage, allowed map[string]bool) ([]Event, error) {
 		return nil, fmt.Errorf("decode Cursor stream event: %w", err)
 	}
 	for _, item := range []*typed{envelope.InteractionUpdate, envelope.Step} {
-		if item != nil && strings.Contains(strings.ToLower(item.Type), "tool") {
+		if item != nil && item.Type != "tool-requests-listed" && strings.Contains(strings.ToLower(item.Type), "tool") {
+			// tool-requests-listed only carries a call count, never a tool name.
 			if !offered(item.payload(), allowed) {
 				return nil, errors.New("Cursor reported native tool activity; refusing to continue")
 			}

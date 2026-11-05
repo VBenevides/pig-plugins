@@ -25,10 +25,15 @@ func (s *service) stream(model, request map[string]any, options sdk.ProviderStre
 	if err != nil {
 		return nil, err
 	}
-	tools, err := toolDefs(request["tools"])
+	tools, err := requestTools(request)
 	if err != nil {
 		return nil, err
 	}
+	requestKeys := make([]string, 0, len(request))
+	for key := range request {
+		requestKeys = append(requestKeys, key)
+	}
+	cursorbridge.TraceRequestShape(requestKeys, len(tools))
 	parent := options.Signal
 	if parent == nil {
 		parent = context.Background()
@@ -103,6 +108,70 @@ func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, le
 		}
 	}
 	return nil
+}
+
+// requestTools returns the tools in force for this request. PiG carries tool
+// declarations inside system messages (toolsAdded/toolsRemoved), replayed in
+// order. A top-level "tools" array is still honored for older hosts.
+func requestTools(request map[string]any) ([]cursorbridge.ToolDef, error) {
+	order := []string{}
+	byName := map[string]any{}
+	add := func(items any) error {
+		list, _ := items.([]any)
+		inList := map[string]bool{}
+		for _, item := range list {
+			tool, ok := item.(map[string]any)
+			if !ok {
+				return errors.New("Cursor tool definition is invalid")
+			}
+			name, _ := tool["name"].(string)
+			if name == "" {
+				return errors.New("Cursor tool name is missing or duplicated")
+			}
+			if inList[name] {
+				return errors.New("Cursor tool name is missing or duplicated")
+			}
+			inList[name] = true
+			if _, exists := byName[name]; !exists {
+				order = append(order, name)
+			}
+			byName[name] = tool
+		}
+		return nil
+	}
+	if err := add(request["tools"]); err != nil {
+		return nil, err
+	}
+	messages, _ := request["messages"].([]any)
+	for _, item := range messages {
+		message, ok := item.(map[string]any)
+		if !ok || message["role"] != "system" {
+			continue
+		}
+		removed, _ := message["toolsRemoved"].([]any)
+		for _, entry := range removed {
+			ref, _ := entry.(map[string]any)
+			name, _ := ref["name"].(string)
+			if _, exists := byName[name]; exists {
+				delete(byName, name)
+				kept := order[:0]
+				for _, existing := range order {
+					if existing != name {
+						kept = append(kept, existing)
+					}
+				}
+				order = kept
+			}
+		}
+		if err := add(message["toolsAdded"]); err != nil {
+			return nil, err
+		}
+	}
+	current := make([]any, 0, len(order))
+	for _, name := range order {
+		current = append(current, byName[name])
+	}
+	return toolDefs(current)
 }
 
 // toolDefs lists PiG's tools for Cursor as metadata only.

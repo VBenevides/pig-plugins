@@ -103,6 +103,19 @@ The bridge does not expose an upstream HTTP/2-to-SSE transport selector in the p
 Local RPCs already use HTTP/1.1. Certificate verification must remain enabled.
 A future transport adapter must use supported controls. It must not retry uncertain generation.
 
+## Host request shape and diagnosis
+
+The PiG host sends the extension only `messages`. It declares tools inside `system` messages
+(`toolsAdded`, `toolsRemoved`), replayed in order. The extension rebuilds the current tool list
+from them. A top-level `tools` array is still accepted.
+
+Set `PIG_CURSOR_TRACE=<file>` to write one JSON line per stream event. Lines hold event types,
+tool names (64 characters at most), callback counts and string lengths. They never hold prompts,
+answers, reasoning, tool arguments or credentials. Tracing also asks the bridge for delta and step events.
+
+A cancelled earlier agent can still send late tool callbacks. They are refused with HTTP 409 and
+do not fail the current turn.
+
 ## Sources and distribution
 
 - [Lifecycle and authentication](https://github.com/cursor/sdk-bridge/blob/v1.2.0/docs/protocol.md)
