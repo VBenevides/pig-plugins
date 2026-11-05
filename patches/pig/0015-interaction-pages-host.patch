@@ -209,7 +209,7 @@ new file mode 100644
 index 0000000..74ca2e9
 --- /dev/null
 +++ b/tui/interaction_pages.go
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,179 @@
 +package tui
 +
 +import (
@@ -315,6 +315,17 @@ index 0000000..74ca2e9
 +	p.body.SetChildren(children...)
 +}
 +
++// Follow returns to the latest page, as when the user sends a message.
++func (p *InteractionPages) Follow() bool {
++	p.sync()
++	if p.live {
++		return false
++	}
++	p.live, p.unread, p.selected = true, false, nil
++	p.selectBody()
++	return true
++}
++
 +// Move changes the selected page without changing the source transcript.
 +func (p *InteractionPages) Move(delta int) bool {
 +	p.sync()
@@ -383,7 +394,7 @@ new file mode 100644
 index 0000000..6884894
 --- /dev/null
 +++ b/tui/interaction_pages_test.go
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,154 @@
 +package tui
 +
 +import (
@@ -449,6 +460,23 @@ index 0000000..6884894
 +	source.Add(pagePrompt("fourth"))
 +	if got := pageText(pages); !strings.Contains(got, "Page 4 / 4") {
 +		t.Fatalf("live selection did not follow: %s", got)
++	}
++}
++
++func TestInteractionPagesFollowReturnsToLatest(t *testing.T) {
++	source := NewContainer(pagePrompt("first"), NewText("first reply"), pagePrompt("second"), NewText("second reply"))
++	pages := NewInteractionPages(source)
++	if pages.Follow() {
++		t.Fatal("latest page reported a change")
++	}
++	pages.Move(-1)
++	pages.NoteOutput()
++	source.Add(pagePrompt("third"))
++	if !pages.Follow() {
++		t.Fatal("history page did not follow")
++	}
++	if got := pageText(pages); !strings.Contains(got, "Page 3 / 3") || pages.unread {
++		t.Fatalf("not on latest page: %s", got)
 +	}
 +}
 +
@@ -832,6 +860,19 @@ new file mode 100644
 +		})
 +	}
 +}
+diff --git a/internal/codingagent/interactive_turn.go b/internal/codingagent/interactive_turn.go
+--- a/internal/codingagent/interactive_turn.go
++++ b/internal/codingagent/interactive_turn.go
+@@ -30,6 +30,9 @@
+ }
+ 
+ func (m *InteractiveMode) handleSubmitWithImages(ctx context.Context, prompt string, images []ai.ImageContent) {
++	if m.interactionPages != nil && m.interactionPages.Follow() && m.transcriptScrollView != nil {
++		m.transcriptScrollView.ScrollToStart()
++	}
+ 	// Defensive drain for messages restored after a failed compaction-queue
+ 	// delivery. Normal compaction completion flushes immediately, including the
+ 	// WillRetry path that steers into the imminent retry turn.
 diff --git a/internal/codingagent/interactive_transcript.go b/internal/codingagent/interactive_transcript.go
 --- a/internal/codingagent/interactive_transcript.go
 +++ b/internal/codingagent/interactive_transcript.go
