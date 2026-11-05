@@ -1,6 +1,8 @@
 // Package cursor adds a Cursor provider built on the official Cursor SDK Bridge.
 //
-// Accounts are API keys stored in the host's native account store. Cursor never
+// Accounts sign in through Cursor's browser login and live in the host's native
+// account store. The bridge documents API keys, so whether it accepts the browser
+// token is checked at every login. Cursor never
 // runs a tool: tool calls come back as proposals and PiG executes them under its
 // normal validation and approvals. Offline tests use a mock bridge; no real
 // Cursor account has been exercised.
@@ -34,16 +36,15 @@ const (
 	// Cursor's catalog reports no limits, so these are estimates, not account facts.
 	contextEstimate = 200000
 	outputEstimate  = 64000
-	// An API key does not expire. The host's account store needs an expiry, so it
-	// is far in the future and Refresh returns the key unchanged.
-	keyLifetime = 10 * 365 * 24 * time.Hour
+	// The bridge receives the browser access token as its API key (see browser.go).
 )
 
 type service struct {
 	manager *manager
 
 	mu         sync.Mutex
-	accountKey string // hash of the key the cached catalog belongs to
+	accountKey string       // hash of the key the cached catalog belongs to
+	auth       *browserAuth // nil means the real Cursor endpoints
 	entries    []cursormodels.Entry
 	models     []map[string]any
 }
@@ -82,19 +83,21 @@ func (s *service) provider() *sdk.Provider {
 	p.Auth.OAuth = &sdk.OAuthAuth{
 		Name:  "Cursor",
 		Login: s.login,
-		// An API key has no refresh token; the stored key is returned unchanged.
-		Refresh: func(credential *sdk.Credential, _ context.Context) (*sdk.Credential, error) {
-			if credential.String("access") == "" {
-				return nil, errors.New("Cursor API key is missing; run /login")
+		Refresh: func(credential *sdk.Credential, ctx context.Context) (*sdk.Credential, error) {
+			session, err := s.browser().refresh(ctx, credential.String("refresh"))
+			if err != nil {
+				return nil, err
 			}
 			next := credential.Clone()
-			next.Set("expires", time.Now().Add(keyLifetime).UnixMilli())
+			next.Set("access", session.Access)
+			next.Set("refresh", session.Refresh)
+			next.Set("expires", session.Expires.UnixMilli())
 			return next, nil
 		},
 		ToAuth: func(credential *sdk.Credential) (map[string]any, error) {
 			key := credential.String("access")
 			if key == "" {
-				return nil, errors.New("Cursor API key is missing; run /login")
+				return nil, errors.New("Cursor session is missing; run /login")
 			}
 			return map[string]any{"apiKey": key}, nil
 		},
@@ -102,47 +105,57 @@ func (s *service) provider() *sdk.Provider {
 	return p
 }
 
-// login stores a Cursor API key. The key is checked with the bridge, and the
-// account identity comes from Cursor, not from the key's text.
+// login signs in through the browser. The token is checked with the bridge, and
+// the account identity comes from Cursor, not from the token's text.
 func (s *service) login(interaction sdk.AuthInteraction, _ sdk.LoginOptions) (*sdk.Credential, error) {
 	ctx := interaction.Signal
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if interaction.Prompt == nil {
-		return nil, errors.New("Cursor login needs an interactive prompt")
+	if interaction.Notify == nil {
+		return nil, errors.New("Cursor login needs the host notification callback")
 	}
-	key, err := interaction.Prompt(map[string]any{"type": "secret", "message": "Cursor API key (create one in the Cursor dashboard)"})
+	show := func(target string) error {
+		if err := interaction.Notify(map[string]any{"type": "auth_url", "url": target, "instructions": "Approve the login in your browser; this window continues automatically."}); err != nil {
+			return err
+		}
+		return interaction.Notify(map[string]any{"type": "progress", "message": "Waiting for Cursor login approval..."})
+	}
+	session, err := s.browser().login(ctx, show)
 	if err != nil {
-		return nil, fmt.Errorf("read Cursor API key: %w", err)
-	}
-	if key == "" {
-		return nil, errors.New("Cursor API key must not be empty")
+		return nil, err
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	r, release, err := s.manager.acquire(checkCtx, key)
+	r, release, err := s.manager.acquire(checkCtx, session.Access)
 	if err != nil {
 		return nil, fmt.Errorf("start Cursor bridge for login: %w", err)
 	}
-	user, err := r.Me(checkCtx, key)
+	user, err := r.Me(checkCtx, session.Access)
 	release()
 	if err != nil {
-		// A rejected key must not leave a process holding it.
-		s.manager.drop(key)
-		return nil, fmt.Errorf("verify Cursor API key: %w", err)
+		// A rejected token must not leave a process holding it.
+		s.manager.drop(session.Access)
+		return nil, fmt.Errorf("the Cursor bridge did not accept the browser login: %w", err)
 	}
 	credential := sdk.NewCredential(
 		"type", "oauth",
-		"access", key,
-		"refresh", "",
-		"expires", time.Now().Add(keyLifetime).UnixMilli(),
+		"access", session.Access,
+		"refresh", session.Refresh,
+		"expires", session.Expires.UnixMilli(),
 		"accountId", "cursor-"+strconv.FormatInt(int64(user.UserID), 10),
 	)
 	if user.Email != "" {
 		credential.Set("email", user.Email)
 	}
 	return credential, nil
+}
+
+func (s *service) browser() *browserAuth {
+	if s.auth != nil {
+		return s.auth
+	}
+	return newBrowserAuth()
 }
 
 func (s *service) getModels() ([]map[string]any, error) {

@@ -2,8 +2,12 @@ package cursor
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -267,49 +271,145 @@ func TestMissingKeyAndBadRequests(t *testing.T) {
 	}
 }
 
-func TestLoginStoresVerifiedAccountAndRejectsBadKeys(t *testing.T) {
-	good := &fakeRunner{user: cursorbridge.User{UserID: 42, Email: "dev@example.com"}}
-	bad := &fakeRunner{meErr: errors.New("unauthenticated")}
-	s, _ := newService(map[string]*fakeRunner{"good-key": good, "bad-key": bad})
-	prompt := func(key string) sdk.AuthInteraction {
-		return sdk.AuthInteraction{Prompt: func(p map[string]any) (string, error) {
-			if p["type"] != "secret" {
-				t.Errorf("key entry must be secret: %v", p)
+func fakeJWT(exp time.Time) string {
+	payload, _ := json.Marshal(map[string]any{"exp": exp.Unix()})
+	return "h." + base64.RawURLEncoding.EncodeToString(payload) + ".s"
+}
+
+// cursorServer plays Cursor's sign-in: 404 until approved, then tokens.
+func cursorServer(t *testing.T, approveAfter int32, access string) (*browserAuth, *atomic.Int32, *[]string) {
+	t.Helper()
+	var polls atomic.Int32
+	var seen []string
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.URL.Path)
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/auth/poll":
+			if r.URL.Query().Get("uuid") == "" || r.URL.Query().Get("verifier") == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
 			}
-			return key, nil
-		}}
-	}
-	credential, err := s.login(prompt("good-key"), sdk.LoginOptions{})
+			if polls.Add(1) <= approveAfter {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]string{"accessToken": access, "refreshToken": "refresh-1"})
+		case "/oauth/token":
+			json.NewEncoder(w).Encode(map[string]any{"access_token": fakeJWT(time.Now().Add(2 * time.Hour)), "refresh_token": "refresh-2"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return &browserAuth{http: server.Client(), loginURL: "https://cursor.example/login", apiBaseURL: server.URL, pollInterval: time.Millisecond, timeout: 5 * time.Second}, &polls, &seen
+}
+
+func TestBrowserLoginStoresVerifiedAccount(t *testing.T) {
+	access := fakeJWT(time.Now().Add(time.Hour))
+	good := &fakeRunner{user: cursorbridge.User{UserID: 42, Email: "dev@example.com"}}
+	s, _ := newService(map[string]*fakeRunner{access: good})
+	auth, polls, _ := cursorServer(t, 2, access)
+	s.auth = auth
+	var shown []map[string]any
+	credential, err := s.login(sdk.AuthInteraction{Notify: func(e map[string]any) error { shown = append(shown, e); return nil }}, sdk.LoginOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if credential.String("access") != "good-key" || credential.String("accountId") != "cursor-42" || credential.String("email") != "dev@example.com" {
+	if polls.Load() != 3 {
+		t.Fatalf("polled %d times", polls.Load())
+	}
+	u, _ := url.Parse(shown[0]["url"].(string))
+	if shown[0]["type"] != "auth_url" || u.Host != "cursor.example" || u.Query().Get("challenge") == "" || u.Query().Get("uuid") == "" || u.Query().Get("verifier") != "" {
+		t.Fatalf("sign-in notice %v", shown[0])
+	}
+	if credential.String("access") != access || credential.String("refresh") != "refresh-1" || credential.String("accountId") != "cursor-42" || credential.String("email") != "dev@example.com" {
 		t.Fatalf("credential %v", credential)
 	}
-	if _, err = s.login(prompt("bad-key"), sdk.LoginOptions{}); err == nil || strings.Contains(err.Error(), "bad-key") {
-		t.Fatalf("bad key: %v", err)
+}
+
+func TestBrowserLoginFailuresStoreNothing(t *testing.T) {
+	access := fakeJWT(time.Now().Add(time.Hour))
+	rejected := &fakeRunner{meErr: errors.New("unauthenticated")}
+	s, _ := newService(map[string]*fakeRunner{access: rejected})
+	auth, _, _ := cursorServer(t, 0, access)
+	s.auth = auth
+	notify := sdk.AuthInteraction{Notify: func(map[string]any) error { return nil }}
+	_, err := s.login(notify, sdk.LoginOptions{})
+	if err == nil || strings.Contains(err.Error(), access) || !strings.Contains(err.Error(), "bridge did not accept") {
+		t.Fatalf("rejected token: %v", err)
 	}
-	if bad.closed.Load() != 1 {
-		t.Fatal("rejected key left a bridge process running")
+	if rejected.closed.Load() != 1 {
+		t.Fatal("rejected token left a bridge process running")
 	}
-	if _, err = s.login(prompt(""), sdk.LoginOptions{}); err == nil {
-		t.Fatal("empty key accepted")
+	// Never approved: the login times out and the error carries no verifier.
+	slow, _, _ := cursorServer(t, 1<<30, access)
+	slow.timeout = 50 * time.Millisecond
+	s.auth = slow
+	_, err = s.login(notify, sdk.LoginOptions{})
+	if err == nil || strings.Contains(err.Error(), "verifier") {
+		t.Fatalf("timeout: %v", err)
+	}
+	// Not a JWT: refuse before any bridge process starts.
+	bad, _, _ := cursorServer(t, 0, "not-a-jwt")
+	s.auth = bad
+	if _, err = s.login(notify, sdk.LoginOptions{}); err == nil {
+		t.Fatal("non-JWT token accepted")
+	}
+	if _, err = s.login(sdk.AuthInteraction{}, sdk.LoginOptions{}); err == nil {
+		t.Fatal("login without a notification callback accepted")
+	}
+}
+
+func TestBrowserAuthRejectsForeignOriginsAndRedirects(t *testing.T) {
+	auth, _, _ := cursorServer(t, 0, fakeJWT(time.Now().Add(time.Hour)))
+	if _, _, err := auth.do(context.Background(), http.MethodGet, "https://evil.example/auth/poll", nil); err == nil {
+		t.Fatal("foreign origin accepted")
+	}
+	if _, _, err := auth.do(context.Background(), http.MethodGet, auth.apiBaseURL+"/other", nil); err == nil {
+		t.Fatal("foreign path accepted")
+	}
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://evil.example/", http.StatusFound)
+	}))
+	defer redirect.Close()
+	auth.apiBaseURL, auth.http = redirect.URL, redirect.Client()
+	if _, _, err := auth.do(context.Background(), http.MethodGet, redirect.URL+"/auth/poll?verifier=SECRET", nil); err == nil || strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("redirect: %v", err)
 	}
 }
 
 func TestProviderAuthShape(t *testing.T) {
 	s, _ := newService(nil)
-	auth := s.provider().Auth.OAuth
-	refreshed, err := auth.Refresh(sdk.NewCredential("access", "k", "refresh", "", "expires", 1), context.Background())
-	if err != nil || refreshed.String("access") != "k" {
-		t.Fatal(refreshed, err)
+	auth, _, seen := cursorServer(t, 0, "unused")
+	s.auth = auth
+	oauth := s.provider().Auth.OAuth
+	refreshed, err := oauth.Refresh(sdk.NewCredential("access", "old", "refresh", "refresh-1", "accountId", "cursor-42", "expires", 1), context.Background())
+	if err != nil || refreshed.String("access") == "old" || refreshed.String("refresh") != "refresh-2" || refreshed.String("accountId") != "cursor-42" || len(*seen) != 1 {
+		t.Fatal(refreshed, err, *seen)
 	}
-	if _, err = auth.Refresh(sdk.NewCredential("refresh", ""), context.Background()); err == nil {
-		t.Fatal("missing key refreshed")
+	if _, err = oauth.Refresh(sdk.NewCredential("access", "old"), context.Background()); err == nil {
+		t.Fatal("session without a refresh token was refreshed")
 	}
-	got, err := auth.ToAuth(sdk.NewCredential("access", "k"))
+	got, err := oauth.ToAuth(sdk.NewCredential("access", "k"))
 	if err != nil || got["apiKey"] != "k" {
 		t.Fatal(got, err)
+	}
+	if _, err = oauth.ToAuth(sdk.NewCredential("refresh", "r")); err == nil {
+		t.Fatal("missing token accepted")
+	}
+}
+
+func TestEndedSessionAsksForNewLogin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "", "shouldLogout": true})
+	}))
+	defer server.Close()
+	auth := &browserAuth{http: server.Client(), apiBaseURL: server.URL}
+	if _, err := auth.refresh(context.Background(), "r"); err == nil || !strings.Contains(err.Error(), "/login") {
+		t.Fatalf("ended session: %v", err)
 	}
 }
 
