@@ -20,6 +20,27 @@ func RequirePig(t testing.TB) {
 	}
 }
 
+// UseFusedBinary puts the binary named by PIG_FUSED_TEST_BINARY first on PATH as
+// `pig` and reports whether it did. The fused binary already bundles the
+// extensions, so callers must then pass no `-e` paths.
+func UseFusedBinary(t testing.TB) bool {
+	t.Helper()
+	binary := os.Getenv("PIG_FUSED_TEST_BINARY")
+	if binary == "" {
+		return false
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	if err := os.Symlink(binary, filepath.Join(bin, "pig")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return true
+}
+
 // Home is a temporary HOME plus a work directory for one pig session setup.
 type Home struct {
 	Dir  string // the isolated HOME

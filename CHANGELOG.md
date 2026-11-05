@@ -2,6 +2,36 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.3.1] - 2026-11-05
+
+### Features
+
+- Add a Cursor provider that uses the Cursor SDK Bridge (pinned to v1.2.0) with your Cursor subscription. Sign in with the browser from native Accounts. PiG stores a 90-day Cursor API key.
+- Combine Cursor model variants into one model with a thinking level. PiG never changes the model or the level without a message.
+- Keep the Cursor model list between restarts and show the Cursor models in the host model list.
+- Install the Cursor bridge and the SDK runtime only with `--install-cursor`. PiG checks the pinned SHA-512 package hash and never downloads them at startup.
+- Limit Cursor images to 5 MiB each and 20 MiB for one message, and reject invalid base64.
+- Send the images in your latest message to Cursor. Replace older images with an omission marker, so old screenshots no longer block new turns.
+- Show `Interaction: X/Y - Mode: ACT|ASK` on the left of the mode in the footer.
+- Return to the latest interaction page when you send a prompt to the model from an older page. Slash commands keep the current page.
+- Add the `PIG_CURSOR_TRACE=<file>` setting. It writes event types, tool names, and counts. It never writes prompts, answers, reasoning, tool arguments, or credentials. Tracing does not change the bridge request.
+
+### Bugfixes
+
+- Keep skill output on its interaction page. Show the `/skill-name` command and pass the correct skill information to the agent.
+- Make Cursor use only PiG tools. PiG reads the tool list from system messages and enables only the SDK custom-tool channel. Cursor tools, external MCP servers, and sub-agents stay off.
+- Keep Cursor tool calls pending until PiG runs the tool. PiG no longer sends a false result. This stops the repeated text and the Cursor tool names in the output.
+- Refuse late tool calls from an earlier Cursor agent without a failed turn.
+- Stop a Cursor turn that writes more than 256 KiB, and limit pending tool calls.
+- Report Cursor network and stream failures with a safe reason. PiG does not retry a generation that can have started.
+- Accept a Cursor bridge by its protocol and capabilities, not by its version number.
+
+### Other
+
+- Keep certificate checks and the Cursor sandbox on. Each account uses its own bridge process with a clean environment.
+- Add tests for the Cursor bridge, tool channel, image transport, model collapse, footer, and page follow.
+- Update the accounts and interaction-page host patches and `docs/cursor-bridge.md`.
+
 ## [0.3.0] - 2026-11-05
 
 ### Features

@@ -13,17 +13,7 @@ import (
 )
 
 func TestRPCSettingsTogglePersistsAndCancelPreserves(t *testing.T) {
-	if binary := os.Getenv("PIG_FUSED_TEST_BINARY"); binary != "" {
-		binary, err := filepath.Abs(binary)
-		if err != nil {
-			t.Fatal(err)
-		}
-		bin := t.TempDir()
-		if err := os.Symlink(binary, filepath.Join(bin, "pig")); err != nil {
-			t.Fatal(err)
-		}
-		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	}
+	fused := pigtest.UseFusedBinary(t)
 	pigtest.RequirePig(t)
 	home := pigtest.NewHome(t)
 	path := filepath.Join(home.AgentDir(), bf.SettingsFile)
@@ -36,7 +26,7 @@ func TestRPCSettingsTogglePersistsAndCancelPreserves(t *testing.T) {
 		t.Fatal(err)
 	}
 	extensions := []string{ext}
-	if os.Getenv("PIG_FUSED_TEST_BINARY") != "" {
+	if fused {
 		extensions = nil
 	}
 	mock := pigtest.NewMockLLM(pigtest.Text("unused"))

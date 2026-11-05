@@ -17,6 +17,14 @@
 # PiG bootstrap output is retained in a temporary log and shown on failure.
 set -eu
 
+install_cursor=0
+for argument in "$@"; do
+    case "$argument" in
+        --install-cursor) install_cursor=1 ;;
+        *) echo "install: unknown option: $argument" >&2; exit 2 ;;
+    esac
+done
+
 # Piped from curl (`curl ... | sh`) there is no checkout beside the script: clone one and run its copy.
 case "$0" in
     */*) here=$(dirname -- "$0") ;;
@@ -39,7 +47,7 @@ if [ ! -f "$here/dev_build.sh" ]; then
     else
         git clone --quiet --depth 1 "${PIG_PLUGINS_REPO:-https://github.com/VBenevides/pig-plugins}" "$checkout/src"
     fi
-    "$checkout/src/scripts/install.sh"
+    "$checkout/src/scripts/install.sh" "$@"
     exit 0
 fi
 
@@ -169,6 +177,11 @@ for skill in "$dest"/skills/*/; do
     fi
 done
 
+
+if [ "$install_cursor" -eq 1 ]; then
+    echo "install: installing optional Cursor SDK Bridge" >&2
+    PIG_CODING_AGENT_DIR="$agent_dir" "$binary" --install-cursor
+fi
 # Retire the previous launcher payloads only after successful installation.
 rm -f -- "$pig_home/bin/pig-plugins-native" "$pig_home/bin/pig-plugins-raw"
 

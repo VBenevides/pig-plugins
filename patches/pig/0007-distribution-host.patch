@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..5814844
 --- /dev/null
 +++ b/coding/cli/plugins_distribution.go
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,41 @@
 +//go:build !pig_strip_self_update
 +
 +package cli
@@ -16,6 +16,14 @@ index 0000000..5814844
 +)
 +
 +func init() {
++	if handled, err := distribution.InstallCursor(os.Args[1:]); err != nil {
++		fmt.Fprintln(os.Stderr, "pig-plugins:", err)
++		os.Exit(1)
++	} else if handled {
++		fmt.Fprintln(os.Stderr, "Cursor SDK Bridge is installed.")
++		os.Exit(0)
++	}
++
 +	if err := distribution.Prepare(Version); err != nil {
 +		fmt.Fprintln(os.Stderr, "pig-plugins:", err)
 +		os.Exit(1)
