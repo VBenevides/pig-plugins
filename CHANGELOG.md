@@ -10,10 +10,11 @@ All notable changes to pig-plugins are documented here.
 - Combine Cursor model variants into one model with a thinking level. PiG never changes the model or the level without a message.
 - Keep the Cursor model list between restarts and show the Cursor models in the host model list.
 - Install the Cursor bridge and the SDK runtime only with `--install-cursor`. PiG checks the pinned SHA-512 package hash and never downloads them at startup.
+- Limit Cursor images to 5 MiB each and 20 MiB for one message, and reject invalid base64.
 - Send the images in your latest message to Cursor. Replace older images with an omission marker, so old screenshots no longer block new turns.
 - Show `Interaction: X/Y - Mode: ACT|ASK` on the left of the mode in the footer.
-- Return to the latest interaction page when you send a message from an older page.
-- Add the `PIG_CURSOR_TRACE=<file>` setting. It writes event types, tool names, and counts. It never writes prompts, answers, reasoning, tool arguments, or credentials.
+- Return to the latest interaction page when you send a prompt to the model from an older page. Slash commands keep the current page.
+- Add the `PIG_CURSOR_TRACE=<file>` setting. It writes event types, tool names, and counts. It never writes prompts, answers, reasoning, tool arguments, or credentials. Tracing does not change the bridge request.
 
 ### Bugfixes
 
