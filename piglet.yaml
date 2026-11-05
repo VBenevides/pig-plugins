@@ -35,6 +35,8 @@ extensions:
     origins: [local:./extensions/adhd-output]
   - name: repo-excludes
     origins: [local:./extensions/repo-excludes]
+  - name: cursor
+    origins: [local:./extensions/cursor]
   - name: ask-mode
     origins: [local:./extensions/ask-mode]
   - name: browser-use
