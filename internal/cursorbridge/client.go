@@ -52,6 +52,7 @@ type RPCError struct {
 	Code    string
 	Status  int
 	Network bool
+	Reason  string // fixed local diagnostic, never remote prose
 }
 
 // networkFailure is what the v1.2.0 bridge reports for any failed upstream
@@ -63,6 +64,12 @@ func (e *RPCError) Error() string {
 		return fmt.Sprintf("Cursor bridge could not complete a network request (HTTP %d). "+
 			"The bridge does not say whether this was connectivity, a proxy, or certificate trust. "+
 			"PiG keeps certificate checks on and does not retry a generation after this failure.", e.Status)
+	}
+	if reason := rejectionReason(e.Reason); reason != "" {
+		return fmt.Sprintf("Cursor bridge rejected the request (%s): %s", e.Code, reason)
+	}
+	if e.Status == http.StatusOK {
+		return fmt.Sprintf("Cursor bridge rejected the stream (%s). No retry was attempted", e.Code)
 	}
 	return fmt.Sprintf("Cursor bridge RPC failed (%s, HTTP %d)", e.Code, e.Status)
 }
@@ -77,6 +84,12 @@ func decodeError(data []byte, status int) error {
 	var wire struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Details []struct {
+			Type  string `json:"type"`
+			Debug struct {
+				SDKErrorCode string `json:"sdkErrorCode"`
+			} `json:"debug"`
+		} `json:"details"`
 	}
 	_ = json.Unmarshal(data, &wire)
 	network := wire.Code == "internal" && wire.Message == networkFailure
@@ -86,7 +99,24 @@ func decodeError(data []byte, status int) error {
 	default:
 		wire.Code = "unknown"
 	}
-	return &RPCError{Code: wire.Code, Status: status, Network: network}
+	reason := ""
+	if wire.Message == sandboxUnavailable {
+		reason = "sandbox_unavailable"
+	} else {
+		for _, detail := range wire.Details {
+			if detail.Type == "sdk.v1.SdkErrorDetails" {
+				switch detail.Debug.SDKErrorCode {
+				case "SDK_ERROR_CODE_INVALID_MODEL":
+					reason = "invalid_model"
+				case "SDK_ERROR_CODE_VALIDATION_ERROR":
+					reason = "validation_error"
+				case "SDK_ERROR_CODE_PLAN_REQUIRED":
+					reason = "plan_required"
+				}
+			}
+		}
+	}
+	return &RPCError{Code: wire.Code, Status: status, Network: network, Reason: reason}
 }
 
 func (c *Client) request(ctx context.Context, method string, input any, stream bool) (*http.Response, error) {

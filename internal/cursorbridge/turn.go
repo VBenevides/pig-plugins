@@ -70,7 +70,7 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 		return out, fmt.Errorf("register Cursor tool callback: %w", err)
 	}
 	if agentID, err = p.Client.Create(runCtx, key, model, tools); err != nil {
-		return out, err
+		return out, fmt.Errorf("create Cursor agent: %w", err)
 	}
 	server.Expect(agentID)
 
@@ -105,7 +105,7 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 		out.Proposals = proposals
 		return out, nil
 	case sendErr != nil:
-		return out, sendErr
+		return out, fmt.Errorf("send Cursor turn: %w", sendErr)
 	case len(proposals) > 0:
 		out.Proposals = proposals
 		return out, nil
