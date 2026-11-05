@@ -209,7 +209,7 @@ new file mode 100644
 index 0000000..74ca2e9
 --- /dev/null
 +++ b/tui/interaction_pages.go
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,166 @@
 +package tui
 +
 +import (
@@ -230,7 +230,7 @@ index 0000000..74ca2e9
 +	initialized bool
 +	children    []Component
 +	starts      []int
-+	selected    *UserMessageComponent
++	selected    Component
 +	live        bool
 +	unread      bool
 +}
@@ -248,9 +248,21 @@ index 0000000..74ca2e9
 +	p.initialized, p.version = true, p.source.structureVersion
 +	p.children = append(p.children[:0], p.source.children...)
 +	p.starts = p.starts[:0]
++	skillPrompt := false
 +	for i, child := range p.children {
-+		if _, ok := child.(*UserMessageComponent); ok {
++		switch child.(type) {
++		case *SkillInvocationMessageComponent:
 +			p.starts = append(p.starts, i)
++			skillPrompt = true
++		case *UserMessageComponent:
++			if !skillPrompt {
++				p.starts = append(p.starts, i)
++			}
++			skillPrompt = false
++		case *Spacer:
++			// A skill and its trailing prompt are separated by padding.
++		default:
++			skillPrompt = false
 +		}
 +	}
 +	if !p.live {
@@ -316,7 +328,7 @@ index 0000000..74ca2e9
 +	if p.live {
 +		p.unread = false
 +	}
-+	p.selected, _ = p.children[p.starts[next]].(*UserMessageComponent)
++	p.selected = p.children[p.starts[next]]
 +	p.selectBody()
 +	return true
 +}
@@ -327,8 +339,14 @@ index 0000000..74ca2e9
 +	if index < 0 {
 +		return p.body.Render(width)
 +	}
-+	user := p.children[p.starts[index]].(*UserMessageComponent)
-+	title := strings.Join(strings.Fields(widthx.StripTerminalSequences(user.content)), " ")
++	var prompt string
++	switch user := p.children[p.starts[index]].(type) {
++	case *UserMessageComponent:
++		prompt = user.content
++	case *SkillInvocationMessageComponent:
++		prompt = "/skill:" + user.skillBlock.Name
++	}
++	title := strings.Join(strings.Fields(widthx.StripTerminalSequences(prompt)), " ")
 +	header := fmt.Sprintf("Page %d / %d · Alt+←/→ or Alt+H/L · %s", index+1, len(p.starts), title)
 +	if !p.live {
 +		status := "Latest page →"
@@ -748,5 +766,67 @@ new file mode 100644
 +	}
 +	if _, ok := children[2].(*Image); !ok {
 +		t.Fatal("bad image suppressed successful neighbor")
++	}
++}
+diff --git a/tui/interaction_skill_pages_test.go b/tui/interaction_skill_pages_test.go
+new file mode 100644
+--- /dev/null
++++ b/tui/interaction_skill_pages_test.go
+@@ -0,0 +1,57 @@
++package tui
++
++import (
++	"reflect"
++	"strings"
++	"testing"
++)
++
++func TestInteractionPagesKeepSkillInvocationWithPrompt(t *testing.T) {
++	for _, args := range []string{"", "and commit"} {
++		t.Run(args, func(t *testing.T) {
++			source := NewContainer(pagePrompt("first"), NewText("first reply"))
++			pages := NewInteractionPages(source)
++			pages.Render(100)
++			skill := NewSkillInvocationMessageComponent(ParsedSkillBlock{Name: "format-commit", Content: "skill instructions"}, nil, 0)
++			source.Add(NewSpacer(1))
++			source.Add(skill)
++			if args != "" {
++				source.Add(NewSpacer(1))
++				source.Add(pagePrompt(args))
++			}
++			source.Add(NewText("Warning: skill fixture"))
++			source.Add(NewText("skill reply"))
++			before := source.Children()
++			check := func() {
++				t.Helper()
++				got := pageText(pages)
++				for _, want := range []string{"Page 2 / 2", "[skill] format-commit", "Warning: skill fixture", "skill reply", args} {
++					if !strings.Contains(got, want) {
++						t.Fatalf("missing %q: %s", want, got)
++					}
++				}
++				if strings.Contains(got, "first reply") {
++					t.Fatalf("previous reply leaked: %s", got)
++				}
++			}
++			check()
++			pages.Move(-1)
++			if got := pageText(pages); strings.Contains(got, "[skill]") || strings.Contains(got, "Warning: skill fixture") {
++				t.Fatalf("skill output on previous page: %s", got)
++			}
++			pages.Move(1)
++			check()
++			skill.SetExpanded(true)
++			if got := pageText(pages); !strings.Contains(got, "skill instructions") {
++				t.Fatalf("cannot expand skill: %s", got)
++			}
++			if !reflect.DeepEqual(before, source.Children()) {
++				t.Fatal("source changed")
++			}
++			restored := NewInteractionPages(NewContainer(before...))
++			if got := pageText(restored); !strings.Contains(got, "Page 2 / 2") || !strings.Contains(got, "Warning: skill fixture") {
++				t.Fatalf("rebuilt page lost skill output: %s", got)
++			}
++		})
 +	}
 +}
