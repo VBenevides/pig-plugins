@@ -35,6 +35,7 @@ func TestPickerSearchAndCancel(t *testing.T) {
 }
 
 func TestRPCConfigurationPersistsAndCancelPreserves(t *testing.T) {
+	fused := pigtest.UseFusedBinary(t)
 	pigtest.RequirePig(t)
 	home := pigtest.NewHome(t)
 	store := quota.Store{Dir: home.AgentDir()}
@@ -48,7 +49,7 @@ func TestRPCConfigurationPersistsAndCancelPreserves(t *testing.T) {
 	}
 	mock := pigtest.NewMockLLM(pigtest.Text("unused"))
 	defer mock.Close()
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"/auto-model"}, Dialog: func(request map[string]any) map[string]any {
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: extensionPaths(fused, ext), Prompts: []string{"/auto-model"}, Dialog: func(request map[string]any) map[string]any {
 		title, _ := request["title"].(string)
 		options, _ := request["options"].([]any)
 		switch title {
@@ -72,7 +73,7 @@ func TestRPCConfigurationPersistsAndCancelPreserves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"/auto-model"}, Dialog: func(map[string]any) map[string]any { return map[string]any{"cancelled": true} }})
+	home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: extensionPaths(fused, ext), Prompts: []string{"/auto-model"}, Dialog: func(map[string]any) map[string]any { return map[string]any{"cancelled": true} }})
 	after, err := os.ReadFile(filepath.Join(home.AgentDir(), "auto-model.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +84,7 @@ func TestRPCConfigurationPersistsAndCancelPreserves(t *testing.T) {
 }
 
 func TestRPCUsageMissingAuthAndPassiveQuota(t *testing.T) {
+	fused := pigtest.UseFusedBinary(t)
 	pigtest.RequirePig(t)
 	home := pigtest.NewHome(t)
 	store := quota.Store{Dir: home.AgentDir()}
@@ -95,7 +97,7 @@ func TestRPCUsageMissingAuthAndPassiveQuota(t *testing.T) {
 	}
 	mock := pigtest.NewMockLLM(pigtest.Text("unused"))
 	defer mock.Close()
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"/usage"}})
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: extensionPaths(fused, ext), Prompts: []string{"/usage"}})
 	text := strings.Join(result.Notices(), "\n")
 	if !strings.Contains(text, "Active model: mock/mock-model") {
 		t.Fatalf("usage omitted the actual active model/provider: %s", text)
@@ -114,6 +116,7 @@ func TestRPCUsageMissingAuthAndPassiveQuota(t *testing.T) {
 }
 
 func TestRPCUsageUnsupportedOpenAITokenDoesNotClaimQuotaAvailable(t *testing.T) {
+	fused := pigtest.UseFusedBinary(t)
 	pigtest.RequirePig(t)
 	home := pigtest.NewHome(t)
 	if err := os.MkdirAll(home.AgentDir(), 0700); err != nil {
@@ -128,7 +131,7 @@ func TestRPCUsageUnsupportedOpenAITokenDoesNotClaimQuotaAvailable(t *testing.T) 
 	}
 	mock := pigtest.NewMockLLM(pigtest.Text("unused"))
 	defer mock.Close()
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"/usage"}})
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: extensionPaths(fused, ext), Prompts: []string{"/usage"}})
 	_, account, found := strings.Cut(strings.Join(result.Notices(), "\n"), "Account (openai)")
 	if !found || !strings.Contains(account, "Quota unknown") || !strings.Contains(account, "Quota unavailable") {
 		t.Fatalf("missing unsupported quota diagnosis: %s", account)
@@ -165,4 +168,12 @@ func TestPickerQCancelsOnlyWithoutASearchBox(t *testing.T) {
 	if !strings.Contains(strings.Join(plain.Render(60), "\n"), "esc/q cancel") || strings.Contains(strings.Join(search.Render(60), "\n"), "esc/q") {
 		t.Fatal("the hint must name q only where it works")
 	}
+}
+
+// extensionPaths returns no `-e` paths for the fused binary, which already bundles the extension.
+func extensionPaths(fused bool, path string) []string {
+	if fused {
+		return nil
+	}
+	return []string{path}
 }
