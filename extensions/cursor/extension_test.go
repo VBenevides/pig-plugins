@@ -297,6 +297,22 @@ func cursorServer(t *testing.T, approveAfter int32, access string) (*browserAuth
 				return
 			}
 			json.NewEncoder(w).Encode(map[string]string{"accessToken": access, "refreshToken": "refresh-1"})
+		case userKeyPath:
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+access || r.Header.Get("Connect-Protocol-Version") != "1" {
+				t.Error("invalid key exchange headers")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			var payload struct {
+				Name      string `json:"name"`
+				ExpiresAt string `json:"expiresAt"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Name != "PiG" || payload.ExpiresAt == "" {
+				t.Error("invalid key exchange body")
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]string{"apiKey": "minted-user-key"})
 		case "/oauth/token":
 			json.NewEncoder(w).Encode(map[string]any{"access_token": fakeJWT(time.Now().Add(2 * time.Hour)), "refresh_token": "refresh-2"})
 		default:
@@ -310,7 +326,7 @@ func cursorServer(t *testing.T, approveAfter int32, access string) (*browserAuth
 func TestBrowserLoginStoresVerifiedAccount(t *testing.T) {
 	access := fakeJWT(time.Now().Add(time.Hour))
 	good := &fakeRunner{user: cursorbridge.User{UserID: 42, Email: "dev@example.com"}}
-	s, _ := newService(map[string]*fakeRunner{access: good})
+	s, _ := newService(map[string]*fakeRunner{"minted-user-key": good})
 	auth, polls, _ := cursorServer(t, 2, access)
 	s.auth = auth
 	var shown []map[string]any
@@ -322,10 +338,10 @@ func TestBrowserLoginStoresVerifiedAccount(t *testing.T) {
 		t.Fatalf("polled %d times", polls.Load())
 	}
 	u, _ := url.Parse(shown[0]["url"].(string))
-	if shown[0]["type"] != "auth_url" || u.Host != "cursor.example" || u.Query().Get("challenge") == "" || u.Query().Get("uuid") == "" || u.Query().Get("verifier") != "" {
+	if shown[0]["type"] != "auth_url" || u.Host != "cursor.example" || u.Query().Get("redirectTarget") != "sdk" || u.Query().Get("challenge") == "" || u.Query().Get("uuid") == "" || u.Query().Get("verifier") != "" {
 		t.Fatalf("sign-in notice %v", shown[0])
 	}
-	if credential.String("access") != access || credential.String("refresh") != "refresh-1" || credential.String("accountId") != "cursor-42" || credential.String("email") != "dev@example.com" {
+	if credential.String("access") != "minted-user-key" || credential.String("refresh") != "" || credential.String("accountId") != "cursor-42" || credential.String("email") != "dev@example.com" {
 		t.Fatalf("credential %v", credential)
 	}
 }
@@ -333,7 +349,7 @@ func TestBrowserLoginStoresVerifiedAccount(t *testing.T) {
 func TestBrowserLoginFailuresStoreNothing(t *testing.T) {
 	access := fakeJWT(time.Now().Add(time.Hour))
 	rejected := &fakeRunner{meErr: errors.New("unauthenticated")}
-	s, _ := newService(map[string]*fakeRunner{access: rejected})
+	s, _ := newService(map[string]*fakeRunner{"minted-user-key": rejected})
 	auth, _, _ := cursorServer(t, 0, access)
 	s.auth = auth
 	notify := sdk.AuthInteraction{Notify: func(map[string]any) error { return nil }}
@@ -352,11 +368,11 @@ func TestBrowserLoginFailuresStoreNothing(t *testing.T) {
 	if err == nil || strings.Contains(err.Error(), "verifier") {
 		t.Fatalf("timeout: %v", err)
 	}
-	// Not a JWT: refuse before any bridge process starts.
-	bad, _, _ := cursorServer(t, 0, "not-a-jwt")
+	// Empty browser credential: refuse before any bridge process starts.
+	bad, _, _ := cursorServer(t, 0, "")
 	s.auth = bad
 	if _, err = s.login(notify, sdk.LoginOptions{}); err == nil {
-		t.Fatal("non-JWT token accepted")
+		t.Fatal("empty token accepted")
 	}
 	if _, err = s.login(sdk.AuthInteraction{}, sdk.LoginOptions{}); err == nil {
 		t.Fatal("login without a notification callback accepted")

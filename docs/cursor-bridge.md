@@ -22,6 +22,22 @@ The installed path is `<agent-directory>/bin/cursor-sdk-bridge/1.2.0/cursor-sdk-
 Windows uses the `.exe` suffix. Unsupported platforms fail before download.
 The upstream archive is downloaded directly to the user's machine, not bundled in pig-plugins.
 
+## Browser sign-in
+
+Run `/login` and select Cursor. Approve the request on Cursor's website.
+The flow follows `Cursor.auth.login()` in `@cursor/sdk` 1.2.0: use the SDK
+redirect, then exchange the browser session for a 90-day user API key through
+`DashboardService.CreateUserApiKey`. The bridge receives that key, not the
+browser session token. PiG stores the key in its native account store.
+No browser refresh token is stored. When the key expires, sign in again.
+Key creation is not retried after an uncertain response. If login fails after
+key creation, review and revoke unused PiG keys in the Cursor dashboard.
+Team policy can prevent user API key creation.
+
+The [SDK authentication and billing documentation](https://cursor.com/docs/sdk/typescript.md#authentication)
+states that user API keys bill to the user's plan and SDK runs use the same
+request pools and pricing as IDE runs. This does not guarantee free or unlimited
+requests. No paid request or successful live login has been verified here.
 
 ## Current scope
 
@@ -43,7 +59,9 @@ The prototype alone does not establish a working Cursor provider.
 
 ## Verification limits
 
-No authenticated or paid Cursor operation has been tested.
+The user reported that browser approval succeeded but the old flow failed at
+the bridge with HTTP 401. The corrected key exchange has mock coverage only.
+No successful authenticated or paid Cursor operation has been tested.
 Offline results do not prove account access, model availability, billing accuracy,
 or the effectiveness of upstream tool restrictions during real inference.
 Do not claim production support until the required qualification gates pass.

@@ -1,8 +1,7 @@
 // Package cursor adds a Cursor provider built on the official Cursor SDK Bridge.
 //
-// Accounts sign in through Cursor's browser login and live in the host's native
-// account store. The bridge documents API keys, so whether it accepts the browser
-// token is checked at every login. Cursor never
+// Accounts use the SDK browser sign-in to mint a user API key, then store it in
+// the host's native account store. Cursor never
 // runs a tool: tool calls come back as proposals and PiG executes them under its
 // normal validation and approvals. Offline tests use a mock bridge; no real
 // Cursor account has been exercised.
@@ -105,8 +104,8 @@ func (s *service) provider() *sdk.Provider {
 	return p
 }
 
-// login signs in through the browser. The token is checked with the bridge, and
-// the account identity comes from Cursor, not from the token's text.
+// login signs in through the browser and checks the minted key with the bridge.
+// The account identity comes from Cursor, not from the key's text.
 func (s *service) login(interaction sdk.AuthInteraction, _ sdk.LoginOptions) (*sdk.Credential, error) {
 	ctx := interaction.Signal
 	if ctx == nil {

@@ -16,10 +16,9 @@ import (
 	"time"
 )
 
-// This is Cursor's own browser sign-in, the one the Cursor CLI uses. It is not
-// part of the documented SDK Bridge contract: the bridge documents API keys. The
-// token this flow returns is therefore checked with the bridge at login, and a
-// token the bridge rejects fails the login.
+// Browser sign-in follows @cursor/sdk 1.2.0 Cursor.auth.login: approve the
+// SDK redirect, then mint a user API key with DashboardService.CreateUserApiKey.
+// Only that key, not the browser session token, goes to the SDK Bridge.
 const (
 	loginURL         = "https://cursor.com/loginDeepControl"
 	apiBaseURL       = "https://api2.cursor.sh"
@@ -29,6 +28,8 @@ const (
 	requestTimeout   = 30 * time.Second
 	expiryMargin     = 5 * time.Minute
 	maxResponseBytes = 1 << 20
+	userKeyPath      = "/aiserver.v1.DashboardService/CreateUserApiKey"
+	userKeyLifetime  = 90 * 24 * time.Hour
 )
 
 type tokens struct {
@@ -60,7 +61,7 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (t
 	if err != nil {
 		return tokens{}, fmt.Errorf("Cursor login: create login id: %w", err)
 	}
-	query := url.Values{"challenge": {challenge}, "uuid": {id}, "mode": {"login"}, "redirectTarget": {"cli"}}
+	query := url.Values{"challenge": {challenge}, "uuid": {id}, "mode": {"login"}, "redirectTarget": {"sdk"}}
 	if err := show(b.loginURL + "?" + query.Encode()); err != nil {
 		return tokens{}, fmt.Errorf("Cursor login: show sign-in page: %w", err)
 	}
@@ -82,7 +83,7 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (t
 			if err := json.Unmarshal(body, &wire); err != nil {
 				return tokens{}, errors.New("Cursor login: the approval reply was not valid")
 			}
-			return tokensFrom(wire.AccessToken, wire.RefreshToken, "")
+			return b.mintKey(ctx, wire.AccessToken)
 		default:
 			return tokens{}, fmt.Errorf("Cursor login: approval check failed (HTTP %d)", status)
 		}
@@ -92,6 +93,32 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (t
 		case <-time.After(b.pollInterval):
 		}
 	}
+}
+
+// mintKey does not retry: an uncertain reply can mean a key already exists.
+func (b *browserAuth) mintKey(ctx context.Context, access string) (tokens, error) {
+	if access == "" {
+		return tokens{}, errors.New("Cursor approval reply carried no access token")
+	}
+	expires := time.Now().Add(userKeyLifetime)
+	payload, err := json.Marshal(map[string]any{"name": "PiG", "expiresAt": fmt.Sprint(expires.UnixMilli())})
+	if err != nil {
+		return tokens{}, fmt.Errorf("encode Cursor key request: %w", err)
+	}
+	status, body, err := b.do(ctx, http.MethodPost, b.apiBaseURL+userKeyPath, payload, access)
+	if err != nil {
+		return tokens{}, fmt.Errorf("create Cursor user API key (not retried): %w", err)
+	}
+	if status != http.StatusOK {
+		return tokens{}, fmt.Errorf("Cursor browser approval succeeded, but user API key creation failed (HTTP %d). Your team may restrict user API keys", status)
+	}
+	var wire struct {
+		APIKey string `json:"apiKey"`
+	}
+	if err := json.Unmarshal(body, &wire); err != nil || wire.APIKey == "" {
+		return tokens{}, errors.New("Cursor key creation returned no valid API key")
+	}
+	return tokens{Access: wire.APIKey, Expires: expires}, nil
 }
 
 func (b *browserAuth) refresh(ctx context.Context, refresh string) (tokens, error) {
@@ -160,11 +187,11 @@ func jwtExpiry(token string) (time.Time, error) {
 
 // do talks only to the configured Cursor origin, never follows redirects, and
 // bounds time and size. Errors never contain URLs, verifiers, or tokens.
-func (b *browserAuth) do(ctx context.Context, method, target string, body []byte) (int, []byte, error) {
+func (b *browserAuth) do(ctx context.Context, method, target string, body []byte, bearer ...string) (int, []byte, error) {
 	base, err := url.Parse(b.apiBaseURL)
 	u, uerr := url.Parse(target)
 	if err != nil || uerr != nil || u.Scheme != base.Scheme || u.Host != base.Host || u.User != nil ||
-		(u.Path != "/auth/poll" && u.Path != "/oauth/token") {
+		(u.Path != "/auth/poll" && u.Path != "/oauth/token" && u.Path != userKeyPath) {
 		return 0, nil, errors.New("request origin or path rejected")
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
@@ -174,6 +201,10 @@ func (b *browserAuth) do(ctx context.Context, method, target string, body []byte
 		return 0, nil, errors.New("build request failed")
 	}
 	req.Header.Set("Accept", "application/json")
+	if len(bearer) > 0 {
+		req.Header.Set("Authorization", "Bearer "+bearer[0])
+		req.Header.Set("Connect-Protocol-Version", "1")
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
