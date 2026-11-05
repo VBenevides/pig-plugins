@@ -9,10 +9,13 @@ The implementation uses the Go standard library. It does not require a separate 
 
 Run `sh scripts/install.sh --install-cursor` during distribution installation.
 For an installed distribution, run `pig-plugins --install-cursor`.
-Both paths install the pinned standalone bridge from Cursor's official release.
-Normal installation and startup do not download the bridge.
+Both paths install the pinned standalone bridge and the matching official
+`@cursor/sdk-<platform>` npm runtime package. That companion package supplies
+`cursorsandbox`, ripgrep, and parser assets that the standalone archive lacks.
+Normal installation and startup do not download either package.
 
-The installer checks the pinned archive SHA-256 before extraction.
+The installer checks the bridge archive's pinned SHA-256 and the SDK runtime's
+pinned SHA-512 npm integrity value before extraction.
 It uses a private staging directory and an exclusive lock.
 It publishes a versioned installation only after verification.
 Repeated installation checks local integrity without downloading again.
@@ -20,7 +23,20 @@ An invalid existing installation is preserved for manual diagnosis.
 
 The installed path is `<agent-directory>/bin/cursor-sdk-bridge/1.2.0/cursor-sdk-bridge`.
 Windows uses the `.exe` suffix. Unsupported platforms fail before download.
-The upstream archive is downloaded directly to the user's machine, not bundled in pig-plugins.
+The upstream archives are downloaded directly to the user's machine, not bundled in pig-plugins.
+The runtime is installed under the bridge's `node_modules/@cursor/sdk-<platform>`
+directory, where the SDK searches relative to its executable. Re-run the explicit
+install flag to add the missing runtime to an existing valid bridge installation.
+Existing bridge files and account credentials are not replaced.
+
+Generation still requires a supported sandbox environment. Supplying the helper
+does not bypass kernel or sandbox preflight checks. PiG does not disable the
+sandbox after a failure. A Linux helper-only preflight passed in a temporary
+installation; this is not a successful generation test.
+
+Stream failures can arrive inside an HTTP 200 response. The client distinguishes
+these from HTTP success and reports fixed diagnostics for recognized sandbox,
+model, validation, and plan errors. Remote error prose is never copied to output.
 
 ## Browser sign-in
 

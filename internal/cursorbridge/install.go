@@ -90,7 +90,7 @@ func Install(ctx context.Context, agentDir, goos, goarch string) (string, error)
 		return nil
 	}}
 	url := releaseBase + "cursor-sdk-bridge-standalone-" + platform + "-" + arch + ".tar.gz"
-	return install(ctx, agentDir, goos, hash, func(ctx context.Context) (io.ReadCloser, error) {
+	path, err := install(ctx, agentDir, goos, hash, func(ctx context.Context) (io.ReadCloser, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, err
@@ -105,6 +105,34 @@ func Install(ctx context.Context, agentDir, goos, goarch string) (string, error)
 		}
 		return response.Body, nil
 	})
+	if err != nil {
+		return "", err
+	}
+	packagePlatform := runtimePlatform(goos, goarch)
+	runtimeHash, ok := runtimeHashes[packagePlatform]
+	if !ok {
+		return "", errors.New("Cursor SDK runtime does not support this platform")
+	}
+	runtimeURL := "https://registry.npmjs.org/@cursor/sdk-" + packagePlatform + "/-/sdk-" + packagePlatform + "-" + Version + ".tgz"
+	err = installRuntime(ctx, filepath.Dir(path), packagePlatform, runtimeHash, func(ctx context.Context) (io.ReadCloser, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, runtimeURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		response, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("download Cursor SDK runtime: %w", err)
+		}
+		if response.StatusCode != http.StatusOK {
+			response.Body.Close()
+			return nil, fmt.Errorf("Cursor SDK runtime download returned HTTP %d", response.StatusCode)
+		}
+		return response.Body, nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("install Cursor SDK runtime: %w", err)
+	}
+	return path, nil
 }
 
 func install(ctx context.Context, agentDir, goos, expected string, fetch func(context.Context) (io.ReadCloser, error)) (path string, err error) {
