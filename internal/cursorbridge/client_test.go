@@ -227,3 +227,20 @@ func TestStartupFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestNetworkFailureIsClassifiedWithoutCopyingRemoteText(t *testing.T) {
+	err := decodeError([]byte(`{"code":"internal","message":"Network request failed"}`), 500)
+	if !IsNetworkFailure(err) || strings.Contains(err.Error(), "Network request failed") {
+		t.Fatalf("not classified: %v", err)
+	}
+	for _, body := range []string{
+		`{"code":"internal","message":"Network request failed: sk-secret"}`,
+		`{"code":"unauthenticated","message":"Network request failed"}`,
+		`not json`,
+	} {
+		other := decodeError([]byte(body), 500)
+		if IsNetworkFailure(other) || strings.Contains(other.Error(), "sk-secret") {
+			t.Fatalf("misclassified %s: %v", body, other)
+		}
+	}
+}

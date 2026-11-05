@@ -46,26 +46,47 @@ func NewClient(endpoint, token string) (*Client, error) {
 func (c *Client) Close() { c.http.CloseIdleConnections() }
 
 // RPCError omits remote messages because they may contain credentials or prompts.
+// The one exception is the bridge's fixed network-failure text, which is matched
+// exactly and never copied from the remote side.
 type RPCError struct {
-	Code   string
-	Status int
+	Code    string
+	Status  int
+	Network bool
 }
 
+// networkFailure is what the v1.2.0 bridge reports for any failed upstream
+// request, including a rejected certificate. It does not say which.
+const networkFailure = "Network request failed"
+
 func (e *RPCError) Error() string {
+	if e.Network {
+		return fmt.Sprintf("Cursor bridge could not complete a network request (HTTP %d). "+
+			"The bridge does not say whether this was connectivity, a proxy, or certificate trust. "+
+			"PiG keeps certificate checks on and does not retry a generation after this failure.", e.Status)
+	}
 	return fmt.Sprintf("Cursor bridge RPC failed (%s, HTTP %d)", e.Code, e.Status)
 }
+
+// IsNetworkFailure reports whether err is the bridge's upstream network failure.
+func IsNetworkFailure(err error) bool {
+	var rpc *RPCError
+	return errors.As(err, &rpc) && rpc.Network
+}
+
 func decodeError(data []byte, status int) error {
 	var wire struct {
-		Code string `json:"code"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
 	}
 	_ = json.Unmarshal(data, &wire)
+	network := wire.Code == "internal" && wire.Message == networkFailure
 	// Only known Connect codes may enter diagnostics.
 	switch wire.Code {
 	case "canceled", "unknown", "invalid_argument", "deadline_exceeded", "not_found", "already_exists", "permission_denied", "resource_exhausted", "failed_precondition", "aborted", "out_of_range", "unimplemented", "internal", "unavailable", "data_loss", "unauthenticated":
 	default:
 		wire.Code = "unknown"
 	}
-	return &RPCError{wire.Code, status}
+	return &RPCError{Code: wire.Code, Status: status, Network: network}
 }
 
 func (c *Client) request(ctx context.Context, method string, input any, stream bool) (*http.Response, error) {
