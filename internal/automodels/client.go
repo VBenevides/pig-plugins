@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	neturl "net/url"
 	"strings"
 	"time"
 )
@@ -84,14 +83,6 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 			request.Header.Set("chatgpt-account-id", accountID)
 		}
 		request.Header.Set("originator", "pi")
-	}
-	if provider == "Cursor" {
-		userID, err := cursorUserID(entry.Access)
-		if err != nil {
-			return err
-		}
-		request.Header.Del("Authorization")
-		request.AddCookie(&http.Cookie{Name: "WorkosCursorSessionToken", Value: neturl.QueryEscape(userID + "::" + entry.Access)})
 	}
 	client := http.Client{}
 	if c.HTTP != nil {

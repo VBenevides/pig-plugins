@@ -387,15 +387,13 @@ new file mode 100644
 index 0000000..1e7f4a9
 --- /dev/null
 +++ b/ai/generation_replay.go
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,42 @@
 +package ai
 +
 +// GenerationReplayProhibited reports a request's veto on automatic generation
 +// replay. A veto is independent of status text and cannot grant retry permission.
 +func (message AssistantMessage) GenerationReplayProhibited() bool {
-+	// Cursor's existing contract also applies to legacy responses written before
-+	// replayProhibited was carried over the native provider bridge.
-+	return message.ReplayProhibited || message.Provider == "cursor"
++	return message.ReplayProhibited
 +}
 +
 +// AssistantCallError retains response policy when a message becomes an error,
@@ -437,7 +435,7 @@ new file mode 100644
 index 0000000..ebc6c05
 --- /dev/null
 +++ b/ai/generation_replay_test.go
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,51 @@
 +package ai
 +
 +import (
@@ -453,7 +451,6 @@ index 0000000..ebc6c05
 +		prohibited     bool
 +		calls          int
 +	}{
-+		{"legacy Cursor", "cursor", false, 1},
 +		{"typed request", "synthetic", true, 1},
 +		{"unrelated transient", "synthetic", false, 3},
 +	} {
@@ -636,7 +633,7 @@ diff --git a/coding/extension/host/subprocess/native_provider.go b/coding/extens
 index 39c6c07..c0368d5 100644
 --- a/coding/extension/host/subprocess/native_provider.go
 +++ b/coding/extension/host/subprocess/native_provider.go
-@@ -165,7 +165,23 @@ func (p *nativeProviderProxy) streamMethod(ctx context.Context, method string, m
+@@ -165,7 +165,19 @@ func (p *nativeProviderProxy) streamMethod(ctx context.Context, method string, m
  				cancel(decodeErr)
  				return
  			}
@@ -653,15 +650,11 @@ index 39c6c07..c0368d5 100644
 +					terminalEvent.Message.ReplayProhibited = terminalEvent.Message.ReplayProhibited || p.declaration.ReplayProhibited
 +				}
 +			}
-+			push := stream.Push
-+			if p.declaration.ID == "cursor" {
-+				push = func(event ai.AssistantMessageEvent) error { return stream.PushWithBackpressure(operation, event) }
-+			}
-+			if pushErr := push(event); pushErr != nil {
++			if pushErr := stream.Push(event); pushErr != nil {
  				eventError = pushErr
  				cancel(pushErr)
  				return
-@@ -185,7 +201,7 @@ func (p *nativeProviderProxy) streamMethod(ctx context.Context, method string, m
+@@ -185,7 +197,7 @@ func (p *nativeProviderProxy) streamMethod(ctx context.Context, method string, m
  		if ctx.Err() != nil {
  			reason = ai.StopReasonAborted
  		}
@@ -707,7 +700,7 @@ new file mode 100644
 index 0000000..80ff407
 --- /dev/null
 +++ b/coding/generation_replay_test.go
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,69 @@
 +package coding
 +
 +import (
@@ -724,7 +717,6 @@ index 0000000..80ff407
 +		veto                 bool
 +		calls                int
 +	}{
-+		{"legacy Cursor", "cursor", "RPC rejected (HTTP 503)", false, 1},
 +		{"typed request", "synthetic", "RPC rejected (HTTP 503)", true, 1},
 +		{"overflow cannot bypass veto", "synthetic", "HTTP 503 maximum context length exceeded", true, 1},
 +		{"unrelated provider retries", "synthetic", "RPC rejected (HTTP 503)", false, 2},

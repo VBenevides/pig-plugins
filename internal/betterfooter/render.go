@@ -210,9 +210,12 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 		}
 		speed = t.fg(color, label) + dim("t/s")
 	}
+	if page := SanitizePlain(s.Statuses["interaction-page"]); page != "" {
+		speed = segments(" - ", speed, muted("Interaction "+page))
+	}
 	keys := make([]string, 0, len(s.Statuses))
 	for k := range s.Statuses {
-		if k != "ask-mode" && k != "auto-model" && k != "auto-model-usage" && k != "auto-model-quota" && !slices.Contains(ThirdRowStatusKeys, k) {
+		if k != "interaction-page" && k != "ask-mode" && k != "auto-model" && k != "auto-model-usage" && k != "auto-model-quota" && !slices.Contains(ThirdRowStatusKeys, k) {
 			keys = append(keys, k)
 		}
 	}

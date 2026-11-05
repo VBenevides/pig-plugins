@@ -20,6 +20,8 @@ PATCHES = [
     "0012-assistant-rebuild-host.patch",
     "0013-codex-upload-host.patch",
     "0014-request-observation-host.patch",
+    "0015-interaction-pages-host.patch",
+    "0016-task-panel-host.patch",
 ]
 
 class PatchInventoryTest(unittest.TestCase):
@@ -40,7 +42,7 @@ class PatchInventoryTest(unittest.TestCase):
             self.assertEqual(actual, expected, script)
 
     def test_current_document_references_resolve(self):
-        for name in ("README.md", "docs/cursor-direct.md", "docs/pig-051-port.md"):
+        for name in ("README.md", "docs/pig-051-port.md"):
             for patch in re.findall(r"\b\d{4}-[\w-]+\.patch", (ROOT / name).read_text()):
                 self.assertIn(patch, PATCHES, name)
 

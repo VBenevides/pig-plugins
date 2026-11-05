@@ -51,7 +51,7 @@ func (err endpointScopeError) Unwrap() error { return err.cause }
 // Gemini, and unknown APIs remain excluded until their complete replay contracts
 // and provider fixtures pass. Normal host compaction remains available.
 func FoldCompatibility(current ReductionScope, checkpoint string, messages []any) error {
-	if current.API != "openai-completions" || current.Provider == "cursor" {
+	if current.API != "openai-completions" {
 		return fmt.Errorf("folding is not verified for this provider API; use normal host compaction")
 	}
 	fingerprint, err := current.Fingerprint()
@@ -91,7 +91,7 @@ func FoldCompatibility(current ReductionScope, checkpoint string, messages []any
 // ReplaySensitive only inspects protocol envelopes. Tool text and argument values
 // are untrusted data, not instructions or evidence of provider capabilities.
 func ReplaySensitive(message map[string]any) bool {
-	if message["provider"] == "cursor" || message["replayProhibited"] == true {
+	if message["replayProhibited"] == true {
 		return true
 	}
 	for _, key := range []string{"responseId", "response_id", "previousResponseId", "previous_response_id", "providerState", "compaction", "encrypted_content", "replayId", "deferred", "diagnostics", "textSignature", "thinkingSignature", "thoughtSignature", "signature"} {

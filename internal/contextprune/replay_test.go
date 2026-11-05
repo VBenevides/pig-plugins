@@ -62,7 +62,6 @@ func TestReplaySensitiveFieldsProtectOriginalsAndCachedDecisions(t *testing.T) {
 	settings.SessionFile = "/saved/session.jsonl"
 	for name, decorate := range map[string]func(map[string]any, map[string]any){
 		"veto":         func(call, _ map[string]any) { call["replayProhibited"] = true },
-		"cursor":       func(call, _ map[string]any) { call["provider"] = "cursor" },
 		"response ID":  func(call, _ map[string]any) { call["responseId"] = "opaque-id" },
 		"opaque state": func(call, _ map[string]any) { call["providerState"] = map[string]any{"opaque": true} },
 		"thinking": func(call, _ map[string]any) {

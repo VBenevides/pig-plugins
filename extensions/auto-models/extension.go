@@ -62,7 +62,7 @@ func Extension() *sdk.Extension {
 	fused := ok && info.Main.Path == "github.com/MichaelKinsy/PiG"
 	x := newExtension(quota.Store{}, quota.Client{}, fused && !quota.HasExplicitModelFlag(os.Args[1:]))
 	e := sdk.New(Name)
-	e.RegisterCommand("usage", sdk.CommandOptions{Description: "Show Claude / Codex quota usage and Cursor account meters", Handler: x.usage})
+	e.RegisterCommand("usage", sdk.CommandOptions{Description: "Show Claude / Codex quota usage", Handler: x.usage})
 	e.RegisterCommand("auto-model", sdk.CommandOptions{Description: "Configure primary and fallback models", Handler: x.configure})
 	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, data map[string]any) (any, error) {
 		return x.taskInput(data, ctx.IsIdle)
@@ -426,7 +426,7 @@ func (x *extension) fallbackOnLimit(ctx sdk.Context, provider string, left time.
 }
 
 func (x *extension) switchOnLimit(ctx modelSwitcher, provider string) error {
-	if !x.autoEnabled || provider == "cursor" || provider != ctx.ModelProvider() {
+	if !x.autoEnabled || provider != ctx.ModelProvider() {
 		return nil
 	}
 	primary, fallback := x.slots()
@@ -567,7 +567,7 @@ func (x *extension) messageEnd(ctx sdk.Context, data map[string]any) (any, error
 		x.retryPending = false
 		x.mu.Unlock()
 	}
-	if message["replayProhibited"] == true || message["provider"] == "cursor" {
+	if message["replayProhibited"] == true {
 		x.mu.Lock()
 		x.retryPending = false
 		if message["stopReason"] == "error" || text != "" {

@@ -132,11 +132,10 @@ See [browser setup, tools, and safety limits](docs/browser-use.md).
 
 ### auto-models
 
-Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude/Codex quota windows and Cursor account meters) and `/auto-model` (primary and fallback model, with thinking level).
+Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude/Codex quota windows) and `/auto-model` (primary and fallback model, with thinking level).
 In a TUI, `/usage` opens a scrollable dashboard (`q`, `esc` or ctrl-c closes; `j`/`k`, arrows and page keys scroll). Other modes print a notification.
 The footer quota badge shows the active provider only. The `openai-codex` provider, and `openai` when its token carries a ChatGPT account id, use the ChatGPT quota endpoint.
 An `openai` API-audience OAuth token is rejected by that endpoint (401), so it is not queried; its quota appears only from response headers after use.
-Cursor account meters are fetched on demand from its dashboard using each native OAuth account; no Cursor CLI is needed for `/usage`. Separate Cursor Models, Other Models and on-demand pools are displayed when reported, with explicit reset/fetch times. Missing amounts are unknown. These balances do not establish model entitlement and do not drive automatic account/model switching. This integration is verified with synthetic fixtures only; account-specific dashboard compatibility remains unverified. See [the protocol review](docs/cursor-direct-protocol.md).
 `/auto-model` offers only the session's scoped models (`--models` or `enabledModels`). With no scope it offers every authenticated model.
 Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. The patched native host stores OAuth accounts in `oauth-accounts.json` and lazily migrates existing singleton OAuth logins from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
@@ -183,6 +182,8 @@ It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.
 
+The bundled fullscreen view shows one page per user prompt, including replies and tool activity. Use Alt+Left/Right or Alt+h/l to change pages. Long pages scroll vertically; the input stays below them. Older pages stay selected during new output, with a notice for the latest page. Agent input and saved history do not change. Fullscreen is the default when no TUI mode is configured; an explicit regular mode retains continuous output. This view uses `patches/pig/0015-interaction-pages-host.patch`.
+
 In the bundled chat input, `/` at the start of any line (after optional whitespace) completes commands, prompt templates and skills. After other text on the same line, `/` completes only skills and non-skill commands require `//`. For example, `/model` works at line start, `explain /model` stays prompt text, and `explain //model` invokes the command. `//` remains available for non-skill commands at line start too. Keyboard shortcuts and programmatic command APIs are unchanged. This is provided by `patches/pig/0003-editor-images-host.patch`.
 Skill matching supports the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting a mid-text completion inserts the token without submitting.
 On Enter, a registered command runs from its slash token through the cursor: use `/command` at line start or `//command` anywhere a command token may start. Text before the command and after the cursor stays in the input box, including compact paste contents. Place the cursor immediately after the command's arguments to keep later prose. At line start, `/clear` discards only the input, `/exit` closes the session, `/send-steer` submits the remaining draft as steering input, and `/send-queue` submits it as a follow-up. After prose, use `//clear`, `//exit`, `//send-steer` or `//send-queue`. Both send commands take no arguments; the old `/send [queue]` syntax is removed. During compaction, sends queue with the selected delivery mode.
@@ -205,7 +206,7 @@ upstream TypeScript comparison packages cannot run unless those packages are
 installed; targeted native lifecycle, refresh, cancellation and bridge tests
 are covered independently.
 
-Cursor generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. Cursor streams use cancellable backpressure to bound unread events; native compaction drains them before awaiting results. These integration controls require `0005-provider-recovery-host.patch` and `0006-provider-recovery-sdk.patch`, applied by the bundled build.
+Generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. These integration controls require `0005-provider-recovery-host.patch` and `0006-provider-recovery-sdk.patch`, applied by the bundled build.
 
 Codex WebSocket uploads have a separate 60-second write deadline. Cancellation closes a blocked upload immediately, and failed sockets leave the cache. An upload failure retries once with full context on a fresh WebSocket before the existing SSE fallback is considered; cancellation never retries. This recovery runs before any response is exposed, without replaying local tools. Debug stats retain the upload retry count and last upload error. The bundled build applies `0013-codex-upload-host.patch`; no transport setting changes are required.
 
@@ -848,11 +849,7 @@ state, matching upstream fallback rather than the old port's mutation blocking.
 Legacy duplicate content is preserved; exact-content targeting selects the first match, as upstream.
 Use init with unique task text to disambiguate such lists. New sessions start empty.
 
-The live active-phase widget appears **above the editor** through PiG's normal string-array widget
-API (ten-row cap), not a separate side pane. At widths of 72 columns or more, pending/in-progress
-tasks and done/closed tasks occupy separate columns; narrower terminals stack the sections.
-Resize callbacks refresh the layout without changing task order or promotion. When all phases
-are closed, the final phase remains visible. A widget failure warns without undoing an already-durable mutation.
+The live task panel appears **above the editor** with one header and three task rows. It includes tasks from every phase. Use the mouse wheel over the panel to scroll. Click the panel to give it keyboard focus, then use Up/Down or j/k to scroll. Press Escape to return to the input. The `[FOCUSED]` label shows keyboard focus. The panel follows the active task until you scroll manually; task updates then retain your position. When all phases are closed, the completed rows remain available. This display requires `patches/pig/0016-task-panel-host.patch`; unpatched hosts retain their normal string-widget limits. Display changes do not change task state, promotion, or agent-visible tool results. A widget failure warns without undoing an already-durable mutation.
 Cards show Roman-numbered phases and themed status markers; collapsed cards summarize untouched
 phases, while expanded cards show every phase. Terminal controls are removed, and cards are capped
 at 1,024 wrapped lines. `/todos` opens the full read-only phased viewer with a done count;
@@ -978,19 +975,6 @@ On trusted repository startup, this plugin adds missing `.agent-work/`, `.ouro/`
 and `.curator/` entries to Git's `info/exclude`, including linked worktrees.
 It preserves existing bytes and permissions and never edits tracked `.gitignore`.
 Failures are reported. See `extensions/repo-excludes/README.md`.
-
-## cursor-login
-
-Adds `cursor` to `/login` using browser PKCE and the native account store. By default, the experimental
-CLI-free provider discovers account models, streams direct Connect/protobuf responses, and hands MCP
-tool proposals to PiG's normal approval loop. No Cursor executable or manual model list is required.
-See [direct-provider setup, limits and manual acceptance](docs/cursor-direct.md). Offline tests use
-synthetic fixtures; live account/server compatibility is **not verified**. Cursor-native exec tools remain unsupported.
-
-An explicit `cursor-beta.json` (or `PIG_CURSOR_BETA_CONFIG`) retains precedence and selects the unchanged,
-text-only CLI beta. Move that configuration aside and restart to try the direct provider. See
-[CLI beta setup](docs/cursor-beta.md). Neither path automatically retries through another transport.
-Both use non-public Cursor contracts that can change; neither is an official standalone model API.
 
 ## user-resources
 

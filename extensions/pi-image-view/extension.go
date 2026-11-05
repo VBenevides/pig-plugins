@@ -244,6 +244,9 @@ func Extension() *sdk.Extension {
 				return link
 			}
 			touchBlob(ref[1])
+			if os.Getenv("PIG_PLUGINS_HOST_VERSION") != "" {
+				return "[Image #" + match[1] + "]"
+			}
 			target := (&url.URL{Scheme: "file", Path: filepath.Join(blobRoot(), ref[1])}).String()
 			return "[[Image #" + match[1] + "]](" + target + ")"
 		})
