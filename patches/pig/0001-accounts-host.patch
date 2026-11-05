@@ -2344,3 +2344,52 @@ index 023f8bd..0b261d4 100644
  	}
  	if s.search != nil {
  		node.Query = s.search.Text()
+diff --git a/internal/codingagent/native_provider.go b/internal/codingagent/native_provider.go
+--- a/internal/codingagent/native_provider.go
++++ b/internal/codingagent/native_provider.go
+@@ -25,7 +25,8 @@
+ func (r *ModelRegistry) RegisterNativeProvider(ctx context.Context, p *extension.NativeProvider) error {
+-	// A compiled-in extension's carrier (extension.NativeProviderOf) holds the Provider object's own members and none of a subprocess
+-	// registration's host callbacks: it registers as the object.
+-	if p != nil && p.ID != "" && p.CheckAuth == nil && p.ResolveAuth == nil && p.ResolveRefreshCredential == nil && p.Models == nil && p.GetModels != nil {
++	// Dynamic SDK providers can have auth callbacks and an empty Models slice.
++	// Register their Provider object in the canonical model collection, just as
++	// compiled-in providers do, so refreshed catalogs reach the model picker.
++	if p != nil && p.ID != "" && len(p.Models) == 0 && p.GetModels != nil {
+ 		return r.RegisterNativeModelsProvider(p.ProviderObject())
+ 	}
+ 	if p == nil || p.ID == "" || p.Stream == nil || p.CheckAuth == nil || p.ResolveAuth == nil || p.ResolveRefreshCredential == nil {
+diff --git a/internal/codingagent/native_provider_sdk_catalog_test.go b/internal/codingagent/native_provider_sdk_catalog_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/codingagent/native_provider_sdk_catalog_test.go
+@@ -0,0 +1,29 @@
++package codingagent
++
++import (
++	"context"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/coding/extension"
++)
++
++// SDK carriers have subprocess auth callbacks even when they list models
++// dynamically. They must enter the same collection used by the model picker.
++func TestRegisterNativeProviderRegistersSDKDynamicCatalog(t *testing.T) {
++	registry := NewModelRegistry(t.TempDir())
++	provider := &extension.NativeProvider{
++		ID: "sdk-catalog", Name: "SDK catalog",
++		Models: []extension.ProviderModelConfig{},
++		GetModels: func(context.Context) ([]*ai.Model, error) { return nil, nil },
++		CheckAuth: func(context.Context, *ai.Credential) (*ai.AuthCheck, error) { return nil, nil },
++		ResolveAuth: func(context.Context, *ai.Credential, ai.AuthResolutionOverrides) (*ai.AuthResult, *ai.Credential, error) { return nil, nil, nil },
++		ResolveRefreshCredential: func(context.Context, *ai.Credential) (*ai.Credential, *ai.Credential, error) { return nil, nil, nil },
++	}
++	if err := registry.RegisterNativeProvider(context.Background(), provider); err != nil {
++		t.Fatal(err)
++	}
++	if got := registry.GetRegisteredNativeProvider(provider.ID); got == nil || got.GetModels == nil {
++		t.Fatal("SDK provider missing from canonical model collection")
++	}
++}

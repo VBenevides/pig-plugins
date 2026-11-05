@@ -37,7 +37,7 @@ Team policy can prevent user API key creation.
 The [SDK authentication and billing documentation](https://cursor.com/docs/sdk/typescript.md#authentication)
 states that user API keys bill to the user's plan and SDK runs use the same
 request pools and pricing as IDE runs. This does not guarantee free or unlimited
-requests. No paid request or successful live login has been verified here.
+requests. No paid request has been run for qualification.
 
 ## Current scope
 
@@ -57,11 +57,23 @@ and sub-agent definitions. Tool proposals must return to PiG for validation and 
 The security tests and native provider integration are separate release gates.
 The prototype alone does not establish a working Cursor provider.
 
+## Catalog persistence
+
+The host model store saves the catalog with a hash of the account credential.
+It stores no access or refresh token in that catalog. Offline refresh and restart
+restore only the matching account's exact model and thinking selections. Logout
+removes the stored catalog. An online failure preserves valid same-account data;
+an account change cannot reuse the previous account's catalog.
+
+The Accounts host patch registers dynamic SDK providers in the canonical model
+collection, including providers whose initial static model list is empty.
+
 ## Verification limits
 
-The user reported that browser approval succeeded but the old flow failed at
-the bridge with HTTP 401. The corrected key exchange has mock coverage only.
-No successful authenticated or paid Cursor operation has been tested.
+Browser sign-in and an authenticated catalog read now work with the user's account.
+The live bridge returned 49 catalog entries, mapped to 47 selectable models.
+The fused CLI and two fresh RPC sessions show the 47 models. These checks did
+not send a generation request. Paid operations and tool execution remain unverified.
 Offline results do not prove account access, model availability, billing accuracy,
 or the effectiveness of upstream tool restrictions during real inference.
 Do not claim production support until the required qualification gates pass.

@@ -205,21 +205,36 @@ func modelMap(entry cursormodels.Entry) map[string]any {
 	return model
 }
 
-// refreshModels clears the catalog first. A failed refresh, logout, or offline
-// start therefore never exposes another account's models.
+// refreshModels restores only this account's catalog during offline refresh.
+// An online failure leaves the current account's valid catalog available.
 func (s *service) refreshModels(refresh sdk.RefreshModelsContext) error {
 	if refresh.Publish == nil {
 		return errors.New("Cursor: the host did not provide a model publication callback")
 	}
-	accepted, err := refresh.Publish(sdk.ModelsPublication{Update: func() error { s.clearCatalog(); return nil }})
-	if err != nil || !accepted {
+	key := ""
+	if refresh.Credential != nil {
+		key = refresh.Credential.String("access")
+	}
+	if key == "" {
+		_, err := refresh.Publish(sdk.ModelsPublication{Persist: json.RawMessage("null"), Update: func() error { s.clearCatalog(); return nil }})
 		return err
 	}
-	if refresh.Credential == nil || !refresh.AllowNetwork {
-		return nil
+	hash := accountHash(key)
+	s.mu.Lock()
+	sameAccount := s.accountKey == hash
+	s.mu.Unlock()
+	if !sameAccount {
+		entries, err := restoreCatalog(refresh.Stored, hash)
+		if err != nil {
+			_, clearErr := refresh.Publish(sdk.ModelsPublication{Update: func() error { s.clearCatalog(); return nil }})
+			return errors.Join(err, clearErr)
+		}
+		accepted, err := refresh.Publish(sdk.ModelsPublication{Update: func() error { s.setCatalog(hash, entries); return nil }})
+		if err != nil || !accepted {
+			return err
+		}
 	}
-	key := refresh.Credential.String("access")
-	if key == "" {
+	if !refresh.AllowNetwork {
 		return nil
 	}
 	ctx := refresh.Signal
@@ -230,7 +245,11 @@ func (s *service) refreshModels(refresh sdk.RefreshModelsContext) error {
 	if err != nil {
 		return err
 	}
-	_, err = refresh.Publish(sdk.ModelsPublication{Update: func() error { s.setCatalog(accountHash(key), entries); return nil }})
+	persist, err := persistCatalog(hash, entries)
+	if err != nil {
+		return err
+	}
+	_, err = refresh.Publish(sdk.ModelsPublication{Persist: persist, Update: func() error { s.setCatalog(hash, entries); return nil }})
 	return err
 }
 
