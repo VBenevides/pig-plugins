@@ -208,14 +208,15 @@ type ParameterDefinition struct {
 	ID     string      `json:"id"`
 	Values []Parameter `json:"values"`
 }
+type Variant struct {
+	Params    []Parameter `json:"params"`
+	IsDefault bool        `json:"isDefault"`
+}
 type Model struct {
 	ID          string                `json:"id"`
 	DisplayName string                `json:"displayName"`
 	Parameters  []ParameterDefinition `json:"parameters"`
-	Variants    []struct {
-		Params    []Parameter `json:"params"`
-		IsDefault bool        `json:"isDefault"`
-	} `json:"variants"`
+	Variants    []Variant             `json:"variants"`
 }
 
 func (c *Client) Models(ctx context.Context, key string) ([]Model, error) {
