@@ -1,0 +1,480 @@
+diff --git a/coding/extension/host/subprocess/push_proxy.go b/coding/extension/host/subprocess/push_proxy.go
+index c948767..0216d98 100644
+--- a/coding/extension/host/subprocess/push_proxy.go
++++ b/coding/extension/host/subprocess/push_proxy.go
+@@ -68,6 +68,14 @@ func (p *PushProxy) WidgetLayout() (placement string, order uint64) {
+ 	return p.placement, p.order
+ }
+ 
++// WidgetContent returns all string-list entries without the display truncation.
++// The caller owns the copy. Frame and view widgets return false.
++func (p *PushProxy) WidgetContent() ([]string, bool) {
++	p.mu.RLock()
++	defer p.mu.RUnlock()
++	return append([]string(nil), p.content...), p.text != nil
++}
++
+ // Render returns the cached lines, or lays a string list widget out at width.
+ // It never blocks on I/O. Satisfies the tui.Component interface.
+ //
+diff --git a/internal/codingagent/ext_widgets.go b/internal/codingagent/ext_widgets.go
+index 2806d4f..bde6992 100644
+--- a/internal/codingagent/ext_widgets.go
++++ b/internal/codingagent/ext_widgets.go
+@@ -32,6 +32,9 @@ func (u *ExtUIContext) SetWidget(key string, content []string, opts *extension.E
+ 		var component tui.Component
+ 		if content != nil {
+ 			component = widgetLines(content)
++			if key == "todo-widget" && taskPanelEnabled() {
++				component = taskWidgetContent(append([]string(nil), content...))
++			}
+ 		}
+ 		u.m.setExtensionWidget(key, component, opts)
+ 	})
+diff --git a/internal/codingagent/interactive.go b/internal/codingagent/interactive.go
+index e3aa987..1443286 100644
+--- a/internal/codingagent/interactive.go
++++ b/internal/codingagent/interactive.go
+@@ -619,6 +619,7 @@ type InteractiveMode struct {
+ 	// transcriptScrollView is the scrollable conversation view in fullscreen mode.
+ 	transcriptScrollView *tui.ScrollView
+ 	interactionPages     *tui.InteractionPages
++	taskPanel            *tui.TaskPanel
+ 	// tuiTornDown guards stopInteractiveTui so the renderer is stopped and the
+ 	// transcript view disposed exactly once across the explicit-quit, ctx.Done,
+ 	// and input-error exit paths. Mirrors upstream's single stopInteractiveTui().
+diff --git a/internal/codingagent/interactive_extensions.go b/internal/codingagent/interactive_extensions.go
+index 7a2aa9b..e5b19bc 100644
+--- a/internal/codingagent/interactive_extensions.go
++++ b/internal/codingagent/interactive_extensions.go
+@@ -417,15 +417,16 @@ func (m *InteractiveMode) syncWidgets(widgets map[string]*subprocess.PushProxy)
+ func (m *InteractiveMode) renderWidgetsLocked() {
+ 	widgets := m.bridgeWidgets
+ 	type widgetEntry struct {
++		key       string
+ 		component tui.Component
+ 		below     bool
+ 		order     uint64
+ 		seq       uint64
+ 	}
+ 	entries := make([]widgetEntry, 0, len(widgets)+len(m.inprocessWidgets))
+-	for _, proxy := range widgets {
++	for key, proxy := range widgets {
+ 		placement, order := proxy.WidgetLayout()
+-		entries = append(entries, widgetEntry{component: proxy, below: placement == string(extension.WidgetPlacementBelowEditor), order: order})
++		entries = append(entries, widgetEntry{key: key, component: proxy, below: placement == string(extension.WidgetPlacementBelowEditor), order: order})
+ 	}
+ 	// A proxy seen for the first time, or with a new bridge order (replaced or moved), was set now: it takes the next sequences in bridge order.
+ 	slices.SortFunc(entries, func(a, b widgetEntry) int { return cmp.Compare(a.order, b.order) })
+@@ -455,18 +456,27 @@ func (m *InteractiveMode) renderWidgetsLocked() {
+ 		return
+ 	}
+ 	for _, widget := range m.inprocessWidgets {
+-		entries = append(entries, widgetEntry{component: widget.component, below: widget.placement == extension.WidgetPlacementBelowEditor, seq: widget.seq})
++		entries = append(entries, widgetEntry{key: widget.key, component: widget.component, below: widget.placement == extension.WidgetPlacementBelowEditor, seq: widget.seq})
+ 	}
+ 	slices.SortFunc(entries, func(a, b widgetEntry) int { return cmp.Compare(a.seq, b.seq) })
+ 	above := []tui.Component{tui.NewSpacer(1)}
+ 	var below []tui.Component
++	taskPanelPresent := false
+ 	for _, entry := range entries {
++		if entry.key == "todo-widget" {
++			entry.component = m.taskWidget(entry.component)
++			taskPanelPresent = entry.component == m.taskPanel
++		}
+ 		if entry.below {
+ 			below = append(below, entry.component)
+ 		} else {
+ 			above = append(above, entry.component)
+ 		}
+ 	}
++	if !taskPanelPresent && m.taskPanel != nil {
++		m.releaseTaskPanelFocus()
++		m.taskPanel = nil
++	}
+ 	m.widgetContainer.SetChildren(above...)
+ 	if m.widgetContainerBelow != nil {
+ 		m.widgetContainerBelow.SetChildren(below...)
+diff --git a/internal/codingagent/interactive_tasks.go b/internal/codingagent/interactive_tasks.go
+new file mode 100644
+index 0000000..7d30532
+--- /dev/null
++++ b/internal/codingagent/interactive_tasks.go
+@@ -0,0 +1,50 @@
++package codingagent
++
++import (
++	"os"
++
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func taskPanelEnabled() bool { return os.Getenv("PIG_PLUGINS_HOST_VERSION") != "" }
++
++type taskWidgetContent []string
++
++func (c taskWidgetContent) WidgetContent() ([]string, bool) { return append([]string(nil), c...), true }
++func (c taskWidgetContent) Render(int) []string             { return append([]string(nil), c...) }
++func (c taskWidgetContent) Invalidate()                     {}
++
++func (m *InteractiveMode) taskWidget(component tui.Component) tui.Component {
++	if !taskPanelEnabled() {
++		return component
++	}
++	source, ok := component.(interface{ WidgetContent() ([]string, bool) })
++	if !ok {
++		return component
++	}
++	if _, ok := source.WidgetContent(); !ok {
++		return component
++	}
++	if m.taskPanel == nil {
++		m.taskPanel = &tui.TaskPanel{
++			RequestRender: func() {
++				if m.tuiInst != nil {
++					m.tuiInst.RequestRender()
++				}
++			},
++			ReturnFocus: func() {
++				if m.tuiInst != nil {
++					m.tuiInst.SetFocus(m.editor)
++				}
++			},
++		}
++	}
++	m.taskPanel.Content = func() []string { lines, _ := source.WidgetContent(); return lines }
++	return m.taskPanel
++}
++
++func (m *InteractiveMode) releaseTaskPanelFocus() {
++	if m.tuiInst != nil && m.tuiInst.GetFocusedComponent() == m.taskPanel {
++		m.tuiInst.SetFocus(m.editor)
++	}
++}
+diff --git a/internal/codingagent/interactive_tasks_test.go b/internal/codingagent/interactive_tasks_test.go
+new file mode 100644
+index 0000000..f66b4ad
+--- /dev/null
++++ b/internal/codingagent/interactive_tasks_test.go
+@@ -0,0 +1,91 @@
++package codingagent
++
++import (
++	"fmt"
++	"io"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/coding/extension/host/subprocess"
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++func TestTaskWidgetViewportSurvivesUpdatesAndClearsFocus(t *testing.T) {
++	t.Setenv("PIG_PLUGINS_HOST_VERSION", "test")
++	m := NewInteractiveMode(nil, InteractiveModeOptions{TuiMode: "fullscreen", AgentDir: t.TempDir()})
++	m.rendererOut = io.Discard
++	handle := m.createInteractiveTui(t.Context())
++	defer handle.cleanup()
++	prepareInteractionTestLayout(m)
++	m.mountInteractiveTui(false)
++	m.uiTaskCh = make(chan func(), 64)
++	ui := &ExtUIContext{m: m}
++	content := []string{"Tasks"}
++	for i := 0; i < 30; i++ {
++		content = append(content, fmt.Sprintf("[ ] task %d", i))
++	}
++	ui.SetWidget("todo-widget", content, nil)
++	runPostedTasks(t, m)
++	panel := m.taskPanel
++	if panel == nil || len(panel.Render(100)) != 4 {
++		t.Fatal("task viewport not mounted")
++	}
++	m.tuiInst.SetFocus(panel)
++	panel.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseWheel, WheelDelta: 100})
++	if rows := panel.Render(100); !strings.Contains(rows[3], "task 29") {
++		t.Fatalf("truncated content: %v", rows)
++	}
++	updated := append([]string(nil), content...)
++	updated[30] = "[•] updated task"
++	ui.SetWidget("todo-widget", updated, nil)
++	runPostedTasks(t, m)
++	if m.taskPanel != panel || m.tuiInst.GetFocusedComponent() != panel || !strings.Contains(panel.Render(100)[3], "updated task") {
++		t.Fatal("update lost viewport or focus")
++	}
++	panel.HandleInput("\x1b")
++	if m.tuiInst.GetFocusedComponent() != m.editor {
++		t.Fatal("Escape did not focus editor")
++	}
++	m.tuiInst.SetFocus(panel)
++	m.clearInprocessWidget("todo-widget")
++	if m.taskPanel != nil || m.tuiInst.GetFocusedComponent() != m.editor {
++		t.Fatal("removed panel retained focus")
++	}
++}
++
++func TestTaskWidgetProxyHasAllRowsAndKeepsOtherWidgets(t *testing.T) {
++	t.Setenv("PIG_PLUGINS_HOST_VERSION", "test")
++	m := &InteractiveMode{widgetContainer: tui.NewContainer()}
++	proxy := subprocess.NewPushProxy(func() {}, nil)
++	content := []string{"Tasks"}
++	for i := 0; i < 30; i++ {
++		content = append(content, fmt.Sprintf("[ ] task %d", i))
++	}
++	proxy.UpdateContent(content)
++	other := subprocess.NewPushProxy(func() {}, nil)
++	other.UpdateContent([]string{"other widget"})
++	m.syncWidgets(map[string]*subprocess.PushProxy{"todo-widget": proxy, "other": other})
++	if m.taskPanel == nil {
++		t.Fatal("proxy not wrapped")
++	}
++	m.taskPanel.HandleMouse(tui.TuiMouseEvent{Type: tui.MouseWheel, WheelDelta: 100})
++	if !strings.Contains(m.taskPanel.Render(100)[3], "task 29") {
++		t.Fatal("proxy content truncated")
++	}
++	if !strings.Contains(strings.Join(m.widgetContainer.Render(100), "\n"), "other widget") {
++		t.Fatal("other widget changed")
++	}
++	snapshot, ok := proxy.WidgetContent()
++	if !ok {
++		t.Fatal("text content not available")
++	}
++	snapshot[1] = "mutated"
++	again, _ := proxy.WidgetContent()
++	if again[1] == "mutated" {
++		t.Fatal("snapshot changed source")
++	}
++	m.syncWidgets(nil)
++	if m.taskPanel != nil {
++		t.Fatal("removed proxy kept viewport")
++	}
++}
+diff --git a/tui/task_panel.go b/tui/task_panel.go
+new file mode 100644
+index 0000000..19a525f
+--- /dev/null
++++ b/tui/task_panel.go
+@@ -0,0 +1,110 @@
++package tui
++
++import (
++	"fmt"
++	"strings"
++
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++// TaskPanel is a display-only viewport: one header and three task rows.
++// Content supplies untruncated string-list entries, with a header first.
++type TaskPanel struct {
++	Content       func() []string
++	RequestRender func()
++	ReturnFocus   func()
++	offset        int
++	manual        bool
++	focused       bool
++	rows          []string
++	header        string
++}
++
++func (p *TaskPanel) sync() {
++	var content []string
++	if p.Content != nil {
++		content = p.Content()
++	}
++	p.rows, p.header = nil, "Tasks"
++	if len(content) > 0 {
++		p.header, p.rows = content[0], content[1:]
++	}
++	if !p.manual {
++		for i, row := range p.rows {
++			if strings.HasPrefix(widthx.StripTerminalSequences(row), "[•]") {
++				if i < p.offset || i >= p.offset+3 {
++					p.offset = i
++				}
++				break
++			}
++		}
++	}
++	p.offset = max(0, min(p.offset, max(0, len(p.rows)-3)))
++}
++
++func (p *TaskPanel) Render(width int) []string {
++	p.sync()
++	if len(p.rows) == 0 {
++		return nil
++	}
++	hint := " · click to focus"
++	prefix := ""
++	if p.focused {
++		prefix = "[FOCUSED] "
++		hint = " · ↑↓ j/k · Esc: input"
++	}
++	header := fmt.Sprintf("%s%s · %d–%d/%d%s", prefix, p.header, p.offset+1, min(p.offset+3, len(p.rows)), len(p.rows), hint)
++	rows := []string{widthx.TruncateToWidth(header, max(0, width), "…", false)}
++	for i := 0; i < 3; i++ {
++		row := ""
++		if p.offset+i < len(p.rows) {
++			row = p.rows[p.offset+i]
++		}
++		rows = append(rows, widthx.TruncateToWidth(row, max(0, width), "…", false))
++	}
++	return rows
++}
++
++func (p *TaskPanel) scroll(delta int) {
++	p.sync()
++	p.manual = true
++	p.offset = max(0, min(max(0, len(p.rows)-3), p.offset+delta))
++	if p.RequestRender != nil {
++		p.RequestRender()
++	}
++}
++
++func (p *TaskPanel) HandleInput(data string) {
++	if !p.focused || IsKeyRelease(data) {
++		return
++	}
++	switch {
++	case MatchesKeyID(data, "up"), data == "k":
++		p.scroll(-1)
++	case MatchesKeyID(data, "down"), data == "j":
++		p.scroll(1)
++	case MatchesKeyID(data, "escape"):
++		p.focused = false
++		if p.ReturnFocus != nil {
++			p.ReturnFocus()
++		}
++		if p.RequestRender != nil {
++			p.RequestRender()
++		}
++	}
++}
++
++func (p *TaskPanel) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
++	switch {
++	case event.Type == MouseWheel:
++		p.scroll(event.WheelDelta)
++		return &TuiMouseDispatchResult{TuiMouseEventResult: TuiMouseEventResult{Handled: true}}
++	case (event.Type == MousePress || event.Type == MouseClick) && event.Button == MouseButtonLeft:
++		return &TuiMouseDispatchResult{TuiMouseEventResult: TuiMouseEventResult{Focus: true}}
++	}
++	return nil
++}
++
++func (p *TaskPanel) SetFocused(focused bool) { p.focused = focused }
++func (p *TaskPanel) Focused() bool           { return p.focused }
++func (p *TaskPanel) Invalidate()             {}
+diff --git a/tui/task_panel_test.go b/tui/task_panel_test.go
+new file mode 100644
+index 0000000..d408a9e
+--- /dev/null
++++ b/tui/task_panel_test.go
+@@ -0,0 +1,108 @@
++package tui
++
++import (
++	"fmt"
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++func taskPanelFixture(n int) (*TaskPanel, *[]string) {
++	content := []string{"Tasks"}
++	for i := 0; i < n; i++ {
++		content = append(content, fmt.Sprintf("[ ] task %d", i))
++	}
++	return &TaskPanel{Content: func() []string { return content }}, &content
++}
++
++func TestTaskPanelFixedHeightAndWidths(t *testing.T) {
++	for _, n := range []int{0, 1, 2, 3, 4, 30} {
++		p, content := taskPanelFixture(n)
++		before := append([]string(nil), (*content)...)
++		for _, width := range []int{0, 1, 8, 80} {
++			rows := p.Render(width)
++			want := 4
++			if n == 0 {
++				want = 0
++			}
++			if len(rows) != want {
++				t.Fatalf("tasks=%d height=%d", n, len(rows))
++			}
++			for _, row := range rows {
++				if widthx.VisibleWidth(row) > width {
++					t.Fatalf("width=%d row=%q", width, row)
++				}
++			}
++		}
++		if !reflect.DeepEqual(before, *content) {
++			t.Fatal("task source changed")
++		}
++	}
++}
++
++func TestTaskPanelKeyboardMouseAndFocus(t *testing.T) {
++	p, _ := taskPanelFixture(30)
++	returned, renders := 0, 0
++	p.ReturnFocus = func() { returned++ }
++	p.RequestRender = func() { renders++ }
++	p.HandleInput("j")
++	if p.offset != 0 {
++		t.Fatal("unfocused key captured")
++	}
++	result := p.HandleMouse(TuiMouseEvent{Type: MousePress, Button: MouseButtonLeft})
++	if result == nil || !result.Focus {
++		t.Fatal("click did not request focus")
++	}
++	p.SetFocused(true)
++	p.HandleInput("j")
++	p.HandleInput("\x1b[B")
++	if p.offset != 2 {
++		t.Fatalf("down keys: %d", p.offset)
++	}
++	p.HandleInput("\x1b[107;1:3u")
++	if p.offset != 2 {
++		t.Fatal("key release scrolled")
++	}
++	p.HandleInput("k")
++	p.HandleInput("\x1b[A")
++	if p.offset != 0 {
++		t.Fatal("up keys failed")
++	}
++	p.HandleMouse(TuiMouseEvent{Type: MouseWheel, WheelDelta: 100})
++	rows := p.Render(100)
++	if p.offset != 27 || !strings.Contains(rows[3], "task 29") || !strings.Contains(rows[0], "FOCUSED") {
++		t.Fatalf("last tasks unavailable: %v", rows)
++	}
++	p.HandleMouse(TuiMouseEvent{Type: MouseWheel, WheelDelta: -100})
++	if p.offset != 0 {
++		t.Fatal("wheel exceeded first task")
++	}
++	p.HandleInput("\x1b")
++	if returned != 1 || p.Focused() || renders == 0 {
++		t.Fatal("Escape did not return focus")
++	}
++}
++
++func TestTaskPanelFollowsActiveUntilManualScroll(t *testing.T) {
++	p, content := taskPanelFixture(12)
++	(*content)[9] = "[•] active"
++	if rows := p.Render(100); !strings.Contains(strings.Join(rows, "\n"), "active") {
++		t.Fatalf("active task hidden: %v", rows)
++	}
++	p.scroll(-100)
++	(*content)[9] = "[✓] previous"
++	(*content)[12] = "[•] next active"
++	if rows := p.Render(100); p.offset != 0 || strings.Contains(strings.Join(rows, "\n"), "next active") {
++		t.Fatalf("manual position lost: %v", rows)
++	}
++	*content = (*content)[:3]
++	if len(p.Render(100)) != 4 || p.offset != 0 {
++		t.Fatal("short update changed height")
++	}
++	*content = nil
++	if rows := p.Render(100); len(rows) != 0 {
++		t.Fatalf("empty panel: %v", rows)
++	}
++}

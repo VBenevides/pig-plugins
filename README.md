@@ -849,11 +849,7 @@ state, matching upstream fallback rather than the old port's mutation blocking.
 Legacy duplicate content is preserved; exact-content targeting selects the first match, as upstream.
 Use init with unique task text to disambiguate such lists. New sessions start empty.
 
-The live active-phase widget appears **above the editor** through PiG's normal string-array widget
-API (ten-row cap), not a separate side pane. At widths of 72 columns or more, pending/in-progress
-tasks and done/closed tasks occupy separate columns; narrower terminals stack the sections.
-Resize callbacks refresh the layout without changing task order or promotion. When all phases
-are closed, the final phase remains visible. A widget failure warns without undoing an already-durable mutation.
+The live task panel appears **above the editor** with one header and three task rows. It includes tasks from every phase. Use the mouse wheel over the panel to scroll. Click the panel to give it keyboard focus, then use Up/Down or j/k to scroll. Press Escape to return to the input. The `[FOCUSED]` label shows keyboard focus. The panel follows the active task until you scroll manually; task updates then retain your position. When all phases are closed, the completed rows remain available. This display requires `patches/pig/0016-task-panel-host.patch`; unpatched hosts retain their normal string-widget limits. Display changes do not change task state, promotion, or agent-visible tool results. A widget failure warns without undoing an already-durable mutation.
 Cards show Roman-numbered phases and themed status markers; collapsed cards summarize untouched
 phases, while expanded cards show every phase. Terminal controls are removed, and cards are capped
 at 1,024 wrapped lines. `/todos` opens the full read-only phased viewer with a done count;

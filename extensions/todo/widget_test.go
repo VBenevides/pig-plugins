@@ -1,53 +1,59 @@
 package todoext
 
 import (
-	tasks "github.com/VBenevides/pig-plugins/internal/todo"
-	"github.com/VBenevides/pig-plugins/internal/tui"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	tasks "github.com/VBenevides/pig-plugins/internal/todo"
 )
 
-func TestWidgetSeparatesOpenAndClosedWithoutMutatingState(t *testing.T) {
-	phases := []tasks.Phase{{Name: "Build", Tasks: []tasks.Task{{Content: "finished", Status: "completed"}, {Content: "working", Status: "in_progress"}, {Content: "waiting", Status: "pending"}, {Content: "obsolete", Status: "abandoned"}}}}
+func TestWidgetKeepsAllTaskRowsWithoutMutatingState(t *testing.T) {
+	phases := []tasks.Phase{
+		{Name: "Build", Tasks: []tasks.Task{{Content: "finished", Status: "completed"}, {Content: "working", Status: "in_progress"}}},
+		{Name: "Check", Tasks: []tasks.Task{{Content: "waiting", Status: "pending"}, {Content: "obsolete", Status: "abandoned"}}},
+	}
 	before := tasks.ClonePhases(phases)
-	for _, width := range []int{20, 71, 72, 120} {
+	for _, width := range []int{1, 20, 71, 72, 120} {
 		lines := widgetLines(phases, width)
-		joined := strings.Join(lines, "\n")
-		if !strings.Contains(joined, "working") || !strings.Contains(joined, "finished") {
-			t.Fatalf("missing state at %d: %s", width, joined)
+		if len(lines) != 5 || !strings.Contains(lines[0], "2/4") {
+			t.Fatalf("missing task rows: %v", lines)
 		}
-		if width >= 72 {
-			if !strings.Contains(lines[2], "working") || !strings.Contains(lines[2], "finished") || !strings.Contains(lines[2], " │ ") {
-				t.Fatalf("columns: %v", lines)
-			}
-		} else if strings.Index(joined, "working") > strings.Index(joined, "finished") {
-			t.Fatalf("closed task above open: %v", lines)
-		}
-		for _, line := range lines {
-			if tui.Width(line) > width {
-				t.Fatalf("overflow %d: %q", width, line)
+		for i, want := range []string{"[✓] Build · finished", "[•] Build · working", "[ ] Check · waiting", "[×] Check · obsolete"} {
+			if lines[i+1] != want {
+				t.Fatalf("row %d: %q, want %q", i, lines[i+1], want)
 			}
 		}
 	}
 	if !reflect.DeepEqual(before, phases) {
-		t.Fatal("display reordered task state")
+		t.Fatal("display changed task state")
 	}
 }
 
 func TestWidgetRetainsCompletedPhaseAndSanitizes(t *testing.T) {
-	if widgetLines(nil, 80) != nil {
+	if widgetLines(nil, 80) != nil || widgetLines([]tasks.Phase{{Name: "empty"}}, 80) != nil {
 		t.Fatal("empty widget visible")
 	}
-	phases := []tasks.Phase{{Name: "Done", Tasks: []tasks.Task{{Content: "finished\x1b[31m界", Status: "completed"}}}}
-	for _, width := range []int{1, 10, 80} {
-		for _, line := range widgetLines(phases, width) {
-			if strings.Contains(line, "\x1b") || tui.Width(line) > width {
-				t.Fatalf("unsafe layout: %q", line)
-			}
+	phases := []tasks.Phase{{Name: "Done\x1b[31m", Tasks: []tasks.Task{{Content: "finished\x1b[31m界\nnext", Status: "completed"}}}}
+	lines := widgetLines(phases, 1)
+	if len(lines) != 2 || !strings.Contains(lines[1], "finished界 next") {
+		t.Fatalf("completed work disappeared: %v", lines)
+	}
+	for _, line := range lines {
+		if strings.ContainsAny(line, "\x1b\n") {
+			t.Fatalf("unsafe row: %q", line)
 		}
 	}
-	if !strings.Contains(strings.Join(widgetLines(phases, 80), "\n"), "finished") {
-		t.Fatal("completed work disappeared")
+}
+
+func TestWidgetKeepsTasksBeyondOldTruncationLimit(t *testing.T) {
+	phase := tasks.Phase{Name: "Many"}
+	for i := 0; i < 30; i++ {
+		phase.Tasks = append(phase.Tasks, tasks.Task{Content: fmt.Sprintf("task %d", i), Status: "pending"})
+	}
+	lines := widgetLines([]tasks.Phase{phase}, 80)
+	if len(lines) != 31 || !strings.Contains(lines[30], "task 29") {
+		t.Fatalf("tasks truncated: %v", lines)
 	}
 }
