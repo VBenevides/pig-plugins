@@ -1,5 +1,6 @@
 """Run the isolated fullscreen regression: python3 scripts/test_fused_interaction_pages.py /path/to/pig-plugins."""
 
+import contextlib
 import fcntl
 import http.server
 import json
@@ -7,6 +8,7 @@ import os
 import pty
 import re
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -107,6 +109,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(500)
 
 
+def stop_process(process):
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    # Stop extension children before the temporary home is removed.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return  # The process group has already exited.
+
+
 def check(binary):
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -149,9 +166,10 @@ def check(binary):
     try:
         scratch = ROOT / ".agent-work" / "tmp"
         scratch.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(
-            dir=scratch, prefix="fused-pages-"
-        ) as directory:
+        with contextlib.ExitStack() as stack:
+            directory = stack.enter_context(
+                tempfile.TemporaryDirectory(dir=scratch, prefix="fused-pages-")
+            )
             work = Path(directory)
             agent = work / "agent"
             agent.mkdir()
@@ -208,6 +226,7 @@ def check(binary):
                 stderr=slave,
                 start_new_session=True,
             )
+            stack.callback(stop_process, process)
             os.close(slave)
             slave = None
             pump(lambda: b"smart-approve-lancet lax" in transcript, "startup")
@@ -233,13 +252,6 @@ def check(binary):
                 "PASS: fused fullscreen pages, task panel, page keys, and complete model history"
             )
     finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
         if slave is not None:
             os.close(slave)
         os.close(master)
