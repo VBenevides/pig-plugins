@@ -20,6 +20,7 @@ PATCHES = [
     "0012-assistant-rebuild-host.patch",
     "0013-codex-upload-host.patch",
     "0014-request-observation-host.patch",
+    "0015-interaction-pages-host.patch",
 ]
 
 class PatchInventoryTest(unittest.TestCase):

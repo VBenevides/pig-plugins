@@ -1,0 +1,489 @@
+diff --git a/internal/codingagent/interactive.go b/internal/codingagent/interactive.go
+index 5949e31..e3aa987 100644
+--- a/internal/codingagent/interactive.go
++++ b/internal/codingagent/interactive.go
+@@ -618,6 +618,7 @@ type InteractiveMode struct {
+ 	editorContainer *tui.Container
+ 	// transcriptScrollView is the scrollable conversation view in fullscreen mode.
+ 	transcriptScrollView *tui.ScrollView
++	interactionPages     *tui.InteractionPages
+ 	// tuiTornDown guards stopInteractiveTui so the renderer is stopped and the
+ 	// transcript view disposed exactly once across the explicit-quit, ctx.Done,
+ 	// and input-error exit paths. Mirrors upstream's single stopInteractiveTui().
+@@ -1355,6 +1356,9 @@ func NewInteractiveMode(runtimeHost InteractiveRuntime, options InteractiveModeO
+ 	// Pi's constructor uses options.tuiMode ?? settingsManager.getTuiMode().
+ 	if opts.TuiMode == "" {
+ 		opts.TuiMode = string((&SettingsManager{merged: opts.Settings}).GetTuiMode())
++		if os.Getenv("PIG_PLUGINS_HOST_VERSION") != "" && opts.Settings.TuiMode == "" {
++			opts.TuiMode = "fullscreen"
++		}
+ 	}
+ 	toolPreference := opts.Settings.ToolsExpanded
+ 	if opts.SettingsManager != nil {
+diff --git a/internal/codingagent/interactive_events.go b/internal/codingagent/interactive_events.go
+index 8defb4f..19728b7 100644
+--- a/internal/codingagent/interactive_events.go
++++ b/internal/codingagent/interactive_events.go
+@@ -82,6 +82,12 @@ func (m *InteractiveMode) handleAgentEvent(ev agent.AgentEvent) {
+ 		barrier.AcknowledgeEvent()
+ 		return
+ 	}
++	if m.interactionPages != nil {
++		switch ev.(type) {
++		case agent.MessageStartEvent, agent.MessageUpdateEvent, agent.MessageEndEvent, agent.ToolExecutionStartEvent, agent.ToolExecutionUpdateEvent, agent.ToolExecutionEndEvent:
++			m.interactionPages.NoteOutput()
++		}
++	}
+ 	m.programStatusReporter().HandleEvent(ev)
+ 	switch e := ev.(type) {
+ 	case agent.SessionInfoChangedEvent:
+diff --git a/internal/codingagent/interactive_input.go b/internal/codingagent/interactive_input.go
+index fa3bdea..f7d64c4 100644
+--- a/internal/codingagent/interactive_input.go
++++ b/internal/codingagent/interactive_input.go
+@@ -714,6 +714,9 @@ func (m *InteractiveMode) dispatchInputChunk(ctx context.Context, data string, t
+ //
+ //perf:hot
+ func (m *InteractiveMode) handleKey(ctx context.Context, data string) error {
++	if m.handleInteractionPageKey(data) {
++		return nil
++	}
+ 	// Consume the terminal's reply to the startup cell-size query so it never
+ 	// reaches the editor. Mirrors upstream tui.ts handleTerminalInput, which
+ 	// checks consumeCellSizeResponse after the input listeners and before the
+diff --git a/internal/codingagent/interactive_pages.go b/internal/codingagent/interactive_pages.go
+new file mode 100644
+index 0000000..219d21c
+--- /dev/null
++++ b/internal/codingagent/interactive_pages.go
+@@ -0,0 +1,28 @@
++package codingagent
++
++import "github.com/MichaelKinsy/PiG/tui"
++
++func (m *InteractiveMode) handleInteractionPageKey(data string) bool {
++	if m.interactionPages == nil || m.altScreen == nil || m.extensionDialog != nil || m.tuiInst.HasOverlay() || m.tuiInst.GetFocusedComponent() != m.editor {
++		return false
++	}
++	delta := 0
++	switch {
++	case tui.MatchesKeyID(data, "alt+left"), tui.MatchesKeyID(data, "alt+h"):
++		delta = -1
++	case tui.MatchesKeyID(data, "alt+right"), tui.MatchesKeyID(data, "alt+l"):
++		delta = 1
++	default:
++		return false
++	}
++	if tui.IsKeyRelease(data) {
++		return true
++	}
++	if m.interactionPages.Move(delta) {
++		if m.transcriptScrollView != nil {
++			m.transcriptScrollView.ScrollToStart()
++		}
++		m.tuiInst.RequestRender()
++	}
++	return true
++}
+diff --git a/internal/codingagent/interactive_pages_test.go b/internal/codingagent/interactive_pages_test.go
+new file mode 100644
+index 0000000..62d1032
+--- /dev/null
++++ b/internal/codingagent/interactive_pages_test.go
+@@ -0,0 +1,89 @@
++package codingagent
++
++import (
++	"io"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui"
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++func TestInteractionPageKeysAndIsolation(t *testing.T) {
++	t.Setenv("PIG_PLUGINS_HOST_VERSION", "test")
++	m := NewInteractiveMode(nil, InteractiveModeOptions{TuiMode: "fullscreen", AgentDir: t.TempDir()})
++	m.rendererOut = io.Discard
++	handle := m.createInteractiveTui(t.Context())
++	defer handle.cleanup()
++	prepareInteractionTestLayout(m)
++	m.mountInteractiveTui(false)
++	m.chatContainer.Add(tui.NewUserMessageComponent("first", nil, 0, nil))
++	m.chatContainer.Add(tui.NewText("first reply"))
++	m.chatContainer.Add(tui.NewUserMessageComponent("second", nil, 0, nil))
++	m.chatContainer.Add(tui.NewText("second reply"))
++	m.tuiInst.SetFocus(m.editor)
++	m.editor.SetText("unchanged draft")
++	rendered := func() string { return widthx.StripAnsi(strings.Join(m.interactionPages.Render(100), "\n")) }
++	if !strings.Contains(rendered(), "Page 2 / 2") {
++		t.Fatal("latest page not selected")
++	}
++	for _, key := range []string{"\x1bh", "\x1b[1;3D"} {
++		if !m.handleInteractionPageKey(key) || !strings.Contains(rendered(), "Page 1 / 2") {
++			t.Fatalf("previous key %q failed", key)
++		}
++		if !m.handleInteractionPageKey("\x1b[108;3:3u") || !strings.Contains(rendered(), "Page 1 / 2") {
++			t.Fatal("key release changed page")
++		}
++		if !m.handleInteractionPageKey("\x1bl") || !strings.Contains(rendered(), "Page 2 / 2") {
++			t.Fatal("next key failed")
++		}
++	}
++	if !m.handleInteractionPageKey("\x1b[1;3C") {
++		t.Fatal("right boundary leaked to editor")
++	}
++	if m.handleInteractionPageKey("j") {
++		t.Fatal("ordinary input captured")
++	}
++	if got := m.editor.Text(); got != "unchanged draft" {
++		t.Fatalf("draft changed: %q", got)
++	}
++	if m.chatContainer.ChildCount() != 4 {
++		t.Fatal("source transcript changed")
++	}
++	other := tui.NewText("dialog")
++	m.tuiInst.SetFocus(other)
++	if m.handleInteractionPageKey("\x1bh") {
++		t.Fatal("dialog key captured")
++	}
++}
++
++func TestInteractionPagesOnlyMountInDistributionFullscreen(t *testing.T) {
++	for _, tc := range []struct {
++		version, mode string
++		want          bool
++	}{{"", "fullscreen", false}, {"test", "regular", false}, {"test", "fullscreen", true}} {
++		t.Run(tc.version+tc.mode, func(t *testing.T) {
++			t.Setenv("PIG_PLUGINS_HOST_VERSION", tc.version)
++			m := NewInteractiveMode(nil, InteractiveModeOptions{TuiMode: tc.mode, AgentDir: t.TempDir()})
++			m.rendererOut = io.Discard
++			handle := m.createInteractiveTui(t.Context())
++			defer handle.cleanup()
++			prepareInteractionTestLayout(m)
++			m.mountInteractiveTui(false)
++			if (m.interactionPages != nil) != tc.want {
++				t.Fatalf("pages mounted=%v, want=%v", m.interactionPages != nil, tc.want)
++			}
++		})
++	}
++}
++
++func prepareInteractionTestLayout(m *InteractiveMode) {
++	m.chatContainer = tui.NewContainer()
++	m.loadedResourcesContainer = tui.NewContainer()
++	m.startupHeaderPending = true
++	m.editor = tui.NewEditor()
++	m.editorContainer = tui.NewContainer(m.editor)
++	m.widgetContainer = tui.NewContainer()
++	m.statusContainer = tui.NewContainer()
++	m.pendingMessagesContainer = tui.NewContainer()
++}
+diff --git a/internal/codingagent/interactive_tui.go b/internal/codingagent/interactive_tui.go
+index ff6fb06..abd6a09 100644
+--- a/internal/codingagent/interactive_tui.go
++++ b/internal/codingagent/interactive_tui.go
+@@ -44,8 +44,15 @@ func themedScrollbarThumbStyle(text string) string {
+ // than inline in Run. Mirrors upstream init's createChatViewport call.
+ func (m *InteractiveMode) buildChatViewport() ChatViewport {
+ 	m.ensureLoadedResourcesContainer()
++	var document tui.Component = tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer)
++	if os.Getenv("PIG_PLUGINS_HOST_VERSION") != "" {
++		if m.interactionPages == nil {
++			m.interactionPages = tui.NewInteractionPages(m.chatContainer)
++		}
++		document = m.interactionPages
++	}
+ 	return CreateChatViewport(ChatViewportOptions{
+-		Document:            tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer),
++		Document:            document,
+ 		PendingMessages:     m.pendingMessagesContainer,
+ 		Status:              m.statusContainer,
+ 		WidgetsAbove:        m.widgetContainer,
+diff --git a/tui/interaction_pages.go b/tui/interaction_pages.go
+new file mode 100644
+index 0000000..74ca2e9
+--- /dev/null
++++ b/tui/interaction_pages.go
+@@ -0,0 +1,142 @@
++package tui
++
++import (
++	"fmt"
++	"strings"
++
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++// InteractionPages selects a display-only slice of a transcript. The source
++// retains every component; session records and model messages are not changed.
++type InteractionPages struct {
++	source      *Container
++	body        *Container
++	version     uint64
++	initialized bool
++	children    []Component
++	starts      []int
++	selected    *UserMessageComponent
++	live        bool
++	unread      bool
++}
++
++func NewInteractionPages(source *Container) *InteractionPages {
++	return &InteractionPages{source: source, body: NewContainer(), live: true}
++}
++
++func (p *InteractionPages) sync() {
++	p.source.mu.RLock()
++	defer p.source.mu.RUnlock()
++	if p.initialized && p.version == p.source.structureVersion {
++		return
++	}
++	p.initialized, p.version = true, p.source.structureVersion
++	p.children = append(p.children[:0], p.source.children...)
++	p.starts = p.starts[:0]
++	for i, child := range p.children {
++		if _, ok := child.(*UserMessageComponent); ok {
++			p.starts = append(p.starts, i)
++		}
++	}
++	if !p.live {
++		found := false
++		for _, start := range p.starts {
++			if p.children[start] == p.selected {
++				found = true
++				break
++			}
++		}
++		if !found {
++			p.live, p.selected = true, nil
++		}
++	}
++	p.selectBody()
++}
++
++func (p *InteractionPages) index() int {
++	if p.live {
++		return len(p.starts) - 1
++	}
++	for i, start := range p.starts {
++		if p.children[start] == p.selected {
++			return i
++		}
++	}
++	return len(p.starts) - 1
++}
++
++func (p *InteractionPages) selectBody() {
++	index := p.index()
++	if index < 0 {
++		p.body.SetChildren(p.children...)
++		return
++	}
++	start, end := p.starts[index], len(p.children)
++	if index+1 < len(p.starts) {
++		end = p.starts[index+1]
++	}
++	// Keep startup notices on the first page, not on every interaction.
++	if index == 0 {
++		start = 0
++	}
++	p.body.SetChildren(p.children[start:end]...)
++}
++
++// Move changes the selected page without changing the source transcript.
++func (p *InteractionPages) Move(delta int) bool {
++	p.sync()
++	if len(p.starts) == 0 {
++		return false
++	}
++	previous := p.index()
++	next := max(0, min(len(p.starts)-1, previous+delta))
++	if next == previous {
++		return false
++	}
++	p.live = next == len(p.starts)-1
++	if p.live {
++		p.unread = false
++	}
++	p.selected, _ = p.children[p.starts[next]].(*UserMessageComponent)
++	p.selectBody()
++	return true
++}
++
++func (p *InteractionPages) Render(width int) []string {
++	p.sync()
++	index := p.index()
++	if index < 0 {
++		return p.body.Render(width)
++	}
++	user := p.children[p.starts[index]].(*UserMessageComponent)
++	title := strings.Join(strings.Fields(widthx.StripTerminalSequences(user.content)), " ")
++	header := fmt.Sprintf("Page %d / %d · %s", index+1, len(p.starts), title)
++	if !p.live {
++		status := "Latest page →"
++		if p.unread {
++			status = "Latest page has new output →"
++		}
++		header = fmt.Sprintf("Page %d / %d · %s", index+1, len(p.starts), status)
++	}
++	header = widthx.TruncateToWidth(header, max(0, width), "…", false)
++	return append([]string{header}, p.body.Render(width)...)
++}
++
++// NoteOutput records activity without rendering a hidden page.
++func (p *InteractionPages) NoteOutput() {
++	if !p.live {
++		p.unread = true
++	}
++}
++
++func (p *InteractionPages) Invalidate() { p.body.Invalidate() }
++
++func (p *InteractionPages) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
++	if event.Y == 0 {
++		return nil
++	}
++	event.Y--
++	event.Height = max(0, event.Height-1)
++	return DispatchMouseEvent(p.body, event)
++}
+diff --git a/tui/interaction_pages_test.go b/tui/interaction_pages_test.go
+new file mode 100644
+index 0000000..6884894
+--- /dev/null
++++ b/tui/interaction_pages_test.go
+@@ -0,0 +1,106 @@
++package tui
++
++import (
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/tui/widthx"
++)
++
++func pagePrompt(text string) *UserMessageComponent { return NewUserMessageComponent(text, nil, 0, nil) }
++func pageText(p *InteractionPages) string          { return widthx.StripAnsi(strings.Join(p.Render(100), "\n")) }
++
++func TestInteractionPagesDisplayOnly(t *testing.T) {
++	first, second := pagePrompt("first prompt"), pagePrompt("second prompt")
++	source := NewContainer(NewText("startup"), first, NewText("first reply"), NewText("first tool"), second, NewText("second reply"))
++	before := source.Children()
++	pages := NewInteractionPages(source)
++	if got := pageText(pages); !strings.Contains(got, "Page 2 / 2") || !strings.Contains(got, "second reply") || strings.Contains(got, "first reply") {
++		t.Fatalf("latest: %s", got)
++	}
++	if !pages.Move(-1) {
++		t.Fatal("previous page not selected")
++	}
++	if got := pageText(pages); !strings.Contains(got, "first reply") || !strings.Contains(got, "first tool") || !strings.Contains(got, "startup") || strings.Contains(got, "second reply") {
++		t.Fatalf("history: %s", got)
++	}
++	if pages.Move(-1) {
++		t.Fatal("moved past first page")
++	}
++	if !reflect.DeepEqual(before, source.Children()) {
++		t.Fatal("source transcript changed")
++	}
++	if !pages.Move(1) || pages.Move(1) {
++		t.Fatal("latest-page limit failed")
++	}
++}
++
++func TestInteractionPagesHistoryDuringLiveOutput(t *testing.T) {
++	liveReply := NewText("live reply")
++	source := NewContainer(pagePrompt("first"), NewText("old reply"), pagePrompt("second"), liveReply)
++	pages := NewInteractionPages(source)
++	pages.Render(80)
++	pages.Move(-1)
++	liveReply.SetText("updated live reply")
++	pages.NoteOutput()
++	source.Add(NewText("new tool"))
++	if got := pageText(pages); !strings.Contains(got, "Page 1 / 2") || !strings.Contains(got, "new output") || strings.Contains(got, "updated live reply") {
++		t.Fatalf("history jumped: %s", got)
++	}
++	source.Add(pagePrompt("third"))
++	if got := pageText(pages); !strings.Contains(got, "Page 1 / 3") {
++		t.Fatalf("new prompt changed selection: %s", got)
++	}
++	pages.Move(1)
++	if got := pageText(pages); !strings.Contains(got, "updated live reply") || !strings.Contains(got, "new tool") {
++		t.Fatalf("live updates lost: %s", got)
++	}
++	pages.Move(1)
++	if pages.unread {
++		t.Fatal("latest page did not clear notice")
++	}
++	source.Add(pagePrompt("fourth"))
++	if got := pageText(pages); !strings.Contains(got, "Page 4 / 4") {
++		t.Fatalf("live selection did not follow: %s", got)
++	}
++}
++
++func TestInteractionPagesResetAndResize(t *testing.T) {
++	source := NewContainer(pagePrompt("first"), NewText("first reply"), pagePrompt("second"))
++	pages := NewInteractionPages(source)
++	pages.Move(-1)
++	source.SetChildren(pagePrompt("replacement"), NewText("replacement reply"), NewText("same child count"))
++	if got := pageText(pages); !strings.Contains(got, "Page 1 / 1") || !strings.Contains(got, "replacement reply") {
++		t.Fatalf("reset: %s", got)
++	}
++	for _, width := range []int{1, 5, 20, 100} {
++		rows := pages.Render(width)
++		if widthx.VisibleWidth(rows[0]) > width {
++			t.Fatalf("header exceeds width %d: %q", width, rows[0])
++		}
++	}
++	source.Clear()
++	if rows := pages.Render(80); len(rows) != 0 || pages.Move(1) {
++		t.Fatalf("empty transcript: %v", rows)
++	}
++	source.Add(NewText("notice without prompt"))
++	if got := pageText(pages); !strings.Contains(got, "notice without prompt") || strings.Contains(got, "Page") {
++		t.Fatalf("notice: %s", got)
++	}
++}
++
++func TestInteractionPagesHiddenPagesDoNotRender(t *testing.T) {
++	hidden := &pageRenderCounter{}
++	source := NewContainer(pagePrompt("first"), hidden, pagePrompt("second"), NewText("latest"))
++	pages := NewInteractionPages(source)
++	pages.Render(80)
++	if hidden.renderCount != 0 {
++		t.Fatal("hidden page rendered")
++	}
++}
++
++type pageRenderCounter struct{ renderCount int }
++
++func (c *pageRenderCounter) Render(int) []string { c.renderCount++; return []string{"hidden"} }
++func (c *pageRenderCounter) Invalidate()         {}
+diff --git a/tui/tui.go b/tui/tui.go
+index 432ffd5..99b743b 100644
+--- a/tui/tui.go
++++ b/tui/tui.go
+@@ -94,9 +94,10 @@ type BaseComponent struct{ invalidatable }
+ // Container stacks child components vertically.
+ type Container struct {
+ 	invalidatable
+-	children []Component
+-	mu       sync.RWMutex
+-	maxLines atomic.Int64 // 0 = unlimited; set via SetMaxLines
++	children         []Component
++	mu               sync.RWMutex
++	maxLines         atomic.Int64 // 0 = unlimited; set via SetMaxLines
++	structureVersion uint64
+ 
+ 	// childCache memoizes each child's rendered lines keyed by component
+ 	// identity. renderedLines is the immutable concatenation consumed by the
+@@ -174,6 +175,7 @@ func NewContainer(children ...Component) *Container {
+ }
+ 
+ func (c *Container) invalidateStructureLocked() {
++	c.structureVersion++
+ 	c.renderedValid = false
+ 	c.dirty.Store(true)
+ 	c.notifySurface()
