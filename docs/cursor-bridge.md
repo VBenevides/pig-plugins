@@ -5,6 +5,24 @@ It does not restore the removed private-protocol provider.
 The published contract permits JSON Connect requests over local HTTP/1.1.
 The implementation uses the Go standard library. It does not require a separate Python or Node installation.
 
+## Optional installation
+
+Run `sh scripts/install.sh --install-cursor` during distribution installation.
+For an installed distribution, run `pig-plugins --install-cursor`.
+Both paths install the pinned standalone bridge from Cursor's official release.
+Normal installation and startup do not download the bridge.
+
+The installer checks the pinned archive SHA-256 before extraction.
+It uses a private staging directory and an exclusive lock.
+It publishes a versioned installation only after verification.
+Repeated installation checks local integrity without downloading again.
+An invalid existing installation is preserved for manual diagnosis.
+
+The installed path is `<agent-directory>/bin/cursor-sdk-bridge/1.2.0/cursor-sdk-bridge`.
+Windows uses the `.exe` suffix. Unsupported platforms fail before download.
+The upstream archive is downloaded directly to the user's machine, not bundled in pig-plugins.
+
+
 ## Current scope
 
 The isolated adapter supports the bridge handshake, version checks, catalog calls,

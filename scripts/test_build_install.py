@@ -101,6 +101,26 @@ chmod +x "$2"
         return subprocess.run([str(self.root / "scripts" / name), *map(str, args)],
                               env=self.env, capture_output=True, text=True, timeout=10)
 
+    def test_cursor_install_is_explicit_and_forwarded(self):
+        self.tool("cursor-binary", 'printf "cursor-invocation:%s\\n" "$*" >> "$TOOL_LOG"\n')
+        self.env["CURSOR_BINARY_FIXTURE"] = str(self.tools / "cursor-binary")
+        self.tool("builder", '''while [ "$1" != --out ]; do shift; done
+cp "$CURSOR_BINARY_FIXTURE" "$2"
+chmod +x "$2"
+''')
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = Path(self.env["TOOL_LOG"])
+        self.assertNotIn("cursor-invocation:", log.read_text())
+        result = self.run_script("install.sh", "--install-cursor")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(log.read_text().count("cursor-invocation:--install-cursor"), 1)
+
+    def test_cursor_install_rejects_unknown_flags(self):
+        result = self.run_script("install.sh", "--install-cursor=yes")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown option", result.stderr)
+
     def test_pinned_checkout_mismatch_stops_before_installation(self):
         self.env["PIG_PLUGINS_COMMIT"] = "a" * 40
         self.tool("git", 'echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n')
