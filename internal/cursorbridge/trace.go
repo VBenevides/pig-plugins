@@ -2,9 +2,11 @@ package cursorbridge
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // traceEnv names an opt-in JSONL file for live diagnosis. Only structural
@@ -19,10 +21,21 @@ func traceWrite(record map[string]any) {
 	}
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
+		traceFailure(err)
 		return
 	}
 	defer file.Close()
-	_ = json.NewEncoder(file).Encode(record)
+	if err := json.NewEncoder(file).Encode(record); err != nil {
+		traceFailure(err)
+	}
+}
+
+var traceFailed sync.Once
+
+// traceFailure reports the first trace write error once. Tracing never changes
+// the bridge request, so a failed trace must not fail the turn.
+func traceFailure(err error) {
+	traceFailed.Do(func() { fmt.Fprintf(os.Stderr, "cursor trace: cannot write %s: %v\n", traceEnv, err) })
 }
 
 func capName(value string) string {

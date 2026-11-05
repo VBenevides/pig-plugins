@@ -111,7 +111,7 @@ from them. A top-level `tools` array is still accepted.
 
 Set `PIG_CURSOR_TRACE=<file>` to write one JSON line per stream event. Lines hold event types,
 tool names (64 characters at most), callback counts and string lengths. They never hold prompts,
-answers, reasoning, tool arguments or credentials. Tracing also asks the bridge for delta and step events.
+answers, reasoning, tool arguments or credentials. Tracing never changes the bridge request. A trace write error prints one line on stderr.
 
 A cancelled earlier agent can still send late tool callbacks. They are refused with HTTP 409 and
 do not fail the current turn.

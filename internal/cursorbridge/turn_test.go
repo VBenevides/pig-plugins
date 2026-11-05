@@ -20,6 +20,7 @@ type mockBridge struct {
 	callback  string
 	token     string
 	created   map[string]json.RawMessage
+	sendBody  string
 	onSend    func(m *mockBridge, w http.ResponseWriter, r *http.Request, agentID string)
 	cancelled bool
 }
@@ -83,7 +84,10 @@ func (m *mockBridge) server() *httptest.Server {
 			io.WriteString(w, `{}`)
 		case strings.HasSuffix(r.URL.Path, "SdkAgentService/Send"):
 			// Reading the body lets the server notice a client disconnect.
-			_, _ = io.Copy(io.Discard, r.Body)
+			raw, _ := io.ReadAll(r.Body)
+			m.mu.Lock()
+			m.sendBody = string(raw)
+			m.mu.Unlock()
 			w.Header().Set("Content-Type", "application/connect+json")
 			m.onSend(m, w, r, "agent-1")
 		default:

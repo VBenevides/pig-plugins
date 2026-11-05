@@ -218,3 +218,23 @@ func TestToolRequestsListedCountIsNotNativeActivity(t *testing.T) {
 		t.Fatal("native shell call accepted")
 	}
 }
+
+func TestTraceDoesNotChangeBridgeRequestAndReportsWriteErrors(t *testing.T) {
+	body := func() string {
+		m := &mockBridge{t: t}
+		m.onSend = func(_ *mockBridge, w http.ResponseWriter, r *http.Request, _ string) { finished(w, nil) }
+		server := m.server()
+		defer server.Close()
+		if _, err := processFor(server).RunTurn(context.Background(), "key", Selection{ID: "grok"}, nil, "prompt", func(Event) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.sendBody
+	}
+	plain := body()
+	t.Setenv(traceEnv, t.TempDir()+"/missing/dir/trace.jsonl")
+	if traced := body(); traced != plain || plain == "" {
+		t.Fatalf("trace changed request:\n%s\n%s", plain, traced)
+	}
+}
