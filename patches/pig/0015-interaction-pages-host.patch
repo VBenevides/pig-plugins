@@ -90,7 +90,7 @@ new file mode 100644
 index 0000000..62d1032
 --- /dev/null
 +++ b/internal/codingagent/interactive_pages_test.go
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,91 @@
 +package codingagent
 +
 +import (
@@ -110,24 +110,26 @@ index 0000000..62d1032
 +	defer handle.cleanup()
 +	prepareInteractionTestLayout(m)
 +	m.mountInteractiveTui(false)
++	m.headerContainer().Add(tui.NewText("startup icon"))
++	m.loadedResourcesContainer.Add(tui.NewText("startup resources"))
 +	m.chatContainer.Add(tui.NewUserMessageComponent("first", nil, 0, nil))
 +	m.chatContainer.Add(tui.NewText("first reply"))
 +	m.chatContainer.Add(tui.NewUserMessageComponent("second", nil, 0, nil))
 +	m.chatContainer.Add(tui.NewText("second reply"))
 +	m.tuiInst.SetFocus(m.editor)
 +	m.editor.SetText("unchanged draft")
-+	rendered := func() string { return widthx.StripAnsi(strings.Join(m.interactionPages.Render(100), "\n")) }
-+	if !strings.Contains(rendered(), "Page 2 / 2") {
++	rendered := func() string { return widthx.StripAnsi(strings.Join(m.transcriptScrollView.Render(100), "\n")) }
++	if !strings.Contains(rendered(), "Page 2 / 2") || strings.Contains(rendered(), "startup") {
 +		t.Fatal("latest page not selected")
 +	}
 +	for _, key := range []string{"\x1bh", "\x1b[1;3D"} {
-+		if !m.handleInteractionPageKey(key) || !strings.Contains(rendered(), "Page 1 / 2") {
++		if !m.handleInteractionPageKey(key) || !strings.Contains(rendered(), "Page 1 / 2") || !strings.Contains(rendered(), "startup icon") || !strings.Contains(rendered(), "startup resources") {
 +			t.Fatalf("previous key %q failed", key)
 +		}
 +		if !m.handleInteractionPageKey("\x1b[108;3:3u") || !strings.Contains(rendered(), "Page 1 / 2") {
 +			t.Fatal("key release changed page")
 +		}
-+		if !m.handleInteractionPageKey("\x1bl") || !strings.Contains(rendered(), "Page 2 / 2") {
++		if !m.handleInteractionPageKey("\x1bl") || !strings.Contains(rendered(), "Page 2 / 2") || strings.Contains(rendered(), "startup") {
 +			t.Fatal("next key failed")
 +		}
 +	}
@@ -184,14 +186,15 @@ diff --git a/internal/codingagent/interactive_tui.go b/internal/codingagent/inte
 index ff6fb06..abd6a09 100644
 --- a/internal/codingagent/interactive_tui.go
 +++ b/internal/codingagent/interactive_tui.go
-@@ -44,8 +44,15 @@ func themedScrollbarThumbStyle(text string) string {
+@@ -44,8 +44,16 @@ func themedScrollbarThumbStyle(text string) string {
  // than inline in Run. Mirrors upstream init's createChatViewport call.
  func (m *InteractiveMode) buildChatViewport() ChatViewport {
  	m.ensureLoadedResourcesContainer()
-+	var document tui.Component = tui.NewContainer(m.headerContainer(), m.loadedResourcesContainer, m.chatContainer)
++	header := m.headerContainer()
++	var document tui.Component = tui.NewContainer(header, m.loadedResourcesContainer, m.chatContainer)
 +	if os.Getenv("PIG_PLUGINS_HOST_VERSION") != "" {
 +		if m.interactionPages == nil {
-+			m.interactionPages = tui.NewInteractionPages(m.chatContainer)
++			m.interactionPages = tui.NewInteractionPages(m.chatContainer, header, m.loadedResourcesContainer)
 +		}
 +		document = m.interactionPages
 +	}
@@ -206,7 +209,7 @@ new file mode 100644
 index 0000000..74ca2e9
 --- /dev/null
 +++ b/tui/interaction_pages.go
-@@ -0,0 +1,142 @@
+@@ -0,0 +1,148 @@
 +package tui
 +
 +import (
@@ -214,6 +217,7 @@ index 0000000..74ca2e9
 +	"strings"
 +
 +	"github.com/MichaelKinsy/PiG/tui/widthx"
++	pigplugins "github.com/VBenevides/pig-plugins"
 +)
 +
 +// InteractionPages selects a display-only slice of a transcript. The source
@@ -221,6 +225,7 @@ index 0000000..74ca2e9
 +type InteractionPages struct {
 +	source      *Container
 +	body        *Container
++	startup     []Component
 +	version     uint64
 +	initialized bool
 +	children    []Component
@@ -230,8 +235,8 @@ index 0000000..74ca2e9
 +	unread      bool
 +}
 +
-+func NewInteractionPages(source *Container) *InteractionPages {
-+	return &InteractionPages{source: source, body: NewContainer(), live: true}
++func NewInteractionPages(source *Container, startup ...Component) *InteractionPages {
++	return &InteractionPages{source: source, body: NewContainer(), startup: append([]Component(nil), startup...), live: true}
 +}
 +
 +func (p *InteractionPages) sync() {
@@ -277,19 +282,23 @@ index 0000000..74ca2e9
 +
 +func (p *InteractionPages) selectBody() {
 +	index := p.index()
-+	if index < 0 {
-+		p.body.SetChildren(p.children...)
-+		return
++	pigplugins.SetInteractionPage(index+1, len(p.starts))
++	start, end := 0, len(p.children)
++	if index >= 0 {
++		start = p.starts[index]
++		if index+1 < len(p.starts) {
++			end = p.starts[index+1]
++		}
 +	}
-+	start, end := p.starts[index], len(p.children)
-+	if index+1 < len(p.starts) {
-+		end = p.starts[index+1]
-+	}
-+	// Keep startup notices on the first page, not on every interaction.
++	// Keep startup content and notices on the first page only.
 +	if index == 0 {
 +		start = 0
 +	}
-+	p.body.SetChildren(p.children[start:end]...)
++	children := p.children[start:end]
++	if index <= 0 && len(p.startup) > 0 {
++		children = append(append([]Component(nil), p.startup...), children...)
++	}
++	p.body.SetChildren(children...)
 +}
 +
 +// Move changes the selected page without changing the source transcript.
@@ -320,13 +329,13 @@ index 0000000..74ca2e9
 +	}
 +	user := p.children[p.starts[index]].(*UserMessageComponent)
 +	title := strings.Join(strings.Fields(widthx.StripTerminalSequences(user.content)), " ")
-+	header := fmt.Sprintf("Page %d / %d · %s", index+1, len(p.starts), title)
++	header := fmt.Sprintf("Page %d / %d · Alt+←/→ or Alt+H/L · %s", index+1, len(p.starts), title)
 +	if !p.live {
 +		status := "Latest page →"
 +		if p.unread {
 +			status = "Latest page has new output →"
 +		}
-+		header = fmt.Sprintf("Page %d / %d · %s", index+1, len(p.starts), status)
++		header = fmt.Sprintf("Page %d / %d · Alt+←/→ or Alt+H/L · %s", index+1, len(p.starts), status)
 +	}
 +	header = widthx.TruncateToWidth(header, max(0, width), "…", false)
 +	return append([]string{header}, p.body.Render(width)...)
@@ -354,7 +363,7 @@ new file mode 100644
 index 0000000..6884894
 --- /dev/null
 +++ b/tui/interaction_pages_test.go
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,137 @@
 +package tui
 +
 +import (
@@ -461,6 +470,37 @@ index 0000000..6884894
 +
 +func (c *pageRenderCounter) Render(int) []string { c.renderCount++; return []string{"hidden"} }
 +func (c *pageRenderCounter) Invalidate()         {}
++
++func TestInteractionPagesStartupOnlyOnFirstPage(t *testing.T) {
++	resources := NewContainer()
++	header := NewText("pig startup icon")
++	source := NewContainer()
++	pages := NewInteractionPages(source, header, resources)
++	if got := pageText(pages); !strings.Contains(got, "pig startup icon") {
++		t.Fatalf("startup before first prompt missing: %s", got)
++	}
++	resources.Add(NewText("startup resource information"))
++	source.Add(pagePrompt("first"))
++	if got := pageText(pages); !strings.Contains(got, "pig startup icon") || !strings.Contains(got, "startup resource information") {
++		t.Fatalf("first interaction lost startup content: %s", got)
++	}
++	source.Add(pagePrompt("second"))
++	if got := pageText(pages); strings.Contains(got, "pig startup icon") || strings.Contains(got, "startup resource information") {
++		t.Fatalf("second interaction repeats startup content: %s", got)
++	}
++	pages.Move(-1)
++	if got := pageText(pages); !strings.Contains(got, "pig startup icon") || !strings.Contains(got, "startup resource information") {
++		t.Fatalf("returning to first interaction lost startup content: %s", got)
++	}
++	pages.Move(1)
++	if got := pageText(pages); strings.Contains(got, "pig startup icon") || strings.Contains(got, "startup resource information") {
++		t.Fatalf("returning to latest repeats startup content: %s", got)
++	}
++	source.Clear()
++	if got := pageText(pages); !strings.Contains(got, "pig startup icon") || !strings.Contains(got, "startup resource information") {
++		t.Fatalf("new session lost startup content: %s", got)
++	}
++}
 diff --git a/tui/tui.go b/tui/tui.go
 index 432ffd5..99b743b 100644
 --- a/tui/tui.go
@@ -487,3 +527,226 @@ index 432ffd5..99b743b 100644
  	c.renderedValid = false
  	c.dirty.Store(true)
  	c.notifySurface()
+diff --git a/tui/user_message_block.go b/tui/user_message_block.go
+--- a/tui/user_message_block.go
++++ b/tui/user_message_block.go
+@@ -15,15 +15,14 @@
+ // UserMessageComponent renders user Markdown in a padded background with OSC 133 zone markers. Closing markers prefix the existing bottom padding row and do not add height.
+ type UserMessageComponent struct {
+-	Container
++	Container
+-	content       string
+-	inner         *Markdown
+-	outputPad     int
+-	markdownTheme *MarkdownTheme
+-	transform     func(string, int) string
+-	// images are the message's image blocks, which only a frontend draws,
+-	// and decoded those images as frontendImages decodes them once.
+-	images  []ImageBlock
+-	decoded []frontend.ViewImage
++	content             string
++	inner               *Markdown
++	outputPad           int
++	markdownTheme       *MarkdownTheme
++	transform           func(string, int) string
++	images              []ImageBlock
++	decoded             []frontend.ViewImage
++	terminalImagesReady bool
+ }
+
+ // NewUserMessageComponent preserves source list markers and backslash escapes in user text. It is Pi's constructor(text,
+@@ -40,11 +39,11 @@
+-	return block
++	return block
+ }
+
+-// SetImages records the image blocks the message carries. The terminal
+-// renderer draws none, as Pi's UserMessageComponent; a frontend session
+-// receives them on the message's MarkdownText (pig additive, D91).
++// SetImages records the message's image blocks for terminal and frontend display.
+ func (u *UserMessageComponent) SetImages(images []ImageBlock) {
+-	u.images, u.decoded = images, nil
++	u.images, u.decoded = images, nil
++	u.terminalImagesReady = false
++	u.SetChildren(u.inner)
+-	u.invalidatable.Invalidate()
++	u.invalidatable.Invalidate()
+ }
+
+@@ -106,12 +105,13 @@
+ func (u *UserMessageComponent) Dispose() { u.inner.Dispose() }
+
+ func (u *UserMessageComponent) Render(width int) []string {
+-	u.inner.SetDefaultColor(ActiveTheme().UserMessageText)
+-	out := u.renderCopy(width)
+-	if len(out) == 0 {
+-		return out
+-	}
+-	out[0] = userMessageZoneStart + out[0]
+-	out[len(out)-1] = userMessageZoneEnd + out[len(out)-1]
+-	return out
++	u.ensureTerminalImages()
++	u.inner.SetDefaultColor(ActiveTheme().UserMessageText)
++	out := u.renderCopy(width)
++	if len(out) == 0 {
++		return out
++	}
++	out[0] = userMessageZoneStart + out[0]
++	out[len(out)-1] = userMessageZoneEnd + out[len(out)-1]
++	return out
+ }
+diff --git a/tui/user_message_images.go b/tui/user_message_images.go
+new file mode 100644
+--- /dev/null
++++ b/tui/user_message_images.go
+@@ -0,0 +1,49 @@
++package tui
++
++import (
++	"log"
++	"os"
++	"regexp"
++
++	pigplugins "github.com/VBenevides/pig-plugins"
++)
++
++var storedUserImage = regexp.MustCompile(`image-view://sha256/[a-f0-9]{64}\.(?:png|jpg|gif|webp)`)
++
++// ensureTerminalImages retains decoded sources with their message, so navigating
++// away and back does not depend on the original file or the preview blob.
++func (u *UserMessageComponent) ensureTerminalImages() {
++	if u.terminalImagesReady || os.Getenv("PIG_PLUGINS_HOST_VERSION") == "" {
++		return
++	}
++	u.terminalImagesReady = true
++	references := storedUserImage.FindAllString(u.content, 16)
++	count := min(16, max(len(u.images), len(references)))
++	for index := 0; index < count; index++ {
++		var source ImageBlock
++		if index < len(u.images) {
++			source = u.images[index]
++		}
++		if GetImageDimensions(source.Data, source.MIMEType) == nil && index < len(references) {
++			data, mimeType, err := pigplugins.ReadStoredImage(references[index])
++			if err != nil {
++				log.Printf("transcript image %d: %v", index+1, err)
++			} else {
++				source = ImageBlock{Data: data, MIMEType: mimeType}
++			}
++		}
++		dimensions := GetImageDimensions(source.Data, source.MIMEType)
++		if dimensions == nil {
++			if source.Data != "" {
++				log.Printf("transcript image %d: invalid image data", index+1)
++			}
++			u.Add(NewText("[IMAGE NO LONGER AVAILABLE]"))
++			continue
++		}
++		image := NewImage(source.Data, source.MIMEType, DefaultImageTheme(), ImageOptions{MaxWidthCells: 80, MaxHeightCells: 24}, dimensions)
++		u.Add(image)
++		if source.MIMEType != "image/png" {
++			ensureImageTranscoder(u.Invalidate)
++		}
++	}
++}
+diff --git a/tui/user_message_images_test.go b/tui/user_message_images_test.go
+new file mode 100644
+--- /dev/null
++++ b/tui/user_message_images_test.go
+@@ -0,0 +1,96 @@
++package tui
++
++import (
++	"bytes"
++	"encoding/base64"
++	"image"
++	"image/png"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func transcriptTestImage(t *testing.T) string {
++	t.Helper()
++	var data bytes.Buffer
++	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
++		t.Fatal(err)
++	}
++	return base64.StdEncoding.EncodeToString(data.Bytes())
++}
++
++func TestUserMessageTerminalImagesSurvivePagesAndMissingFiles(t *testing.T) {
++	t.Setenv("PIG_PLUGINS_HOST_VERSION", "test")
++	previous := GetCapabilities()
++	SetCapabilities(TerminalCapabilities{Images: ImageProtocolKitty})
++	t.Cleanup(func() { SetCapabilities(previous) })
++	dir := t.TempDir()
++	t.Setenv("PIG_CODING_AGENT_DIR", dir)
++	hash := strings.Repeat("a", 64) + ".png"
++	ref := "image-view://sha256/" + hash
++	data := transcriptTestImage(t)
++	blob := filepath.Join(dir, "image-view", "blobs", hash)
++	if err := os.MkdirAll(filepath.Dir(blob), 0700); err != nil {
++		t.Fatal(err)
++	}
++	raw, err := base64.StdEncoding.DecodeString(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(blob, raw, 0600); err != nil {
++		t.Fatal(err)
++	}
++	first := NewUserMessageComponent("[Image #1]("+ref+")", nil, 0, nil)
++	source := NewContainer(first, NewUserMessageComponent("next", nil, 0, nil))
++	pages := NewInteractionPages(source)
++	pages.Render(100)
++	pages.Move(-1)
++	pages.Render(100)
++	children := first.Children()
++	if len(children) != 2 {
++		t.Fatalf("missing image child: %v", children)
++	}
++	saved, ok := children[1].(*Image)
++	if !ok || saved.Base64Data != data {
++		t.Fatal("stored image was not loaded")
++	}
++	if lines := strings.Join(saved.Render(100), "\n"); !strings.Contains(lines, "\x1b_G") {
++		t.Fatal("image did not emit Kitty graphics")
++	}
++	if err := os.Remove(blob); err != nil {
++		t.Fatal(err)
++	}
++	pages.Move(1)
++	pages.Render(100)
++	pages.Move(-1)
++	pages.Render(80)
++	if got := first.Children(); len(got) != 2 || got[1] != saved {
++		t.Fatal("page navigation discarded cached image")
++	}
++	// Session attachment data also survives the loss of its preview blob.
++	restored := NewUserMessageComponent("[Image #1]("+ref+")", nil, 0, nil)
++	restored.SetImages([]ImageBlock{{Data: data, MIMEType: "image/png"}})
++	restored.Render(100)
++	if children := restored.Children(); len(children) != 2 {
++		t.Fatal("session image not rendered")
++	}
++	missing := NewUserMessageComponent("[Image #1]("+ref+")", nil, 0, nil)
++	if lines := strings.Join(missing.Render(100), "\n"); !strings.Contains(lines, "[IMAGE NO LONGER AVAILABLE]") {
++		t.Fatalf("missing fallback: %s", lines)
++	}
++}
++
++func TestUserMessageTerminalImageFailureKeepsNeighbors(t *testing.T) {
++	t.Setenv("PIG_PLUGINS_HOST_VERSION", "test")
++	block := NewUserMessageComponent("images", nil, 0, nil)
++	block.SetImages([]ImageBlock{{Data: "broken", MIMEType: "image/png"}, {Data: transcriptTestImage(t), MIMEType: "image/png"}})
++	block.Render(100)
++	children := block.Children()
++	if len(children) != 3 {
++		t.Fatalf("children=%d", len(children))
++	}
++	if _, ok := children[2].(*Image); !ok {
++		t.Fatal("bad image suppressed successful neighbor")
++	}
++}

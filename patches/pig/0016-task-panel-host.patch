@@ -25,7 +25,7 @@ index 2806d4f..bde6992 100644
  		var component tui.Component
  		if content != nil {
  			component = widgetLines(content)
-+			if key == "todo-widget" && taskPanelEnabled() {
++			if key == "todo-sidebar" && taskPanelEnabled() {
 +				component = taskWidgetContent(append([]string(nil), content...))
 +			}
  		}
@@ -78,7 +78,7 @@ index 7a2aa9b..e5b19bc 100644
  	var below []tui.Component
 +	taskPanelPresent := false
  	for _, entry := range entries {
-+		if entry.key == "todo-widget" {
++		if entry.key == "todo-sidebar" {
 +			entry.component = m.taskWidget(entry.component)
 +			taskPanelPresent = entry.component == m.taskPanel
 +		}
@@ -183,7 +183,7 @@ index 0000000..f66b4ad
 +	for i := 0; i < 30; i++ {
 +		content = append(content, fmt.Sprintf("[ ] task %d", i))
 +	}
-+	ui.SetWidget("todo-widget", content, nil)
++	ui.SetWidget("todo-sidebar", content, nil)
 +	runPostedTasks(t, m)
 +	panel := m.taskPanel
 +	if panel == nil || len(panel.Render(100)) != 4 {
@@ -196,7 +196,7 @@ index 0000000..f66b4ad
 +	}
 +	updated := append([]string(nil), content...)
 +	updated[30] = "[•] updated task"
-+	ui.SetWidget("todo-widget", updated, nil)
++	ui.SetWidget("todo-sidebar", updated, nil)
 +	runPostedTasks(t, m)
 +	if m.taskPanel != panel || m.tuiInst.GetFocusedComponent() != panel || !strings.Contains(panel.Render(100)[3], "updated task") {
 +		t.Fatal("update lost viewport or focus")
@@ -206,7 +206,7 @@ index 0000000..f66b4ad
 +		t.Fatal("Escape did not focus editor")
 +	}
 +	m.tuiInst.SetFocus(panel)
-+	m.clearInprocessWidget("todo-widget")
++	m.clearInprocessWidget("todo-sidebar")
 +	if m.taskPanel != nil || m.tuiInst.GetFocusedComponent() != m.editor {
 +		t.Fatal("removed panel retained focus")
 +	}
@@ -223,7 +223,7 @@ index 0000000..f66b4ad
 +	proxy.UpdateContent(content)
 +	other := subprocess.NewPushProxy(func() {}, nil)
 +	other.UpdateContent([]string{"other widget"})
-+	m.syncWidgets(map[string]*subprocess.PushProxy{"todo-widget": proxy, "other": other})
++	m.syncWidgets(map[string]*subprocess.PushProxy{"todo-sidebar": proxy, "other": other})
 +	if m.taskPanel == nil {
 +		t.Fatal("proxy not wrapped")
 +	}
@@ -253,7 +253,7 @@ new file mode 100644
 index 0000000..19a525f
 --- /dev/null
 +++ b/tui/task_panel.go
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,135 @@
 +package tui
 +
 +import (
@@ -273,6 +273,8 @@ index 0000000..19a525f
 +	manual        bool
 +	focused       bool
 +	rows          []string
++	closed        []string
++	pendingCount  int
 +	header        string
 +}
 +
@@ -285,6 +287,19 @@ index 0000000..19a525f
 +	if len(content) > 0 {
 +		p.header, p.rows = content[0], content[1:]
 +	}
++	p.closed = nil
++	var pending []string
++	for _, row := range p.rows {
++		text := widthx.StripTerminalSequences(row)
++		if strings.HasPrefix(text, "[✓]") || strings.HasPrefix(text, "[×]") {
++			p.closed = append(p.closed, row)
++		} else {
++			pending = append(pending, row)
++		}
++	}
++	p.pendingCount = len(pending)
++	p.rows = make([]string, max(len(pending), len(p.closed)))
++	copy(p.rows, pending)
 +	if !p.manual {
 +		for i, row := range p.rows {
 +			if strings.HasPrefix(widthx.StripTerminalSequences(row), "[•]") {
@@ -309,14 +324,24 @@ index 0000000..19a525f
 +		prefix = "[FOCUSED] "
 +		hint = " · ↑↓ j/k · Esc: input"
 +	}
-+	header := fmt.Sprintf("%s%s · %d–%d/%d%s", prefix, p.header, p.offset+1, min(p.offset+3, len(p.rows)), len(p.rows), hint)
-+	rows := []string{widthx.TruncateToWidth(header, max(0, width), "…", false)}
++	left := max(0, (width-3)/2)
++	right := max(0, width-3-left)
++	join := func(a, b string) string {
++		a = widthx.TruncateToWidth(a, left, "…", false)
++		return widthx.TruncateToWidth(a+strings.Repeat(" ", max(0, left-widthx.VisibleWidth(a)))+" │ "+widthx.TruncateToWidth(b, right, "…", false), max(0, width), "…", false)
++	}
++	header := fmt.Sprintf("%sTasks · Pending (%d) · %d–%d/%d%s", prefix, p.pendingCount, p.offset+1, min(p.offset+3, len(p.rows)), len(p.rows), hint)
++	rows := []string{join(header, fmt.Sprintf("Done / Closed (%d) · %s", len(p.closed), p.header))}
 +	for i := 0; i < 3; i++ {
 +		row := ""
 +		if p.offset+i < len(p.rows) {
 +			row = p.rows[p.offset+i]
 +		}
-+		rows = append(rows, widthx.TruncateToWidth(row, max(0, width), "…", false))
++		closed := ""
++		if p.offset+i < len(p.closed) {
++			closed = p.closed[p.offset+i]
++		}
++		rows = append(rows, join(row, closed))
 +	}
 +	return rows
 +}
@@ -369,7 +394,7 @@ new file mode 100644
 index 0000000..d408a9e
 --- /dev/null
 +++ b/tui/task_panel_test.go
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,138 @@
 +package tui
 +
 +import (
@@ -380,6 +405,36 @@ index 0000000..d408a9e
 +
 +	"github.com/MichaelKinsy/PiG/tui/widthx"
 +)
++
++func TestTaskPanelPendingAndDoneColumns(t *testing.T) {
++	content := []string{"Tasks · phase", "[✓] finished", "[ ] waiting", "[×] cancelled", "[•] working"}
++	before := append([]string(nil), content...)
++	p := &TaskPanel{Content: func() []string { return content }}
++	rows := p.Render(120)
++	if len(rows) != 4 || !strings.Contains(rows[0], "Pending (2)") || !strings.Contains(rows[0], "Done / Closed (2)") {
++		t.Fatalf("missing column headers: %v", rows)
++	}
++	for i, want := range [][2]string{{"waiting", "finished"}, {"working", "cancelled"}} {
++		columns := strings.Split(rows[i+1], " │ ")
++		if len(columns) != 2 || !strings.Contains(columns[0], want[0]) || !strings.Contains(columns[1], want[1]) {
++			t.Fatalf("incorrect task columns: %v", rows)
++		}
++	}
++	if !reflect.DeepEqual(content, before) {
++		t.Fatal("render changed task state")
++	}
++	content = []string{"Tasks", "[✓] one", "[✓] two", "[✓] three", "[✓] four"}
++	p.HandleMouse(TuiMouseEvent{Type: MouseWheel, WheelDelta: 100})
++	rows = p.Render(120)
++	columns := strings.Split(rows[3], " │ ")
++	if len(rows) != 4 || len(columns) != 2 || strings.TrimSpace(columns[0]) != "" || !strings.Contains(columns[1], "four") {
++		t.Fatalf("done-only scrolling failed: %v", rows)
++	}
++	content = []string{"Tasks", "[ ] back to pending"}
++	if rows = p.Render(120); p.offset != 0 || !strings.Contains(rows[1], "back to pending") {
++		t.Fatalf("column update did not clamp scroll: %v", rows)
++	}
++}
 +
 +func taskPanelFixture(n int) (*TaskPanel, *[]string) {
 +	content := []string{"Tasks"}
