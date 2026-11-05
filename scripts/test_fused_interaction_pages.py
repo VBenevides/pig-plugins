@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run the isolated fullscreen regression: python3 scripts/test_fused_interaction_pages.py /path/to/pig-plugins."""
 
 import fcntl
@@ -103,7 +102,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
-        except Exception as error:
+        except (OSError, ValueError, KeyError, StopIteration) as error:
             failures.append(repr(error))
             self.send_error(500)
 
