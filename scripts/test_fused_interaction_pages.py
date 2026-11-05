@@ -268,7 +268,7 @@ def check(binary):
             os.write(master, b"\r")
             pump(lambda: b"fixture answer 2" in transcript, "first answer")
             pump(
-                lambda: b"Interaction 1/1" in transcript and b"\x1b_Ga=T" in transcript,
+                lambda: b"Interaction: 1/1" in transcript and b"\x1b_Ga=T" in transcript,
                 "first interaction and inline image",
             )
             assert b"Tasks" in transcript and b"panel item 02" in transcript
@@ -286,7 +286,7 @@ def check(binary):
             )
             assert b"Page 2 / 2" in second
             assert "Alt+←/→ or Alt+H/L".encode() in transcript
-            pump(lambda: b"Interaction 2/2" in transcript, "second interaction")
+            pump(lambda: b"Interaction: 2/2" in transcript, "second interaction")
             picture.unlink()
             for blob in (agent / "image-view" / "blobs").glob("*"):
                 blob.unlink()
@@ -298,7 +298,7 @@ def check(binary):
                 os.write(master, previous)
                 pump(
                     lambda mark=mark: (
-                        b"Interaction 1/2" in transcript[mark:]
+                        b"Interaction: 1/2" in transcript[mark:]
                         and (
                             b"\x1b_Ga=T" in transcript[mark:]
                             or b"\x1b_Ga=p" in transcript[mark:]
@@ -311,7 +311,7 @@ def check(binary):
                 pump(
                     lambda mark=mark: (
                         b"Page 2 / 2" in transcript[mark:]
-                        and b"Interaction 2/2" in transcript[mark:]
+                        and b"Interaction: 2/2" in transcript[mark:]
                     ),
                     "next page",
                 )

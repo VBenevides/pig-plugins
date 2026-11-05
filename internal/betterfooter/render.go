@@ -210,9 +210,6 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 		}
 		speed = t.fg(color, label) + dim("t/s")
 	}
-	if page := SanitizePlain(s.Statuses["interaction-page"]); page != "" {
-		speed = segments(" - ", speed, muted("Interaction "+page))
-	}
 	keys := make([]string, 0, len(s.Statuses))
 	for k := range s.Statuses {
 		if k != "interaction-page" && k != "ask-mode" && k != "auto-model" && k != "auto-model-usage" && k != "auto-model-quota" && !slices.Contains(ThirdRowStatusKeys, k) {
@@ -224,7 +221,11 @@ func RenderFooter(s RenderState, width int, t Theme, now time.Time) []string {
 	if SanitizePlain(s.Statuses["ask-mode"]) == "ASK" {
 		mode = t.fg("warning", "ASK")
 	}
-	texts := []string{"Mode: " + mode}
+	modeText := "Mode: " + mode
+	if page := SanitizePlain(s.Statuses["interaction-page"]); page != "" {
+		modeText = "Interaction: " + page + " - " + modeText
+	}
+	texts := []string{modeText}
 	for _, k := range keys {
 		if v := Sanitize(s.Statuses[k]); v != "" {
 			if k == "adhd-output" || k == "adhd" {

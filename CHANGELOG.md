@@ -8,7 +8,7 @@ All notable changes to pig-plugins are documented here.
 
 - Add one fullscreen page per user prompt, with its replies and tool activity. Navigate with Alt+Left/Right or Alt+H/L without changing model context or saved history.
 - Use fullscreen mode when no TUI mode is configured. Explicit regular mode keeps continuous output.
-- Show `Interaction X/Y` after token speed in the footer.
+- Show `Interaction: X/Y - Mode: ACT|ASK` on the left of the mode in the footer.
 - Add a scrollable task panel with pending and done columns, all phases, and three visible task rows. Use the mouse wheel to scroll. Click the panel for arrow-key or j/k scrolling. Press Escape to return to the input.
 
 ### Bugfixes
