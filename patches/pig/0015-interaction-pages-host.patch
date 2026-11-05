@@ -863,16 +863,17 @@ new file mode 100644
 diff --git a/internal/codingagent/interactive_turn.go b/internal/codingagent/interactive_turn.go
 --- a/internal/codingagent/interactive_turn.go
 +++ b/internal/codingagent/interactive_turn.go
-@@ -30,6 +30,9 @@
- }
- 
- func (m *InteractiveMode) handleSubmitWithImages(ctx context.Context, prompt string, images []ai.ImageContent) {
+@@ -100,6 +100,10 @@
+ 	if !m.runStreaming() {
+ 		m.flushPendingBashBlocks()
+ 	}
++	// Only a prompt that goes to the model starts a page. Commands keep the view.
 +	if m.interactionPages != nil && m.interactionPages.Follow() && m.transcriptScrollView != nil {
 +		m.transcriptScrollView.ScrollToStart()
 +	}
- 	// Defensive drain for messages restored after a failed compaction-queue
- 	// delivery. Normal compaction completion flushes immediately, including the
- 	// WillRetry path that steers into the imminent retry turn.
+ 	m.promptUserInput(ctx, prompt, images, false, extension.InputSourceUser, true)
+ }
+ 
 diff --git a/internal/codingagent/interactive_transcript.go b/internal/codingagent/interactive_transcript.go
 --- a/internal/codingagent/interactive_transcript.go
 +++ b/internal/codingagent/interactive_transcript.go
