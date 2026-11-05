@@ -2,6 +2,7 @@ package cursor
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -44,7 +45,11 @@ func Render(request map[string]any) (string, []cursorbridge.Image, error) {
 	return render(request, hex.EncodeToString(raw))
 }
 
-const maxImages = 8
+const (
+	maxImages         = 8
+	maxImageBytes     = 5 << 20
+	maxImageTotalSize = 20 << 20
+)
 
 const imageOmitted = "[image omitted: Cursor receives images only from the latest user message]"
 
@@ -187,6 +192,20 @@ func contentText(value any, images *[]cursorbridge.Image) (string, error) {
 				mime, _ := part["mimeType"].(string)
 				if data == "" || !strings.HasPrefix(mime, "image/") {
 					return "", errors.New("image part needs base64 data and an image MIME type")
+				}
+				decoded, decodeErr := base64.StdEncoding.DecodeString(data)
+				if decodeErr != nil {
+					return "", fmt.Errorf("image part is not valid base64: %w", decodeErr)
+				}
+				if len(decoded) > maxImageBytes {
+					return "", fmt.Errorf("image is %d bytes; Cursor images are limited to %d bytes each", len(decoded), maxImageBytes)
+				}
+				total := len(decoded)
+				for _, prior := range *images {
+					total += base64.StdEncoding.DecodedLen(len(prior.Data))
+				}
+				if total > maxImageTotalSize {
+					return "", fmt.Errorf("images in one message are limited to %d bytes in total", maxImageTotalSize)
 				}
 				if len(*images) >= maxImages {
 					return "", fmt.Errorf("Cursor accepts at most %d images per message", maxImages)

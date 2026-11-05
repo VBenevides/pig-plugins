@@ -552,19 +552,46 @@ func TestOnlyLatestUserImagesAreSentAndOlderOnesAreMarked(t *testing.T) {
 		return map[string]any{"type": "image", "data": data, "mimeType": "image/png"}
 	}
 	text, images, err := render(map[string]any{"messages": []any{
-		map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "old"}, img("OLD")}},
+		map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "old"}, img("T0xE")}},
 		map[string]any{"role": "assistant", "content": "ok"},
-		map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "new"}, img("NEW")}},
-		map[string]any{"role": "toolResult", "toolCallId": "1", "toolName": "read", "content": []any{img("TOOL")}},
+		map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "new"}, img("TkVX")}},
+		map[string]any{"role": "toolResult", "toolCallId": "1", "toolName": "read", "content": []any{img("VE9PTA==")}},
 	}}, "n")
-	if err != nil || len(images) != 1 || images[0].Data != "NEW" || images[0].MimeType != "image/png" {
+	if err != nil || len(images) != 1 || images[0].Data != "TkVX" || images[0].MimeType != "image/png" {
 		t.Fatalf("%v %+v", err, images)
 	}
-	if strings.Count(text, imageOmitted) != 2 || strings.Contains(text, "OLD") || strings.Contains(text, "TOOL") {
+	if strings.Count(text, imageOmitted) != 2 || strings.Contains(text, "T0xE") || strings.Contains(text, "VE9PTA==") {
 		t.Fatalf("%q", text)
 	}
 	_, _, err = render(map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "image", "data": "", "mimeType": "image/png"}}}}}, "n")
 	if err == nil {
 		t.Fatal("empty image accepted")
+	}
+}
+
+func TestImageLimitsAndEncodingAreEnforced(t *testing.T) {
+	part := func(data string) map[string]any {
+		return map[string]any{"role": "user", "content": []any{map[string]any{"type": "image", "data": data, "mimeType": "image/png"}}}
+	}
+	big := base64.StdEncoding.EncodeToString(make([]byte, maxImageBytes))
+	if _, imgs, err := render(map[string]any{"messages": []any{part(big)}}, "n"); err != nil || len(imgs) != 1 {
+		t.Fatalf("image at the limit rejected: %v", err)
+	}
+	over := base64.StdEncoding.EncodeToString(make([]byte, maxImageBytes+1))
+	if _, _, err := render(map[string]any{"messages": []any{part(over)}}, "n"); err == nil || !strings.Contains(err.Error(), "limited") {
+		t.Fatalf("oversized image accepted: %v", err)
+	}
+	if _, _, err := render(map[string]any{"messages": []any{part("not base64!")}}, "n"); err == nil {
+		t.Fatal("bad base64 accepted")
+	}
+	many := make([]any, 5)
+	for i := range many {
+		many[i] = part(big)["content"].([]any)[0]
+	}
+	if _, _, err := render(map[string]any{"messages": []any{map[string]any{"role": "user", "content": many}}}, "n"); err == nil || !strings.Contains(err.Error(), "total") {
+		t.Fatalf("total limit not enforced: %v", err)
+	}
+	if _, _, err := render(map[string]any{"messages": []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "image", "data": "AAAA", "mimeType": "text/plain"}}}}}, "n"); err == nil {
+		t.Fatal("wrong MIME type accepted")
 	}
 }
