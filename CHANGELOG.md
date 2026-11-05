@@ -145,13 +145,13 @@ All notable changes to pig-plugins are documented here.
 
 ### Features
 
-- Support PiG 0.5.1 with matching patched host and SDK integrations for native OAuth accounts, Cursor, editor input, dialogs, image previews, compaction and settings.
+- Support PiG 0.5.1 with matching patched host and SDK integrations for native OAuth accounts, editor input, dialogs, image previews, compaction and settings.
 - Add `/goal resume` to continue stopped, blocked or idle restored goals without replacing their objective or saved progress. Busy agents, pending messages and repeated calls cannot queue duplicate continuations; reached or cleared goals cannot be resumed.
 - Select matching host and SDK sources from the compatibility pin, independently of `pig` on `PATH`. Support explicit `PIG_BUILD_VERSION` candidate builds and isolate builder homes from user models, MCP servers and discovery settings.
 
 ### Bugfixes
 
-- Wait for startup extension binding and already launched registration refreshes before RPC catalog discovery, preventing intermittent missing Cursor models. Preserve replay vetoes across streaming, persistence, retries and compaction.
+- Wait for startup extension binding and already launched registration refreshes before RPC catalog discovery, preventing intermittent missing extension models. Preserve replay vetoes across streaming, persistence, retries and compaction.
 - Restore image attachments after editor undo through a bounded payload cache without accepting submission-only stale image markers.
 - Preserve settings submenu selections when submitting search input, including Kitty keyboard input.
 - Adapt prompt consumers to lazy system-prompt resolution while preserving earlier contributions and propagating resolution errors. Retain diagnostic isolation, live output settings and ordered compaction on PiG 0.5.1.
@@ -229,13 +229,11 @@ All notable changes to pig-plugins are documented here.
 - Added `/goal set <objective>`, `/goal check` and `/goal clear`: the agent keeps working until the goal is reached or everything left is blocked, ends it through a `goal_finish` tool, and stops on abort, model error, or three runs without tool calls. `/skill:name` tokens in the objective expand automatically, the goal persists in the session, and the footer shows `GOAL` while it runs.
 - Added slash-command namespaces, line-start commands after prose (`//command` to send literally), and separate `/send-steer` and `/send-queue` draft-send commands.
 - Added a width-aware two-column TODO widget (72 columns and wider) that keeps closed tasks and follows terminal resizes, and numbered `TODO-X.md` archives in the `todo-planner` skill.
-- Added a native Cursor provider that needs no Cursor CLI. It is the default; an explicit `cursor-beta.json` or `PIG_CURSOR_BETA_CONFIG` still selects the CLI beta, and `PIG_CURSOR_TRANSPORT` picks h2 or SSE. Documented in `docs/cursor-direct.md` and `docs/cursor-direct-protocol.md`.
-- Added Cursor account meters (Cursor Models, Other Models, on-demand pools) to `/usage`, fetched with each native OAuth account.
 - Added `0013-diagnostic-routing-host.patch` and a fused TUI regression (`scripts/test_fused_diagnostics.py`) that keep diagnostics out of the editor draft, cursor, queued input and model history.
 
 ### Bugfixes
 
-- Vetoed generation replay and automatic recovery for Cursor and other replay-prohibited providers, added Cursor backpressure handling, and fixed a compaction summary stream drain.
+- Vetoed generation replay and automatic recovery for replay-prohibited providers and fixed a compaction summary stream drain.
 - ASK mode now admits only exact reviewed tool names (`lsp_*`, `code_*`, `memory_*` no longer match by prefix) and denies every shell call.
 - Extension diagnostics use `Notify` only, so they no longer enter model history or render over the input.
 - Auto-models coalesces repeated credential warnings and keeps the recovery allowance across successful replies and tool continuations.
@@ -248,7 +246,6 @@ All notable changes to pig-plugins are documented here.
 ### Breaking Changes
 
 - `/send` is now `/send-steer` and `/send queue` is now `/send-queue`.
-- The direct Cursor provider is the default; configure `cursor-beta.json` or `PIG_CURSOR_BETA_CONFIG` to keep the CLI beta.
 - ASK mode rejects every bash call and tools outside the reviewed list; switch to ACT or use the dedicated read and search tools.
 
 ## [0.1.1] - 2026-10-15
@@ -263,7 +260,6 @@ All notable changes to pig-plugins are documented here.
 - Added `/compact-settings` with persisted relative and absolute automatic compaction limits, capped by PiG's native threshold; `better-footer` shows the effective user-set limit after the context window.
 - Added whole-prompt selection in the patched editor: bundled keybindings map Ctrl+A to select all and Home to line start; typing, pasting, and deletion replace the selection, with undo support. Existing keybinding files are not overwritten.
 - Bounded stored image previews to 48 hours without use and 256 MiB, with least-recently-used eviction, abandoned temporary-file cleanup, and visible cleanup failures; older sessions can lose evicted previews without losing conversation text.
-- Added an opt-in, manually configured, text-only Cursor CLI beta using the selected Cursor OAuth account. Output is buffered, tools and reasoning are unsupported, and live account compatibility remains unverified; setup and limitations are in `docs/cursor-beta.md`.
 
 ### Bugfixes
 
@@ -277,7 +273,7 @@ All notable changes to pig-plugins are documented here.
 - Put the command before risk analysis and affected items in Smart Approve confirmation dialogs.
 - Made long `/todos` lists scrollable with arrow keys, j/k, page keys, Home, and End, with a visible row-position indicator.
 - Added q cancellation alongside Escape to non-text extension menus and patched host select/confirm dialogs, while preserving q as input in search boxes and text editors.
-- Preserved registered extension OAuth flows, including Cursor accounts, in the host login menu when the model registry exposes only API-key authentication.
+- Preserved registered extension OAuth flows in the host login menu when the model registry exposes only API-key authentication.
 - Submitted SDK compaction requests before event handlers return, preventing the next prompt from racing compaction registration.
 - Preserved file, HTTP-response, transport, and temporary-file cleanup failures across configuration, quota, image, LANCET, LSP, update, and search operations; quota/search diagnostics continue to protect credentials.
 - Reported malformed LSP workspace-symbol and configuration responses instead of silently ignoring decode errors.
@@ -306,7 +302,7 @@ All notable changes to pig-plugins are documented here.
 - Initial Go ports of the plugins: LANCET classifier, anchored `hashline-edit` read/edit, `smart-approve-lancet` approval guard, `pi-curator` repository memory, `todo` (phased tasks), and `web-search`.
 - Added native read-only `lsp` tools, the `ask-user-question` questionnaire, and `ask-mode` (`/ask`).
 - Added `auto-models` with `/usage`, `/auto-model`, scoped model choices, OAuth subscription quota checks, account rotation, and model-slot swapping.
-- Added native OAuth accounts, `better-footer` (speed, guard, and memory badges), `cursor-login`, `user-resources`, adhd-output guidance toggle, and image previews.
+- Added native OAuth accounts, `better-footer` (speed, guard, and memory badges), `user-resources`, adhd-output guidance toggle, and image previews.
 - Added approval dialogs with risk descriptions, affected paths, "Always allow", and session-model explanations for unknown-scope commands.
 - Added the installer (`install.sh`, curl-piped installation, `pig-plugins` link), `dev_build.sh`, piglet manifest, bundled prompts and skills, and compatible-update/search fallback support.
 

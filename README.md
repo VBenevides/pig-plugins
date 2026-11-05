@@ -132,11 +132,10 @@ See [browser setup, tools, and safety limits](docs/browser-use.md).
 
 ### auto-models
 
-Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude/Codex quota windows and Cursor account meters) and `/auto-model` (primary and fallback model, with thinking level).
+Port of `pi-auto-models@0.1.14`. It adds `/usage` (Claude/Codex quota windows) and `/auto-model` (primary and fallback model, with thinking level).
 In a TUI, `/usage` opens a scrollable dashboard (`q`, `esc` or ctrl-c closes; `j`/`k`, arrows and page keys scroll). Other modes print a notification.
 The footer quota badge shows the active provider only. The `openai-codex` provider, and `openai` when its token carries a ChatGPT account id, use the ChatGPT quota endpoint.
 An `openai` API-audience OAuth token is rejected by that endpoint (401), so it is not queried; its quota appears only from response headers after use.
-Cursor account meters are fetched on demand from its dashboard using each native OAuth account; no Cursor CLI is needed for `/usage`. Separate Cursor Models, Other Models and on-demand pools are displayed when reported, with explicit reset/fetch times. Missing amounts are unknown. These balances do not establish model entitlement and do not drive automatic account/model switching. This integration is verified with synthetic fixtures only; account-specific dashboard compatibility remains unverified. See [the protocol review](docs/cursor-direct-protocol.md).
 `/auto-model` offers only the session's scoped models (`--models` or `enabledModels`). With no scope it offers every authenticated model.
 Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. The patched native host stores OAuth accounts in `oauth-accounts.json` and lazily migrates existing singleton OAuth logins from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
@@ -205,7 +204,7 @@ upstream TypeScript comparison packages cannot run unless those packages are
 installed; targeted native lifecycle, refresh, cancellation and bridge tests
 are covered independently.
 
-Cursor generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. Cursor streams use cancellable backpressure to bound unread events; native compaction drains them before awaiting results. These integration controls require `0005-provider-recovery-host.patch` and `0006-provider-recovery-sdk.patch`, applied by the bundled build.
+Generation replay vetoes survive streaming, persistence, RPC and summarization errors. They stop automatic retries, overflow recovery and auto-model fallback without hiding diagnostics. These integration controls require `0005-provider-recovery-host.patch` and `0006-provider-recovery-sdk.patch`, applied by the bundled build.
 
 Codex WebSocket uploads have a separate 60-second write deadline. Cancellation closes a blocked upload immediately, and failed sockets leave the cache. An upload failure retries once with full context on a fresh WebSocket before the existing SSE fallback is considered; cancellation never retries. This recovery runs before any response is exposed, without replaying local tools. Debug stats retain the upload retry count and last upload error. The bundled build applies `0013-codex-upload-host.patch`; no transport setting changes are required.
 
@@ -978,19 +977,6 @@ On trusted repository startup, this plugin adds missing `.agent-work/`, `.ouro/`
 and `.curator/` entries to Git's `info/exclude`, including linked worktrees.
 It preserves existing bytes and permissions and never edits tracked `.gitignore`.
 Failures are reported. See `extensions/repo-excludes/README.md`.
-
-## cursor-login
-
-Adds `cursor` to `/login` using browser PKCE and the native account store. By default, the experimental
-CLI-free provider discovers account models, streams direct Connect/protobuf responses, and hands MCP
-tool proposals to PiG's normal approval loop. No Cursor executable or manual model list is required.
-See [direct-provider setup, limits and manual acceptance](docs/cursor-direct.md). Offline tests use
-synthetic fixtures; live account/server compatibility is **not verified**. Cursor-native exec tools remain unsupported.
-
-An explicit `cursor-beta.json` (or `PIG_CURSOR_BETA_CONFIG`) retains precedence and selects the unchanged,
-text-only CLI beta. Move that configuration aside and restart to try the direct provider. See
-[CLI beta setup](docs/cursor-beta.md). Neither path automatically retries through another transport.
-Both use non-public Cursor contracts that can change; neither is an official standalone model API.
 
 ## user-resources
 

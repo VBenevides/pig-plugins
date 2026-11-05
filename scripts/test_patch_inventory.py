@@ -40,7 +40,7 @@ class PatchInventoryTest(unittest.TestCase):
             self.assertEqual(actual, expected, script)
 
     def test_current_document_references_resolve(self):
-        for name in ("README.md", "docs/cursor-direct.md", "docs/pig-051-port.md"):
+        for name in ("README.md", "docs/pig-051-port.md"):
             for patch in re.findall(r"\b\d{4}-[\w-]+\.patch", (ROOT / name).read_text()):
                 self.assertIn(patch, PATCHES, name)
 

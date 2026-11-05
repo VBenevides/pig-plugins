@@ -24,7 +24,7 @@ The original and compacted stacks produce byte-identical host and SDK trees.
 | `0002-accounts-sdk.patch` | 0002 | Typed account API and dispatch |
 | `0003-editor-images-host.patch` | 0003, 0004, 0005, 0009 | Input namespaces, previews, dialogs, images, selection and undo |
 | `0004-editor-images-sdk.patch` | 0006 | Image preview and conditional-editor SDK |
-| `0005-provider-recovery-host.patch` | 0007, 0011 | Overflow/replay vetoes, Cursor transport, startup discovery and backpressure |
+| `0005-provider-recovery-host.patch` | 0007, 0011 | Overflow/replay vetoes, startup discovery and backpressure |
 | `0006-provider-recovery-sdk.patch` | 0012 | Provider registration, replay metadata and cancellation |
 | `0007-distribution-host.patch` | 0008, 0015 | Startup versions, single executable and distribution-owned updates |
 | `0008-settings-diagnostics-host.patch` | 0013, 0014 | Clean diagnostic routing, live settings, persistence and raw recovery |
@@ -60,7 +60,6 @@ unit tests are necessary but not substitutes for fused-host acceptance.
 | project-prompt | Typed before_agent_start system prompt and preserved composition |
 | adhd-output | Existing prompt preference and persistence through restart |
 | repo-excludes | Existing repository exclusion rules at discovery boundaries |
-| cursor-login | Native account OAuth, direct provider and explicit CLI-beta selection |
 | ask-mode | Typed prompt composition and exact reviewed tool admission; no shell calls |
 | goal | Typed prompt composition, session persistence, stop/abort/block semantics |
 | compact-settings | SDK compaction ordering and persisted effective thresholds |
@@ -93,7 +92,7 @@ at the target before modifying callers:
 3. Compile SDK consumers and patched host, then build the real fused distribution.
 4. Run focused system tests and race tests, then full repository checks with the
    matching patched SDK. Record known standalone unpatched-SDK failures separately.
-5. Run installer fixtures and real-binary update/diagnostic/Cursor/readmap/image
+5. Run installer fixtures and real-binary update/diagnostic/readmap/image
    smoke tests. Use fixture network endpoints, temporary homes and no live secrets.
 6. Activate the manifest only after acceptance, rebuild with final pins and verify
    clean install plus previous-layout migration. Compact patches last and compare
@@ -103,7 +102,7 @@ Candidate verification passed with matching patched 0.5.1 host and SDK:
 
 - Full `go test ./... -count=1`, `make fmt-check vet` and `go build ./...`.
 - Twenty installer/build fixtures and five fused updater tests, including combined routes and failed-installer cleanup.
-- Fused diagnostics, fifty repeated Cursor replay cases, compaction/restart, goal resume and same-session raw-output recovery.
+- Fused diagnostics, compaction/restart, goal resume and same-session raw-output recovery.
 - Fused readmap/security, steering/queue, literal slash and questionnaire ownership tests.
 - All four image/TUI protocol variants, selection undo and bounded image payload retention. Focused safety and image race suites passed.
 
