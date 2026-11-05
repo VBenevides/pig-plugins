@@ -21,7 +21,7 @@ func (s *service) stream(model, request map[string]any, options sdk.ProviderStre
 	}
 	modelID, _ := model["id"].(string)
 	level, _ := options.Values["reasoning"].(string)
-	prompt, err := Render(request)
+	prompt, images, err := Render(request)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func (s *service) stream(model, request map[string]any, options sdk.ProviderStre
 			// Replay could repeat a remote generation, so the host must not retry it.
 			"replayProhibited": true,
 		}}
-		err := s.runTurn(ctx, out, key, modelID, level, tools, prompt)
+		err := s.runTurn(ctx, out, key, modelID, level, tools, prompt, images)
 		if err != nil {
 			reason := "error"
 			if ctx.Err() != nil {
@@ -64,7 +64,7 @@ func (s *service) stream(model, request map[string]any, options sdk.ProviderStre
 	return stream, nil
 }
 
-func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, level string, tools []cursorbridge.ToolDef, prompt string) error {
+func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, level string, tools []cursorbridge.ToolDef, prompt string, images []cursorbridge.Image) error {
 	entries, err := s.entriesFor(ctx, key)
 	if err != nil {
 		return err
@@ -81,7 +81,7 @@ func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, le
 	if err = out.start(); err != nil {
 		return err
 	}
-	outcome, err := r.RunTurn(ctx, key, selection, tools, prompt, out.event)
+	outcome, err := r.RunTurn(ctx, key, selection, tools, prompt, out.event, images...)
 	if outcome.CleanupError != nil {
 		// The generation finished or failed on its own terms; teardown trouble stays visible.
 		out.msg["cleanupWarning"] = outcome.CleanupError.Error()

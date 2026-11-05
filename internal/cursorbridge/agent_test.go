@@ -51,7 +51,7 @@ func TestAgentContinuation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, prompt := range []string{"user question", "host tool result"} {
-		result, err := c.Send(context.Background(), id, prompt, nil)
+		result, err := c.Send(context.Background(), id, prompt, nil, nil)
 		if err != nil || result.Result.Text != "answer" {
 			t.Fatal(result, err)
 		}
@@ -69,7 +69,17 @@ func TestMissingTerminalResultFails(t *testing.T) {
 	defer server.Close()
 	c, _ := NewClient(server.URL, "token")
 	defer c.Close()
-	if _, err := c.Send(context.Background(), "agent", "prompt", nil); err == nil {
+	if _, err := c.Send(context.Background(), "agent", "prompt", nil, nil); err == nil {
 		t.Fatal("incomplete SDK stream passed")
+	}
+}
+
+func TestUserMessageCarriesBase64ImagesOnlyWhenPresent(t *testing.T) {
+	if got, _ := json.Marshal(userMessage("hi", nil)); string(got) != `{"text":"hi"}` {
+		t.Fatalf("%s", got)
+	}
+	got, _ := json.Marshal(userMessage("hi", []Image{{Data: "AAAA", MimeType: "image/png"}}))
+	if string(got) != `{"images":[{"data":{"data":"AAAA","mimeType":"image/png"}}],"text":"hi"}` {
+		t.Fatalf("%s", got)
 	}
 }

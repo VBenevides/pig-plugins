@@ -13,7 +13,7 @@ import (
 
 // runner is the bridge surface the provider needs. Tests replace it.
 type runner interface {
-	RunTurn(ctx context.Context, key string, model cursorbridge.Selection, tools []cursorbridge.ToolDef, prompt string, emit func(cursorbridge.Event) error) (cursorbridge.Outcome, error)
+	RunTurn(ctx context.Context, key string, model cursorbridge.Selection, tools []cursorbridge.ToolDef, prompt string, emit func(cursorbridge.Event) error, images ...cursorbridge.Image) (cursorbridge.Outcome, error)
 	Models(ctx context.Context, key string) ([]cursorbridge.Model, error)
 	Me(ctx context.Context, key string) (cursorbridge.User, error)
 	Close() error

@@ -92,13 +92,32 @@ type RunResult struct {
 	} `json:"result"`
 }
 
+// Image is base64 image data sent with a user message to a local agent.
+type Image struct {
+	Data     string `json:"data"`
+	MimeType string `json:"mimeType"`
+}
+
+func userMessage(prompt string, images []Image) map[string]any {
+	message := map[string]any{"text": prompt}
+	if len(images) == 0 {
+		return message
+	}
+	sent := make([]map[string]any, 0, len(images))
+	for _, image := range images {
+		sent = append(sent, map[string]any{"data": map[string]string{"data": image.Data, "mimeType": image.MimeType}})
+	}
+	message["images"] = sent
+	return message
+}
+
 // Send returns only a terminal, successful SDK result. Consumers may inspect
 // intermediate events, but they must not infer completion from text alone.
-func (c *Client) Send(ctx context.Context, agentID, prompt string, consume func(json.RawMessage) error) (RunResult, error) {
+func (c *Client) Send(ctx context.Context, agentID, prompt string, images []Image, consume func(json.RawMessage) error) (RunResult, error) {
 	var result *RunResult
 	liveRunID := ""
 	traced := os.Getenv(traceEnv) != ""
-	err := c.Stream(ctx, agents+"Send", map[string]any{"agentId": agentID, "message": map[string]string{"text": prompt}, "options": map[string]bool{"enableDeltas": traced, "enableSteps": traced}}, func(data json.RawMessage) error {
+	err := c.Stream(ctx, agents+"Send", map[string]any{"agentId": agentID, "message": userMessage(prompt, images), "options": map[string]bool{"enableDeltas": traced, "enableSteps": traced}}, func(data json.RawMessage) error {
 		var envelope struct {
 			Result     *RunResult `json:"result"`
 			SDKMessage struct {

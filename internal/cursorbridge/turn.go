@@ -35,7 +35,7 @@ type Outcome struct {
 // RunTurn runs one generation on a fresh agent. History is rendered by the caller
 // into prompt, so no remote conversation outlives the turn and no account or
 // branch can observe another's state. A Process runs one turn at a time.
-func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tools []ToolDef, prompt string, emit func(Event) error) (out Outcome, err error) {
+func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tools []ToolDef, prompt string, emit func(Event) error, images ...Image) (out Outcome, err error) {
 	p.turn.Lock()
 	defer p.turn.Unlock()
 	if p.Client == nil {
@@ -91,7 +91,7 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 	}
 	streamed := false
 	outputBytes := 0
-	result, sendErr := p.Client.Send(runCtx, agentID, prompt, func(data json.RawMessage) error {
+	result, sendErr := p.Client.Send(runCtx, agentID, prompt, images, func(data json.RawMessage) error {
 		traceEvent(data)
 		events, violation := classify(data, allowed)
 		if violation != nil {

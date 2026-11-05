@@ -184,7 +184,7 @@ func (s *service) clearCatalog() { s.setCatalog("", nil) }
 func modelMap(entry cursormodels.Entry) map[string]any {
 	model := map[string]any{
 		"id": entry.ID, "name": entry.Name, "provider": Provider, "api": API,
-		"reasoning": entry.Reasoning, "input": []string{"text"},
+		"reasoning": entry.Reasoning, "input": []string{"text", "image"},
 		"contextWindow": contextEstimate, "maxTokens": outputEstimate,
 		"cost": map[string]any{"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
 		// The catalog does not report limits; consumers must treat these as estimates.
