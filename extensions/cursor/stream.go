@@ -174,7 +174,7 @@ func requestTools(request map[string]any) ([]cursorbridge.ToolDef, error) {
 	return toolDefs(current)
 }
 
-// toolDefs lists PiG's tools for Cursor as metadata only.
+// toolDefs converts PiG tool declarations into Cursor custom-tool definitions.
 func toolDefs(value any) ([]cursorbridge.ToolDef, error) {
 	items, _ := value.([]any)
 	seen := map[string]bool{}

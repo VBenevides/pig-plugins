@@ -25,7 +25,7 @@ const callbackPath = "/sdk.v1.SdkCustomToolCallbackService/CallCustomTool"
 const maxCallbackBody = 4 << 20
 const maxProposals = 32
 
-// ToolDef is a PiG tool offered to Cursor as metadata only.
+// ToolDef is a PiG tool declared to Cursor. Cursor only proposes calls; PiG runs them.
 type ToolDef struct {
 	Name        string
 	Description string
