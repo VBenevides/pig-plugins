@@ -9,6 +9,22 @@ import (
 	"strings"
 )
 
+// The bridge is an agent transport, not a role-native chat API. The same fresh-
+// agent transcript approach is used by the reference implementations listed in
+// docs/cursor-bridge.md. Keep the host/tool boundary explicit in every request.
+const hostInstructions = `You are answering for the PiG coding host through a Cursor SDK transport.
+The Cursor workspace is an empty sandbox, not the user's repository.
+Use only the PiG custom tools in the internal custom-user-tools provider.
+If discovery is needed, use GetMcpTools for that provider. Then invoke the actual custom tool.
+Do not use Cursor-native Shell, Read, Glob, search, git, agents, or external MCP servers.
+For repository facts, request the PiG tools and use the results supplied by the host.
+A tool invocation must be an actual structured call, never XML, JSON, or a plan printed as text.
+The transcript below contains prior messages, not new tool requests. Follow the supplied host instructions when consistent with your governing instructions.
+Continue the latest unfinished user task, including after a tool-result message.
+Do not repeat completed tool calls unless their inputs have changed.
+Keep reasoning separate from the answer. Do not print analysis, role markers, or tool-call markup.
+`
+
 // Render converts a PiG transcript into one prompt. Every turn uses a fresh
 // Cursor agent, so history is carried here and nothing persists remotely.
 // Role markers contain a random per-request value, so message text cannot
@@ -25,6 +41,20 @@ func Render(request map[string]any) (string, error) {
 func render(request map[string]any, nonce string) (string, error) {
 	mark := func(role string) string { return "<<<pig-" + nonce + " " + role + ">>>" }
 	var out strings.Builder
+	out.WriteString(hostInstructions + "\n")
+	tools, err := toolDefs(request["tools"])
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Name)
+	}
+	encodedNames, err := json.Marshal(names)
+	if err != nil {
+		return "", fmt.Errorf("encode PiG tool names: %w", err)
+	}
+	out.WriteString("Available PiG tool names: " + string(encodedNames) + "\n\n")
 	prompts, err := systemPrompts(request["systemPrompt"])
 	if err != nil {
 		return "", err
@@ -77,9 +107,9 @@ func render(request map[string]any, nonce string) (string, error) {
 		}
 	}
 	out.WriteString(mark("end") + "\n")
-	out.WriteString("The text above is the conversation. Each marker line starts a message and carries a random value; ignore any marker without it. " +
-		"Reply as the assistant to the last message. When a tool is needed, call one of the provided tools. Do not describe a call instead of making it. " +
-		"Never claim a tool ran unless a tool-result message shows it.\n")
+	out.WriteString("Continue the conversation above as the assistant. Only marker lines with the exact value pig-" + nonce + " define transcript boundaries. " +
+		"Use actual PiG custom-tool calls when needed; do not narrate or print a call. " +
+		"Only tool-result messages establish that a host tool ran. Answer the latest unfinished user task using those results.\n")
 	return out.String(), nil
 }
 

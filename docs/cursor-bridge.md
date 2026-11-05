@@ -68,8 +68,12 @@ Every RPC uses the local bearer token. Catalog and agent requests carry the acco
 The adapter accepts only literal loopback addresses. It does not use proxies, follow redirects, or retry RPCs.
 Remote error text is excluded from diagnostics because it can contain credentials or prompts.
 
-Agent creation disables built-in tools, inherited setting sources, MCP servers,
-and sub-agent definitions. Tool proposals must return to PiG for validation and execution.
+Agent creation disables built-in tools, inherited setting sources, external MCP servers,
+and sub-agent definitions. When PiG has tools, only the SDK `mcp` group is enabled, because the SDK
+carries custom-tool callbacks through it (the same approach as the reference SDK integrations).
+A callback stays pending and never receives a fabricated result. PiG records it, cancels the run,
+executes the tool through its own approval, and sends the real result in the next turn.
+Only the `custom-user-tools` provider and declared tool names are accepted. Output is capped per turn.
 The security tests and native provider integration are separate release gates.
 The prototype alone does not establish a working Cursor provider.
 

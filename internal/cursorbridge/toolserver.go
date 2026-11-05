@@ -17,10 +17,9 @@ import (
 	"time"
 )
 
-// Handoff is the only result Cursor ever receives for a tool call. PiG runs the
-// tool through its normal validation and approval, and the next request carries
-// the real result. Cursor therefore never executes or observes a tool.
-const Handoff = "Tool call received and handed off to the external client for execution. Do not retry or call it again; end the turn. The result will be provided in the next request."
+// Valid callbacks park until the turn is disposed. PiG executes the recorded
+// proposals through its normal approval loop. A fresh turn receives the real
+// tool results in its transcript; Cursor never receives a fabricated success.
 
 const callbackPath = "/sdk.v1.SdkCustomToolCallbackService/CallCustomTool"
 const maxCallbackBody = 4 << 20
@@ -48,6 +47,9 @@ type ToolServer struct {
 	listener   net.Listener
 	allowed    map[string]bool
 	onProposal func()
+	done       chan struct{}
+	closeOnce  sync.Once
+	active     chan struct{}
 
 	mu        sync.Mutex
 	agentID   string
@@ -64,7 +66,7 @@ func NewToolServer(tools []ToolDef, onProposal func()) (*ToolServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen for Cursor tool callbacks: %w", err)
 	}
-	s := &ToolServer{Token: hex.EncodeToString(raw), listener: listener, allowed: map[string]bool{}, onProposal: onProposal}
+	s := &ToolServer{Token: hex.EncodeToString(raw), listener: listener, allowed: map[string]bool{}, onProposal: onProposal, done: make(chan struct{}), active: make(chan struct{}, maxProposals)}
 	for _, tool := range tools {
 		s.allowed[tool.Name] = true
 	}
@@ -78,6 +80,7 @@ func NewToolServer(tools []ToolDef, onProposal func()) (*ToolServer, error) {
 func (s *ToolServer) Expect(agentID string) { s.mu.Lock(); s.agentID = agentID; s.mu.Unlock() }
 
 func (s *ToolServer) Close() error {
+	s.closeOnce.Do(func() { close(s.done) })
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	return s.server.Shutdown(ctx)
@@ -110,12 +113,20 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	const prefix = "Bearer "
 	got := r.Header.Get("Authorization")
 	if r.Method != http.MethodPost || r.URL.Path != callbackPath ||
-		len(got) <= len(prefix) || subtle.ConstantTimeCompare([]byte(got[len(prefix):]), []byte(s.Token)) != 1 {
+		!strings.HasPrefix(got, prefix) || len(got) <= len(prefix) || subtle.ConstantTimeCompare([]byte(got[len(prefix):]), []byte(s.Token)) != 1 {
 		deny(w, http.StatusUnauthorized, "unauthenticated")
 		return
 	}
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		deny(w, http.StatusUnsupportedMediaType, "invalid_argument")
+		return
+	}
+	select {
+	case s.active <- struct{}{}:
+		defer func() { <-s.active }()
+	default:
+		s.Fail(errors.New("Cursor exceeded the pending tool callback limit"))
+		deny(w, http.StatusTooManyRequests, "resource_exhausted")
 		return
 	}
 	// The bridge may send chunked bodies; net/http decodes them. Bound them anyway.
@@ -181,6 +192,12 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	if !duplicate && s.onProposal != nil {
 		s.onProposal()
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]string{"value": Handoff}})
+	// A callback is a proposal, not a result. Keep it pending until the SDK run
+	// is cancelled and disposed. Returning a fake result can make the model
+	// continue with invented tool output before PiG has executed anything.
+	select {
+	case <-r.Context().Done():
+	case <-s.done:
+		deny(w, http.StatusConflict, "canceled")
+	}
 }

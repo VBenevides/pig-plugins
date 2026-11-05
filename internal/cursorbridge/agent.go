@@ -36,17 +36,17 @@ type TokenUsage struct {
 	ReasoningTokens  Int64 `json:"reasoningTokens"`
 }
 
-// Create starts a local agent with no built-in tools, no MCP servers, and no
-// inherited settings. Declared PiG tools are metadata only; execution is never
-// performed by Cursor (see ToolServer).
+// Create permits only the SDK's internal MCP group when PiG custom tools exist.
+// No external MCP servers, built-in file/shell tools, agents, or settings are
+// inherited. The SDK transports host callbacks through its MCP tool group.
 func (c *Client) Create(ctx context.Context, key string, model Selection, tools []ToolDef) (string, error) {
 	if key == "" || model.ID == "" {
 		return "", errors.New("Cursor account key and model are required")
 	}
 	custom := map[string]any{}
 	for _, tool := range tools {
-		if tool.Name == "" {
-			return "", errors.New("Cursor tool name must not be empty")
+		if tool.Name == "" || custom[tool.Name] != nil {
+			return "", errors.New("Cursor tool names must be nonempty and unique")
 		}
 		schema := tool.Schema
 		if len(schema) == 0 {
@@ -54,10 +54,14 @@ func (c *Client) Create(ctx context.Context, key string, model Selection, tools 
 		}
 		custom[tool.Name] = map[string]any{"description": tool.Description, "inputSchema": schema}
 	}
+	names := []string{}
+	if len(custom) > 0 {
+		names = []string{"mcp"}
+	}
 	options := map[string]any{
 		"apiKey": key, "model": model,
-		"local": map[string]any{"settingSources": []string{}, "autoReview": false, "sandboxOptions": map[string]bool{"enabled": true}, "customTools": custom},
-		"tools": map[string]any{"names": []string{}}, "mcpServers": map[string]any{}, "agents": map[string]any{},
+		"local": map[string]any{"settingSources": []string{}, "autoReview": false, "enableAgentRetries": false, "sandboxOptions": map[string]bool{"enabled": true}, "customTools": custom},
+		"tools": map[string]any{"names": names}, "mcpServers": map[string]any{}, "agents": map[string]any{},
 	}
 	var response struct {
 		AgentID string `json:"agentId"`
@@ -91,12 +95,26 @@ type RunResult struct {
 // intermediate events, but they must not infer completion from text alone.
 func (c *Client) Send(ctx context.Context, agentID, prompt string, consume func(json.RawMessage) error) (RunResult, error) {
 	var result *RunResult
+	liveRunID := ""
 	err := c.Stream(ctx, agents+"Send", map[string]any{"agentId": agentID, "message": map[string]string{"text": prompt}, "options": map[string]bool{"enableDeltas": false, "enableSteps": false}}, func(data json.RawMessage) error {
 		var envelope struct {
-			Result *RunResult `json:"result"`
+			Result     *RunResult `json:"result"`
+			SDKMessage struct {
+				AgentID string `json:"agentId"`
+				RunID   string `json:"runId"`
+			} `json:"sdkMessage"`
 		}
 		if err := json.Unmarshal(data, &envelope); err != nil {
 			return err
+		}
+		if envelope.SDKMessage.AgentID != "" && envelope.SDKMessage.AgentID != agentID {
+			return errors.New("Cursor stream changed agent identity")
+		}
+		if id := envelope.SDKMessage.RunID; id != "" {
+			if liveRunID != "" && liveRunID != id {
+				return errors.New("Cursor stream changed run identity")
+			}
+			liveRunID = id
 		}
 		if envelope.Result != nil {
 			if result != nil {
@@ -110,10 +128,10 @@ func (c *Client) Send(ctx context.Context, agentID, prompt string, consume func(
 		return nil
 	})
 	if err != nil {
-		return RunResult{}, err
+		return RunResult{AgentID: agentID, RunID: liveRunID}, err
 	}
-	if result == nil || result.AgentID != agentID || result.RunID == "" || result.Status != "RUN_LIFECYCLE_STATUS_FINISHED" {
-		return RunResult{}, errors.New("Cursor stream did not finish successfully")
+	if result == nil || result.AgentID != agentID || result.RunID == "" || (liveRunID != "" && result.RunID != liveRunID) || result.Status != "RUN_LIFECYCLE_STATUS_FINISHED" {
+		return RunResult{AgentID: agentID, RunID: liveRunID}, errors.New("Cursor stream did not finish successfully")
 	}
 	return *result, nil
 }

@@ -13,6 +13,9 @@ import (
 // grace lets sibling parallel tool calls arrive before the run is cancelled.
 const grace = 100 * time.Millisecond
 
+// A local guard against runaway generations. This is not a billing/token cap.
+const maxTurnOutputBytes = 256 << 10
+
 // Event is incremental model output.
 type Event struct {
 	Thinking bool
@@ -48,11 +51,22 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 		return out, err
 	}
 	var agentID string
+	var result RunResult
 	defer func() {
+		cancelRun()
 		// Teardown must not depend on the cancelled request context.
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		var failures []error
+		// Release parked HTTP callbacks before agent teardown can wait on them.
+		if closeErr := server.Close(); closeErr != nil {
+			failures = append(failures, fmt.Errorf("stop Cursor tool callback server: %w", closeErr))
+		}
+		if agentID != "" && result.RunID != "" && result.Status != "RUN_LIFECYCLE_STATUS_FINISHED" {
+			if cancelErr := p.Client.Cancel(cleanup, agentID, result.RunID); cancelErr != nil {
+				failures = append(failures, fmt.Errorf("cancel Cursor run: %w", cancelErr))
+			}
+		}
 		if agentID != "" {
 			if closeErr := p.Client.CloseAgent(cleanup, agentID); closeErr != nil {
 				failures = append(failures, fmt.Errorf("close Cursor agent: %w", closeErr))
@@ -60,9 +74,6 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 		}
 		if clearErr := p.Client.SetToolCallback(cleanup, "", ""); clearErr != nil {
 			failures = append(failures, fmt.Errorf("clear Cursor tool callback: %w", clearErr))
-		}
-		if closeErr := server.Close(); closeErr != nil {
-			failures = append(failures, fmt.Errorf("stop Cursor tool callback server: %w", closeErr))
 		}
 		out.CleanupError = errors.Join(failures...)
 	}()
@@ -79,6 +90,7 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 		allowed[tool.Name] = true
 	}
 	streamed := false
+	outputBytes := 0
 	result, sendErr := p.Client.Send(runCtx, agentID, prompt, func(data json.RawMessage) error {
 		events, violation := classify(data, allowed)
 		if violation != nil {
@@ -87,7 +99,13 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 			return violation
 		}
 		for _, event := range events {
-			streamed = true
+			if len(event.Text) > maxTurnOutputBytes-outputBytes {
+				return errors.New("Cursor output exceeded the per-turn safety limit; no retry was attempted")
+			}
+			outputBytes += len(event.Text)
+			if !event.Thinking && event.Text != "" {
+				streamed = true
+			}
 			if emitErr := emit(event); emitErr != nil {
 				return emitErr
 			}
@@ -109,6 +127,9 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 	case len(proposals) > 0:
 		out.Proposals = proposals
 		return out, nil
+	}
+	if len(result.Result.Text) > maxTurnOutputBytes || (!streamed && len(result.Result.Text) > maxTurnOutputBytes-outputBytes) {
+		return out, errors.New("Cursor final output exceeded the per-turn safety limit; no retry was attempted")
 	}
 	out.Text, out.Usage = result.Result.Text, result.Result.Usage
 	if !streamed && out.Text != "" {
@@ -150,6 +171,9 @@ func classify(data json.RawMessage, allowed map[string]bool) ([]Event, error) {
 		}
 		return nil, nil
 	case kind == "assistant" || kind == "thinking":
+		if err := checkContentTools(payload, allowed); err != nil {
+			return nil, err
+		}
 		return blocks(kind == "thinking", payload), nil
 	}
 	return nil, nil
@@ -171,34 +195,69 @@ func (t *typed) payload() json.RawMessage {
 	return nil
 }
 
-// offered reports whether a tool event names one of PiG's tools. A missing name
-// is not offered.
+// offered accepts only the SDK's owned custom-tool namespace. Matching a suffix
+// such as foreign__read would authorize an unrelated execution channel.
 func offered(payload json.RawMessage, allowed map[string]bool) bool {
-	var fields struct {
-		Name     string `json:"name"`
-		ToolName string `json:"toolName"`
-		ToolCall struct {
-			Name string `json:"name"`
-		} `json:"toolCall"`
+	if len(allowed) == 0 {
+		return false
 	}
+	type toolIdentity struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+		Args struct {
+			Provider string `json:"providerIdentifier"`
+			Tool     string `json:"toolName"`
+		} `json:"args"`
+		ToolCall json.RawMessage `json:"toolCall"`
+	}
+	var fields toolIdentity
 	if json.Unmarshal(payload, &fields) != nil {
 		return false
 	}
-	for _, name := range []string{fields.Name, fields.ToolName, fields.ToolCall.Name} {
-		if name == "" {
-			continue
+	if len(fields.ToolCall) > 0 {
+		var nested toolIdentity
+		if json.Unmarshal(fields.ToolCall, &nested) != nil || len(nested.ToolCall) > 0 {
+			return false
 		}
-		if allowed[name] {
-			return true
-		}
-		for _, separator := range []string{"__", ":", "."} {
-			if i := strings.LastIndex(name, separator); i >= 0 && allowed[name[i+len(separator):]] {
-				return true
-			}
-		}
-		return false
+		fields = nested
 	}
-	return false
+	name := fields.Name
+	if name == "" {
+		name = fields.Type
+	}
+	if name == "GetMcpTools" {
+		// Metadata discovery only. There are no external MCP servers or settings.
+		return true
+	}
+	if name == "mcp" || name == "CallMcpTool" {
+		return fields.Args.Provider == "custom-user-tools" && allowed[fields.Args.Tool]
+	}
+	const prefix = "mcp__custom-user-tools__"
+	return strings.HasPrefix(name, prefix) && allowed[strings.TrimPrefix(name, prefix)]
+}
+
+func checkContentTools(payload json.RawMessage, allowed map[string]bool) error {
+	var message struct {
+		Content []json.RawMessage `json:"content"`
+		Message struct {
+			Content []json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(payload, &message) != nil {
+		return errors.New("Cursor sent malformed assistant content")
+	}
+	for _, block := range append(message.Content, message.Message.Content...) {
+		var kind struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(block, &kind) != nil {
+			return errors.New("Cursor sent malformed assistant content")
+		}
+		if kind.Type == "tool_use" && !offered(block, allowed) {
+			return errors.New("Cursor reported native tool activity; refusing to continue")
+		}
+	}
+	return nil
 }
 
 func blocks(thinking bool, payload json.RawMessage) []Event {
