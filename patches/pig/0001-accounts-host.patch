@@ -1,5 +1,5 @@
 diff --git a/ai/auth.go b/ai/auth.go
-index f78c644..31d229f 100644
+index f78c644c..31d229f8 100644
 --- a/ai/auth.go
 +++ b/ai/auth.go
 @@ -200,9 +200,12 @@ func (c Credential) sourceUnchanged() bool {
@@ -106,7 +106,7 @@ index f78c644..31d229f 100644
  		return err
  	}
 diff --git a/ai/auth_store.go b/ai/auth_store.go
-index 1621049..aa45010 100644
+index 16210499..aa45010f 100644
 --- a/ai/auth_store.go
 +++ b/ai/auth_store.go
 @@ -214,19 +214,29 @@ func authStorageObjectKeys(raw []byte) ([]string, error) {
@@ -202,7 +202,7 @@ index 1621049..aa45010 100644
  		ctx := lock.Context()
  		if ctx.Err() != nil {
 diff --git a/ai/models_runtime_auth.go b/ai/models_runtime_auth.go
-index 34120da..943dc83 100644
+index 34120da0..943dc830 100644
 --- a/ai/models_runtime_auth.go
 +++ b/ai/models_runtime_auth.go
 @@ -356,7 +356,13 @@ func (m *Models) LoginProvider(ctx context.Context, provider *ModelsProvider, au
@@ -222,10 +222,10 @@ index 34120da..943dc83 100644
  	select {
 diff --git a/ai/oauth_accounts.go b/ai/oauth_accounts.go
 new file mode 100644
-index 0000000..882d9ef
+index 00000000..847c7d73
 --- /dev/null
 +++ b/ai/oauth_accounts.go
-@@ -0,0 +1,631 @@
+@@ -0,0 +1,647 @@
 +package ai
 +
 +import (
@@ -693,6 +693,22 @@ index 0000000..882d9ef
 +	})
 +}
 +
++// DeleteOAuthAccount removes one account by ID and clears its provider selection when it was active.
++func (a *AuthStorage) DeleteOAuthAccount(ctx context.Context, id string) error {
++	return a.withOAuthAccounts(ctx, func(data *oauthAccountData) (bool, error) {
++		index := slices.IndexFunc(data.Accounts, func(account oauthAccountRecord) bool { return account.ID == id })
++		if index < 0 {
++			return false, errors.New("oauth accounts: account not found")
++		}
++		provider := data.Accounts[index].Provider
++		data.Accounts = slices.Delete(data.Accounts, index, index+1)
++		if data.Selected[provider] == id {
++			delete(data.Selected, provider)
++		}
++		return true, nil
++	})
++}
++
 +// API-key-only callers retain the singleton store's existing read behavior.
 +// Native account operations themselves still validate both stores strictly.
 +func (a *AuthStorage) nativeOAuthNeeded(ctx context.Context, provider string) (bool, error) {
@@ -859,7 +875,7 @@ index 0000000..882d9ef
 +}
 diff --git a/ai/oauth_accounts_lock_test.go b/ai/oauth_accounts_lock_test.go
 new file mode 100644
-index 0000000..0b666fe
+index 00000000..0b666fee
 --- /dev/null
 +++ b/ai/oauth_accounts_lock_test.go
 @@ -0,0 +1,258 @@
@@ -1123,10 +1139,10 @@ index 0000000..0b666fe
 +}
 diff --git a/ai/oauth_accounts_test.go b/ai/oauth_accounts_test.go
 new file mode 100644
-index 0000000..fc800ed
+index 00000000..8411f6f4
 --- /dev/null
 +++ b/ai/oauth_accounts_test.go
-@@ -0,0 +1,437 @@
+@@ -0,0 +1,467 @@
 +package ai
 +
 +import (
@@ -1564,8 +1580,38 @@ index 0000000..fc800ed
 +		t.Fatal("Modify returned before native credential persisted")
 +	}
 +}
++
++func TestNativeOAuthDeleteAccountByID(t *testing.T) {
++	ctx := t.Context()
++	store := nativeAccountStorage(t)
++	expires := time.Now().Add(time.Hour).UnixMilli()
++	id1, err := store.UpsertOAuthAccount(ctx, "openai-codex", nativeAccountCredential(t, "ws", "one@example.test", "r1", expires))
++	if err != nil {
++		t.Fatal(err)
++	}
++	id2, err := store.UpsertOAuthAccount(ctx, "openai-codex", nativeAccountCredential(t, "ws", "two@example.test", "r2", expires))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := store.DeleteOAuthAccount(ctx, id1); err != nil {
++		t.Fatal(err)
++	}
++	accounts, err := store.OAuthAccounts(ctx)
++	if err != nil || len(accounts) != 1 || accounts[0].ID != id2 || !accounts[0].Active {
++		t.Fatal("deleting an inactive account changed the other one", err)
++	}
++	if err := store.DeleteOAuthAccount(ctx, id2); err != nil {
++		t.Fatal(err)
++	}
++	if accounts, err = store.OAuthAccounts(ctx); err != nil || len(accounts) != 0 {
++		t.Fatal("active account was not deleted", err)
++	}
++	if err := store.DeleteOAuthAccount(ctx, id2); err == nil {
++		t.Fatal("deleting a missing account succeeded")
++	}
++}
 diff --git a/ai/oauth_registry_lock_upstream_test.go b/ai/oauth_registry_lock_upstream_test.go
-index 5c64e4e..27d89d6 100644
+index 5c64e4e2..27d89d6c 100644
 --- a/ai/oauth_registry_lock_upstream_test.go
 +++ b/ai/oauth_registry_lock_upstream_test.go
 @@ -177,9 +177,11 @@ func TestRegistryOAuthRefreshCancelledDuringTheRefreshPersistsTheCredentialUpstr
@@ -1584,7 +1630,7 @@ index 5c64e4e..27d89d6 100644
  }
  
 diff --git a/ai/runtime_credentials.go b/ai/runtime_credentials.go
-index e7538ff..1b1ad8b 100644
+index e7538ffb..1b1ad8b0 100644
 --- a/ai/runtime_credentials.go
 +++ b/ai/runtime_credentials.go
 @@ -133,3 +133,12 @@ func (c *RuntimeCredentials) Delete(ctx context.Context, providerID string) erro
@@ -1601,7 +1647,7 @@ index e7538ff..1b1ad8b 100644
 +	return StoreLoginCredential(ctx, c.store, provider, credential)
 +}
 diff --git a/coding/cli/auth_commands.go b/coding/cli/auth_commands.go
-index adc3103..4b446be 100644
+index adc31035..4b446be2 100644
 --- a/coding/cli/auth_commands.go
 +++ b/coding/cli/auth_commands.go
 @@ -127,8 +127,8 @@ func runLoginCommand(args []string) int {
@@ -1625,7 +1671,7 @@ index adc3103..4b446be 100644
  }
  
 diff --git a/coding/extension/host/subprocess/host_calls.go b/coding/extension/host/subprocess/host_calls.go
-index 68cc013..c9c078b 100644
+index 68cc013e..c9c078b3 100644
 --- a/coding/extension/host/subprocess/host_calls.go
 +++ b/coding/extension/host/subprocess/host_calls.go
 @@ -39,7 +39,7 @@ func startsAsync(method string) bool {
@@ -1638,7 +1684,7 @@ index 68cc013..c9c078b 100644
  		CallOAuthOnPrompt, CallOAuthOnSelect, CallOAuthOnManualCodeInput:
  		return true
 diff --git a/coding/extension/host/subprocess/ui_bridge.go b/coding/extension/host/subprocess/ui_bridge.go
-index 2a83687..f739835 100644
+index 2a83687a..f739835b 100644
 --- a/coding/extension/host/subprocess/ui_bridge.go
 +++ b/coding/extension/host/subprocess/ui_bridge.go
 @@ -373,7 +373,10 @@ type HostCallbacks struct {
@@ -1725,7 +1771,7 @@ index 2a83687..f739835 100644
  func (b *UIBridge) handleGetAvailableOfType(ctx context.Context, actions *HostCallbacks, args json.RawMessage) (*CallResultPayload, error) {
  	var p struct {
 diff --git a/docs/additive-features.md b/docs/additive-features.md
-index 6b4abd7..3edcd63 100644
+index 6b4abd7d..3edcd630 100644
 --- a/docs/additive-features.md
 +++ b/docs/additive-features.md
 @@ -14,6 +14,42 @@ If an upstream behavior changes such that one of these additive features starts
@@ -1773,7 +1819,7 @@ index 6b4abd7..3edcd63 100644
  `make set-version VERSION=x.y.z` is repository-only release tooling, not an additive Stock PiG runtime API. It synchronizes the PiG pin, Standard development version, changelog heading, and the Python and TypeScript SDK package versions (`TestSDKPackagesCarryThePigReleaseVersion` fails on drift) while preserving Go dependency pins and checksums. The Rust `pig-sdk` crate stays on 0.1.x: Pig resolves an un-pathed requirement through a Cargo patch, which applies only within semver, and scaffolded extensions require `0.1.0` (`TestRustSDKAcceptsEveryPinnedRequirement`). The explicit `--release-modules` option prepares local module requirements and publication checksums on an unpublished release branch. The nested tags must be published before that candidate reaches `main`; `make module-publication` verifies required public tags and downloaded checksums without workspace or SDK-cache assistance. The command preserves Unreleased entries unless `--move-unreleased` is selected, supports a read-only `--dry-run`, and permits explicit renaming of an unpublished candidate with `--rename-current`. See `docs/project/RELEASING.md`. This required release substrate does not select product behavior and adds no numbered runtime divergence. Pi's corresponding repository automation is `scripts/sync-versions.js` and `scripts/release.mjs`; the Go module publication mechanism is Go-specific.
 diff --git a/internal/codingagent/extension_oauth_login_menu_test.go b/internal/codingagent/extension_oauth_login_menu_test.go
 new file mode 100644
-index 0000000..a58f52e
+index 00000000..a58f52e0
 --- /dev/null
 +++ b/internal/codingagent/extension_oauth_login_menu_test.go
 @@ -0,0 +1,25 @@
@@ -1803,7 +1849,7 @@ index 0000000..a58f52e
 +	t.Fatal("registered extension OAuth flow missing from account login options")
 +}
 diff --git a/internal/codingagent/interactive_api_key_login.go b/internal/codingagent/interactive_api_key_login.go
-index ed521b6..3f68a70 100644
+index ed521b64..3f68a706 100644
 --- a/internal/codingagent/interactive_api_key_login.go
 +++ b/internal/codingagent/interactive_api_key_login.go
 @@ -106,7 +106,7 @@ func (m *InteractiveMode) runAPIKeyLogin(provider tui.OAuthProvider) error {
@@ -1816,7 +1862,7 @@ index ed521b6..3f68a70 100644
  			if err == nil && registry != nil {
  				registry.Refresh()
 diff --git a/internal/codingagent/interactive_auth.go b/internal/codingagent/interactive_auth.go
-index 50904cd..c91435e 100644
+index 50904cdd..c91435e4 100644
 --- a/internal/codingagent/interactive_auth.go
 +++ b/internal/codingagent/interactive_auth.go
 @@ -419,7 +419,7 @@ func (m *InteractiveMode) runLoginRegisteredOAuth(loginCtx context.Context, prov
@@ -1856,7 +1902,7 @@ index 50904cd..c91435e 100644
  
  // loginDeviceID is the installation's device ID, which Pi passes to every login (interactive-mode.ts:6297) and Sign in
 diff --git a/internal/codingagent/interactive_commands.go b/internal/codingagent/interactive_commands.go
-index 058e5a2..11ff598 100644
+index 058e5a28..6033a67c 100644
 --- a/internal/codingagent/interactive_commands.go
 +++ b/internal/codingagent/interactive_commands.go
 @@ -1137,7 +1137,13 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
@@ -1874,8 +1920,20 @@ index 058e5a2..11ff598 100644
  		SelectAuthProvider: func(mode string, providers []tui.OAuthProvider, initialSearch string) (tui.OAuthProvider, bool) {
  			var chosen tui.OAuthProvider
  			sel := tui.NewOAuthSelectorComponent(mode, providers, func(providerID, authType string) {
+@@ -1148,6 +1154,11 @@ func (m *InteractiveMode) buildSlashContext(ctx context.Context) *SlashContext {
+ 					}
+ 				}
+ 			}, nil, initialSearch)
++			if mode == "accounts" {
++				sel.SetOnDelete(func(id string) error {
++					return m.opts.ModelRegistry.DeleteOAuthAccount(ctx, id)
++				})
++			}
+ 			_, ok := m.runEditorSlotOAuthSelector(sel)
+ 			return chosen, ok
+ 		},
 diff --git a/internal/codingagent/interactive_extensions.go b/internal/codingagent/interactive_extensions.go
-index d2e5ca9..7929aa9 100644
+index d2e5ca90..7929aa9c 100644
 --- a/internal/codingagent/interactive_extensions.go
 +++ b/internal/codingagent/interactive_extensions.go
 @@ -1687,6 +1687,15 @@ func WireModelOperations(bridge ModelOperationBridge, bindings ModelOperationBin
@@ -1895,7 +1953,7 @@ index d2e5ca9..7929aa9 100644
  		errors := map[string]string{}
  		if bindings.Registry == nil {
 diff --git a/internal/codingagent/interactive_login.go b/internal/codingagent/interactive_login.go
-index 838ec2f..963c7de 100644
+index 838ec2f8..963c7dee 100644
 --- a/internal/codingagent/interactive_login.go
 +++ b/internal/codingagent/interactive_login.go
 @@ -14,7 +14,13 @@ import (
@@ -1914,7 +1972,7 @@ index 838ec2f..963c7de 100644
  		if provider := registry.GetProvider(id); provider != nil {
  			return provider.Auth
 diff --git a/internal/codingagent/llama_extension_command_test.go b/internal/codingagent/llama_extension_command_test.go
-index 606756a..19ab2b7 100644
+index 606756a5..19ab2b73 100644
 --- a/internal/codingagent/llama_extension_command_test.go
 +++ b/internal/codingagent/llama_extension_command_test.go
 @@ -39,21 +39,6 @@ func popupNames(t *testing.T, m *InteractiveMode) []string {
@@ -1954,7 +2012,7 @@ index 606756a..19ab2b7 100644
  }
  
 diff --git a/internal/codingagent/native_model_runtime.go b/internal/codingagent/native_model_runtime.go
-index 0475b9c..61593c4 100644
+index 0475b9cf..61593c42 100644
 --- a/internal/codingagent/native_model_runtime.go
 +++ b/internal/codingagent/native_model_runtime.go
 @@ -45,6 +45,9 @@ func (store registryCredentials) Modify(ctx context.Context, id string, fn func(
@@ -1967,12 +2025,65 @@ index 0475b9c..61593c4 100644
  
  // NativeModels returns the provider-owned collection sharing this registry's credentials and ModelsStore.
  func (r *ModelRegistry) NativeModels() *ai.Models {
+diff --git a/internal/codingagent/native_provider.go b/internal/codingagent/native_provider.go
+index 9125b814..ff392957 100644
+--- a/internal/codingagent/native_provider.go
++++ b/internal/codingagent/native_provider.go
+@@ -23,9 +23,10 @@ type registeredNativeProvider struct {
+ 
+ // RegisterNativeProvider installs the object and model snapshot and queues the local refresh, as Pi's registerNativeProvider does. It performs no authentication and calls no provider callback; both happen in the queued refresh. The bound availability projection runs before listeners are notified.
+ func (r *ModelRegistry) RegisterNativeProvider(ctx context.Context, p *extension.NativeProvider) error {
+-	// A compiled-in extension's carrier (extension.NativeProviderOf) holds the Provider object's own members and none of a subprocess
+-	// registration's host callbacks: it registers as the object.
+-	if p != nil && p.ID != "" && p.CheckAuth == nil && p.ResolveAuth == nil && p.ResolveRefreshCredential == nil && p.Models == nil && p.GetModels != nil {
++	// Dynamic SDK providers can have auth callbacks and an empty Models slice.
++	// Register their Provider object in the canonical model collection, just as
++	// compiled-in providers do, so refreshed catalogs reach the model picker.
++	if p != nil && p.ID != "" && len(p.Models) == 0 && p.GetModels != nil {
+ 		return r.RegisterNativeModelsProvider(p.ProviderObject())
+ 	}
+ 	if p == nil || p.ID == "" || p.Stream == nil || p.CheckAuth == nil || p.ResolveAuth == nil || p.ResolveRefreshCredential == nil {
+diff --git a/internal/codingagent/native_provider_sdk_catalog_test.go b/internal/codingagent/native_provider_sdk_catalog_test.go
+new file mode 100644
+index 00000000..5fe3305b
+--- /dev/null
++++ b/internal/codingagent/native_provider_sdk_catalog_test.go
+@@ -0,0 +1,29 @@
++package codingagent
++
++import (
++	"context"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/coding/extension"
++)
++
++// SDK carriers have subprocess auth callbacks even when they list models
++// dynamically. They must enter the same collection used by the model picker.
++func TestRegisterNativeProviderRegistersSDKDynamicCatalog(t *testing.T) {
++	registry := NewModelRegistry(t.TempDir())
++	provider := &extension.NativeProvider{
++		ID: "sdk-catalog", Name: "SDK catalog",
++		Models: []extension.ProviderModelConfig{},
++		GetModels: func(context.Context) ([]*ai.Model, error) { return nil, nil },
++		CheckAuth: func(context.Context, *ai.Credential) (*ai.AuthCheck, error) { return nil, nil },
++		ResolveAuth: func(context.Context, *ai.Credential, ai.AuthResolutionOverrides) (*ai.AuthResult, *ai.Credential, error) { return nil, nil, nil },
++		ResolveRefreshCredential: func(context.Context, *ai.Credential) (*ai.Credential, *ai.Credential, error) { return nil, nil, nil },
++	}
++	if err := registry.RegisterNativeProvider(context.Background(), provider); err != nil {
++		t.Fatal(err)
++	}
++	if got := registry.GetRegisteredNativeProvider(provider.ID); got == nil || got.GetModels == nil {
++		t.Fatal("SDK provider missing from canonical model collection")
++	}
++}
 diff --git a/internal/codingagent/oauth_accounts.go b/internal/codingagent/oauth_accounts.go
 new file mode 100644
-index 0000000..f3ada01
+index 00000000..2177753c
 --- /dev/null
 +++ b/internal/codingagent/oauth_accounts.go
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,145 @@
 +package codingagent
 +
 +import (
@@ -2053,6 +2164,18 @@ index 0000000..f3ada01
 +	return nil
 +}
 +
++func (r *ModelRegistry) DeleteOAuthAccount(ctx context.Context, id string) error {
++	store, err := r.nativeOAuthStorage()
++	if err != nil {
++		return err
++	}
++	if err := store.DeleteOAuthAccount(ctx, id); err != nil {
++		return err
++	}
++	r.Refresh()
++	return nil
++}
++
 +func accountsHandler(sc *SlashContext) error {
 +	if sc.OAuthAccounts == nil || sc.SelectOAuthAccount == nil {
 +		return errors.New("native OAuth account management is unavailable")
@@ -2088,9 +2211,9 @@ index 0000000..f3ada01
 +		}
 +		options := make([]tui.OAuthProvider, 0, len(accounts))
 +		for _, account := range accounts {
-+			name := account.Provider + ": " + account.Label + " [" + account.ID + "]"
++			name := "    " + account.Provider + ": " + account.Label + " [" + account.ID + "]"
 +			if account.Active {
-+				name += " (active)"
++				name = "[A] " + account.Provider + ": " + account.Label + " [" + account.ID + "]"
 +			}
 +			options = append(options, tui.OAuthProvider{ID: account.ID, Name: name, AuthType: "oauth"})
 +		}
@@ -2108,7 +2231,7 @@ index 0000000..f3ada01
 +}
 diff --git a/internal/codingagent/oauth_accounts_test.go b/internal/codingagent/oauth_accounts_test.go
 new file mode 100644
-index 0000000..4788649
+index 00000000..47886498
 --- /dev/null
 +++ b/internal/codingagent/oauth_accounts_test.go
 @@ -0,0 +1,185 @@
@@ -2298,7 +2421,7 @@ index 0000000..4788649
 +	}
 +}
 diff --git a/internal/codingagent/slash_commands.go b/internal/codingagent/slash_commands.go
-index fb97c80..8978fee 100644
+index fb97c80e..8978feeb 100644
 --- a/internal/codingagent/slash_commands.go
 +++ b/internal/codingagent/slash_commands.go
 @@ -367,7 +367,9 @@ type SlashContext struct {
@@ -2323,10 +2446,69 @@ index fb97c80..8978fee 100644
  		{Name: "compact", Description: "Manually compact the session context", TakesArguments: true, Handler: compactHandler},
  		{Name: "resume", Description: "Resume a different session", Handler: resumeHandler},
 diff --git a/tui/oauth_selector.go b/tui/oauth_selector.go
-index 023f8bd..0b261d4 100644
+index 023f8bdf..24f7a4a5 100644
 --- a/tui/oauth_selector.go
 +++ b/tui/oauth_selector.go
-@@ -121,6 +121,8 @@ func NewOAuthSelectorComponent(mode string, providers []OAuthProvider, onSelect
+@@ -11,6 +11,7 @@ package tui
+ 
+ import (
+ 	"fmt"
++	"slices"
+ 	"strings"
+ 
+ 	"github.com/MichaelKinsy/PiG/extensions/sdk/frontend"
+@@ -60,6 +61,12 @@ type OAuthSelectorComponent struct {
+ 	// showAuthTypeLabels mirrors upstream: label rows with their auth type
+ 	// only when the list mixes subscription and API-key entries.
+ 	showAuthTypeLabels bool
++	// onDelete removes the highlighted entry in "accounts" mode; nil disables deletion.
++	onDelete func(id string) error
++	// pendingDeleteID is the entry awaiting a second "d" to confirm deletion.
++	pendingDeleteID string
++	// deleteStatus is the last deletion outcome, shown under the list.
++	deleteStatus string
+ }
+ 
+ // authSelectorMaxVisible is upstream oauth-selector.ts updateList maxVisible.
+@@ -87,6 +94,37 @@ func subscriptionArg(subscription *bool) []bool {
+ 	return []bool{*subscription}
+ }
+ 
++// SetOnDelete enables deleting entries with "d" (pressed twice to confirm) while the search input is empty. A failed
++// delete keeps the entry and shows the error.
++func (s *OAuthSelectorComponent) SetOnDelete(onDelete func(id string) error) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	s.onDelete = onDelete
++	s.updateList()
++}
++
++// handleDeleteKey reports whether data was a delete key press. The first press asks for confirmation.
++func (s *OAuthSelectorComponent) handleDeleteKey(data string) bool {
++	if s.onDelete == nil || data != "d" || s.search.Text() != "" || len(s.filtered) == 0 {
++		return false
++	}
++	target := s.filtered[s.cursor]
++	if s.pendingDeleteID != target.ID {
++		s.pendingDeleteID = target.ID
++		s.deleteStatus = ""
++		return true
++	}
++	s.pendingDeleteID = ""
++	if err := s.onDelete(target.ID); err != nil {
++		s.deleteStatus = fmt.Sprintf("Delete failed: %v", err)
++		return true
++	}
++	s.providers = slices.DeleteFunc(s.providers, func(p OAuthProvider) bool { return p.ID == target.ID })
++	s.deleteStatus = "Deleted " + strings.TrimSpace(target.Name)
++	s.applyFilter()
++	return true
++}
++
+ // SetFocused records TUI focus and propagates it to the search input for IME cursor positioning (upstream `set focused`).
+ func (s *OAuthSelectorComponent) SetFocused(focused bool) {
+ 	s.mu.Lock() // a render holds the container's read lock while it draws the search input
+@@ -121,6 +159,8 @@ func NewOAuthSelectorComponent(mode string, providers []OAuthProvider, onSelect
  	title := "Select provider to configure:"
  	if mode == "logout" {
  		title = "Select provider to logout:"
@@ -2335,7 +2517,46 @@ index 023f8bd..0b261d4 100644
  	}
  	t := ActiveTheme()
  	sel.Add(NewDynamicBorder())
-@@ -296,6 +298,8 @@ func (s *OAuthSelectorComponent) NativeNode() (frontend.Node, bool) {
+@@ -220,10 +260,23 @@ func (s *OAuthSelectorComponent) updateList() {
+ 		s.listContainer.Add(NewTruncatedText(t.Fg("muted", fmt.Sprintf("  (%d/%d)", s.cursor+1, len(s.filtered))), 1, 0))
+ 	}
+ 
++	if s.mode == "accounts" && s.onDelete != nil {
++		hint := "  d: delete account (press twice) • enter: select • esc: cancel"
++		switch {
++		case s.pendingDeleteID != "":
++			hint = "  Press d again to delete the highlighted account, any other key cancels"
++		case s.deleteStatus != "":
++			hint = "  " + s.deleteStatus
++		}
++		s.listContainer.Add(NewTruncatedText(t.Fg("muted", hint), 1, 0))
++	}
++
+ 	if len(s.filtered) == 0 {
+ 		msg := "No matching providers"
+ 		if len(s.providers) == 0 {
+-			if s.mode == "login" {
++			if s.mode == "accounts" {
++				msg = "No native OAuth accounts left."
++			} else if s.mode == "login" {
+ 				msg = "No providers available"
+ 			} else {
+ 				msg = "No providers logged in. Use /login first."
+@@ -253,6 +306,13 @@ func (s *OAuthSelectorComponent) HandleInput(data string) {
+ 		return
+ 	}
+ 	kb := GetTUIKeybindings()
++	if s.handleDeleteKey(data) {
++		s.updateList()
++		s.Invalidate()
++		return
++	}
++	s.pendingDeleteID = ""
++	s.deleteStatus = ""
+ 	switch {
+ 	case kb.Matches(data, KBSelectUp):
+ 		if s.cursor > 0 {
+@@ -296,6 +356,8 @@ func (s *OAuthSelectorComponent) NativeNode() (frontend.Node, bool) {
  	}
  	if s.mode == "logout" {
  		node.Title = "Select provider to logout:"
@@ -2344,52 +2565,62 @@ index 023f8bd..0b261d4 100644
  	}
  	if s.search != nil {
  		node.Query = s.search.Text()
-diff --git a/internal/codingagent/native_provider.go b/internal/codingagent/native_provider.go
---- a/internal/codingagent/native_provider.go
-+++ b/internal/codingagent/native_provider.go
-@@ -25,7 +25,8 @@
- func (r *ModelRegistry) RegisterNativeProvider(ctx context.Context, p *extension.NativeProvider) error {
--	// A compiled-in extension's carrier (extension.NativeProviderOf) holds the Provider object's own members and none of a subprocess
--	// registration's host callbacks: it registers as the object.
--	if p != nil && p.ID != "" && p.CheckAuth == nil && p.ResolveAuth == nil && p.ResolveRefreshCredential == nil && p.Models == nil && p.GetModels != nil {
-+	// Dynamic SDK providers can have auth callbacks and an empty Models slice.
-+	// Register their Provider object in the canonical model collection, just as
-+	// compiled-in providers do, so refreshed catalogs reach the model picker.
-+	if p != nil && p.ID != "" && len(p.Models) == 0 && p.GetModels != nil {
- 		return r.RegisterNativeModelsProvider(p.ProviderObject())
- 	}
- 	if p == nil || p.ID == "" || p.Stream == nil || p.CheckAuth == nil || p.ResolveAuth == nil || p.ResolveRefreshCredential == nil {
-diff --git a/internal/codingagent/native_provider_sdk_catalog_test.go b/internal/codingagent/native_provider_sdk_catalog_test.go
+diff --git a/tui/oauth_selector_delete_test.go b/tui/oauth_selector_delete_test.go
 new file mode 100644
+index 00000000..2abad08d
 --- /dev/null
-+++ b/internal/codingagent/native_provider_sdk_catalog_test.go
-@@ -0,0 +1,29 @@
-+package codingagent
++++ b/tui/oauth_selector_delete_test.go
+@@ -0,0 +1,53 @@
++package tui
 +
 +import (
-+	"context"
++	"errors"
++	"strings"
 +	"testing"
-+
-+	"github.com/MichaelKinsy/PiG/ai"
-+	"github.com/MichaelKinsy/PiG/coding/extension"
 +)
 +
-+// SDK carriers have subprocess auth callbacks even when they list models
-+// dynamically. They must enter the same collection used by the model picker.
-+func TestRegisterNativeProviderRegistersSDKDynamicCatalog(t *testing.T) {
-+	registry := NewModelRegistry(t.TempDir())
-+	provider := &extension.NativeProvider{
-+		ID: "sdk-catalog", Name: "SDK catalog",
-+		Models: []extension.ProviderModelConfig{},
-+		GetModels: func(context.Context) ([]*ai.Model, error) { return nil, nil },
-+		CheckAuth: func(context.Context, *ai.Credential) (*ai.AuthCheck, error) { return nil, nil },
-+		ResolveAuth: func(context.Context, *ai.Credential, ai.AuthResolutionOverrides) (*ai.AuthResult, *ai.Credential, error) { return nil, nil, nil },
-+		ResolveRefreshCredential: func(context.Context, *ai.Credential) (*ai.Credential, *ai.Credential, error) { return nil, nil, nil },
++func TestOAuthSelectorAccountsDeleteNeedsConfirmation(t *testing.T) {
++	providers := []OAuthProvider{{ID: "a", Name: "[A] one", AuthType: "oauth"}, {ID: "b", Name: "    two", AuthType: "oauth"}}
++	var deleted []string
++	sel := NewOAuthSelectorComponent("accounts", providers, nil, nil)
++	sel.SetOnDelete(func(id string) error { deleted = append(deleted, id); return nil })
++	if !strings.Contains(strings.Join(sel.Render(100), "\n"), "d: delete account") {
++		t.Fatal("delete hint is not visible")
 +	}
-+	if err := registry.RegisterNativeProvider(context.Background(), provider); err != nil {
-+		t.Fatal(err)
++	sel.HandleInput("d")
++	if len(deleted) != 0 {
++		t.Fatal("first d deleted without confirmation")
 +	}
-+	if got := registry.GetRegisteredNativeProvider(provider.ID); got == nil || got.GetModels == nil {
-+		t.Fatal("SDK provider missing from canonical model collection")
++	sel.HandleInput("d")
++	if len(deleted) != 1 || deleted[0] != "a" || len(sel.filtered) != 1 || sel.filtered[0].ID != "b" {
++		t.Fatalf("delete result: %v %v", deleted, sel.filtered)
++	}
++}
++
++func TestOAuthSelectorAccountsDeleteCancelsAndReportsErrors(t *testing.T) {
++	providers := []OAuthProvider{{ID: "a", Name: "one", AuthType: "oauth"}, {ID: "b", Name: "two", AuthType: "oauth"}}
++	calls := 0
++	sel := NewOAuthSelectorComponent("accounts", providers, nil, nil)
++	sel.SetOnDelete(func(string) error { calls++; return errors.New("boom") })
++	sel.HandleInput("d")
++	sel.HandleInput("x") // cancels the pending delete and edits the search
++	sel.HandleInput("d")
++	if calls != 0 {
++		t.Fatal("delete ran without two consecutive d presses")
++	}
++	sel = NewOAuthSelectorComponent("accounts", providers, nil, nil)
++	sel.SetOnDelete(func(string) error { calls++; return errors.New("boom") })
++	sel.HandleInput("d")
++	sel.HandleInput("d")
++	if calls != 1 || len(sel.filtered) != 2 || !strings.Contains(strings.Join(sel.Render(100), "\n"), "Delete failed: boom") {
++		t.Fatal("failed delete must keep the entry and show the error")
++	}
++}
++
++func TestOAuthSelectorDeleteDisabledOutsideAccounts(t *testing.T) {
++	sel := NewOAuthSelectorComponent("login", []OAuthProvider{{ID: "a", Name: "d", AuthType: "oauth"}}, nil, nil)
++	sel.HandleInput("d")
++	if sel.search.Text() != "d" {
++		t.Fatal("d must stay a search character outside accounts mode")
 +	}
 +}
