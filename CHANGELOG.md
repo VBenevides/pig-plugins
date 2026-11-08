@@ -2,6 +2,24 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.3.2] - 2026-11-08
+
+### Features
+
+- Add account deletion to the native Accounts list. Press `d` twice to delete the highlighted account. Any other key cancels the delete.
+- Show a hint for the delete keys in the Accounts list. If a delete fails, PiG keeps the account and shows the error.
+- Clear the provider selection when you delete the active account.
+- Mark the active account with `[A]` in the Accounts list.
+
+### Bugfixes
+
+- Add dynamic SDK providers to the model list. This includes providers with auth callbacks and an empty model list, so refreshed catalogs reach the model picker.
+
+### Other
+
+- Add tests for account deletion in storage and in the selector, and for SDK provider registration.
+- Update the accounts host patch.
+
 ## [0.3.1] - 2026-11-05
 
 ### Features
