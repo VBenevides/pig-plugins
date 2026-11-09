@@ -77,6 +77,24 @@ Only the `custom-user-tools` provider and declared tool names are accepted. Outp
 The security tests and native provider integration are separate release gates.
 The prototype alone does not establish a working Cursor provider.
 
+## Bridge controls in the pinned release
+
+The v1.2.0 proto files (`proto/sdk/v1`) and a local `GetVersion` call give these facts.
+The release reports bridge version 1.0.0, protocol `sdk.v1`.
+
+- Advertised capabilities: `agent.create`, `agent.resume`, `agent.send`, `run.observe`, `run.wait`, `run.cancel`, `agent.management`, `cursor.catalog`, `artifacts.chunked`, `agent.usage`.
+- `ResumeAgent` takes the same `AgentOptions` as `CreateAgent`. The SDK does not store inline options, so every resume repeats them.
+- `SendOptions` has `enable_deltas` and `enable_steps`. Deltas arrive as `interaction_update` events. Steps arrive as `step` events.
+- `AgentOptions` has no system-prompt field. `LocalAgentOptions` has none either. A host cannot replace the Cursor system prompt through this bridge.
+  The `custom_system_prompt` and `system_prompt_override` strings in the binary do not appear in the public proto files. PiG does not use them.
+- Run steering (`run.steer`) is not advertised. The bridge cannot add a message to a live run.
+- Custom tool definitions belong to the agent (`LocalAgentOptions.custom_tools`, metadata only). A send cannot replace them. A changed tool set needs a new agent.
+- The callback holds one open HTTP request to PiG for each tool call. The proto does not say what happens to it after `CancelRun`. This is not tested.
+
+PiG calls `Client.Require(capability)` before it uses an optional control. A bridge without the capability gives an explicit error.
+
+Consequence for the plan: the host text stays in the user message. Agent reuse can use `agent.resume`. A parked run keeps the callback request open across turns. Other Cursor integrations do this, but it needs its own tests.
+
 ## Catalog persistence
 
 The host model store saves the catalog with a hash of the account credential.
