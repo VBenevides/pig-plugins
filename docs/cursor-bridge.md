@@ -85,6 +85,7 @@ The release reports bridge version 1.0.0, protocol `sdk.v1`.
 - Advertised capabilities: `agent.create`, `agent.resume`, `agent.send`, `run.observe`, `run.wait`, `run.cancel`, `agent.management`, `cursor.catalog`, `artifacts.chunked`, `agent.usage`.
 - `ResumeAgent` takes the same `AgentOptions` as `CreateAgent`. The SDK does not store inline options, so every resume repeats them.
 - `SendOptions` has `enable_deltas` and `enable_steps`. Deltas arrive as `interaction_update` events. Steps arrive as `step` events.
+  PiG turns deltas on and steps off. `text-delta` and `thinking-delta` events stream as they arrive. The completed message block is then dropped when it repeats text that already streamed. A block with different text is kept, so text is never lost. A `partial-tool-call` update may arrive before its arguments name the tool. PiG accepts it only as an MCP call with empty arguments or a declared tool in the owned custom-tool channel. Native types and foreign providers still stop the turn. Whether a live run sends the block before or after its deltas is not yet verified.
 - `AgentOptions` has no system-prompt field. `LocalAgentOptions` has none either. A host cannot replace the Cursor system prompt through this bridge.
   The `custom_system_prompt` and `system_prompt_override` strings in the binary do not appear in the public proto files. PiG does not use them.
 - Run steering (`run.steer`) is not advertised. The bridge cannot add a message to a live run.

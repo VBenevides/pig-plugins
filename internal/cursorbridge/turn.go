@@ -20,6 +20,26 @@ const maxTurnOutputBytes = 256 << 10
 type Event struct {
 	Thinking bool
 	Text     string
+	delta    bool // streamed token delta, not a completed message block
+}
+
+// deltaTracker drops completed message blocks whose text already reached PiG as
+// deltas, so text prints once. A block that does not match is kept, because
+// showing text twice is better than losing it.
+type deltaTracker struct{ text, thinking strings.Builder }
+
+func (d *deltaTracker) keep(event Event) bool {
+	seen := &d.text
+	if event.Thinking {
+		seen = &d.thinking
+	}
+	if event.delta {
+		seen.WriteString(event.Text)
+		return true
+	}
+	covered := seen.Len() > 0 && strings.HasSuffix(strings.TrimSpace(seen.String()), strings.TrimSpace(event.Text))
+	seen.Reset()
+	return !covered
 }
 
 // Outcome is the result of one turn. Proposals are tool calls for PiG to run;
@@ -91,6 +111,7 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 	}
 	streamed := false
 	outputBytes := 0
+	var deltas deltaTracker
 	result, sendErr := p.Client.Send(runCtx, agentID, prompt, images, func(data json.RawMessage) error {
 		traceEvent(data)
 		events, violation := classify(data, allowed)
@@ -100,6 +121,9 @@ func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tool
 			return violation
 		}
 		for _, event := range events {
+			if !deltas.keep(event) {
+				continue
+			}
 			if len(event.Text) > maxTurnOutputBytes-outputBytes {
 				return errors.New("Cursor output exceeded the per-turn safety limit; no retry was attempted")
 			}
@@ -154,12 +178,20 @@ func classify(data json.RawMessage, allowed map[string]bool) ([]Event, error) {
 		return nil, fmt.Errorf("decode Cursor stream event: %w", err)
 	}
 	for _, item := range []*typed{envelope.InteractionUpdate, envelope.Step} {
-		if item != nil && item.Type != "tool-requests-listed" && strings.Contains(strings.ToLower(item.Type), "tool") {
-			// tool-requests-listed only carries a call count, never a tool name.
-			if !offered(item.payload(), allowed) {
-				return nil, errors.New("Cursor reported native tool activity; refusing to continue")
-			}
+		if item == nil || item.Type == "tool-requests-listed" || !strings.Contains(strings.ToLower(item.Type), "tool") {
+			continue
 		}
+		// tool-requests-listed only carries a call count, never a tool name.
+		// A partial call can stream before its arguments name the tool.
+		if item.Type == "partial-tool-call" && partialOffered(item.payload(), allowed) {
+			continue
+		}
+		if !offered(item.payload(), allowed) {
+			return nil, errors.New("Cursor reported native tool activity; refusing to continue")
+		}
+	}
+	if update := envelope.InteractionUpdate; update != nil && (update.Type == "text-delta" || update.Type == "thinking-delta") {
+		return deltaEvents(update), nil
 	}
 	message := envelope.SDKMessage
 	if message == nil {
@@ -196,6 +228,44 @@ func (t *typed) payload() json.RawMessage {
 		}
 	}
 	return nil
+}
+
+// deltaEvents turns a text or thinking delta into one event. A malformed delta
+// yields nothing; the completed message block still carries the text.
+func deltaEvents(update *typed) []Event {
+	var delta struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(update.payload(), &delta) != nil || delta.Text == "" {
+		return nil
+	}
+	return []Event{{Thinking: update.Type == "thinking-delta", Text: delta.Text, delta: true}}
+}
+
+// partialOffered accepts a streaming partial tool call only when it is an MCP
+// call whose arguments do not name a provider or tool yet, or when the named
+// tool is owned and declared. Complete calls still pass through offered.
+func partialOffered(payload json.RawMessage, allowed map[string]bool) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	var partial struct {
+		ToolCall struct {
+			Type string `json:"type"`
+			Args struct {
+				Provider string `json:"providerIdentifier"`
+				Tool     string `json:"toolName"`
+			} `json:"args"`
+		} `json:"toolCall"`
+	}
+	if json.Unmarshal(payload, &partial) != nil || partial.ToolCall.Type != "mcp" {
+		return false
+	}
+	args := partial.ToolCall.Args
+	if args.Provider == "" && args.Tool == "" {
+		return true
+	}
+	return offered(payload, allowed)
 }
 
 // offered accepts only the SDK's owned custom-tool namespace. Matching a suffix
