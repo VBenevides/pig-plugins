@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -44,126 +43,19 @@ func (d *deltaTracker) keep(event Event) bool {
 
 // Outcome is the result of one turn. Proposals are tool calls for PiG to run;
 // the turn ends after them. CleanupError reports failed teardown, which never
-// discards a finished generation but must stay visible.
+// discards a finished generation but must stay visible. Session is set only
+// when the run stayed open on those proposals (TurnOptions.Park).
 type Outcome struct {
 	Proposals    []Proposal
 	Usage        *TokenUsage
 	Text         string
 	CleanupError error
+	Session      *Session
 }
 
-// RunTurn runs one generation on a fresh agent. History is rendered by the caller
-// into prompt, so no remote conversation outlives the turn and no account or
-// branch can observe another's state. A Process runs one turn at a time.
-func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tools []ToolDef, prompt string, emit func(Event) error, images ...Image) (out Outcome, err error) {
-	p.turn.Lock()
-	defer p.turn.Unlock()
-	if p.Client == nil {
-		return out, errors.New("Cursor bridge is not running")
-	}
-	runCtx, cancelRun := context.WithCancel(ctx)
-	defer cancelRun()
-	var handedOff atomic.Bool
-	server, err := NewToolServer(tools, func() {
-		time.AfterFunc(grace, func() { handedOff.Store(true); cancelRun() })
-	})
-	if err != nil {
-		return out, err
-	}
-	var agentID string
-	var result RunResult
-	defer func() {
-		cancelRun()
-		// Teardown must not depend on the cancelled request context.
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		var failures []error
-		// Release parked HTTP callbacks before agent teardown can wait on them.
-		if closeErr := server.Close(); closeErr != nil {
-			failures = append(failures, fmt.Errorf("stop Cursor tool callback server: %w", closeErr))
-		}
-		if agentID != "" && result.RunID != "" && result.Status != "RUN_LIFECYCLE_STATUS_FINISHED" {
-			if cancelErr := p.Client.Cancel(cleanup, agentID, result.RunID); cancelErr != nil {
-				failures = append(failures, fmt.Errorf("cancel Cursor run: %w", cancelErr))
-			}
-		}
-		if agentID != "" {
-			if closeErr := p.Client.CloseAgent(cleanup, agentID); closeErr != nil {
-				failures = append(failures, fmt.Errorf("close Cursor agent: %w", closeErr))
-			}
-		}
-		if clearErr := p.Client.SetToolCallback(cleanup, "", ""); clearErr != nil {
-			failures = append(failures, fmt.Errorf("clear Cursor tool callback: %w", clearErr))
-		}
-		out.CleanupError = errors.Join(failures...)
-	}()
-	if err = p.Client.SetToolCallback(runCtx, server.URL, server.Token); err != nil {
-		return out, fmt.Errorf("register Cursor tool callback: %w", err)
-	}
-	if agentID, err = p.Client.Create(runCtx, key, model, tools); err != nil {
-		return out, fmt.Errorf("create Cursor agent: %w", err)
-	}
-	server.Expect(agentID)
-
-	allowed := map[string]bool{}
-	for _, tool := range tools {
-		allowed[tool.Name] = true
-	}
-	streamed := false
-	outputBytes := 0
-	var deltas deltaTracker
-	result, sendErr := p.Client.Send(runCtx, agentID, prompt, images, func(data json.RawMessage) error {
-		traceEvent(data)
-		events, violation := classify(data, allowed)
-		if violation != nil {
-			server.Fail(violation)
-			cancelRun()
-			return violation
-		}
-		for _, event := range events {
-			if !deltas.keep(event) {
-				continue
-			}
-			if len(event.Text) > maxTurnOutputBytes-outputBytes {
-				return errors.New("Cursor output exceeded the per-turn safety limit; no retry was attempted")
-			}
-			outputBytes += len(event.Text)
-			if !event.Thinking && event.Text != "" {
-				streamed = true
-			}
-			if emitErr := emit(event); emitErr != nil {
-				return emitErr
-			}
-		}
-		return nil
-	})
-	traceCallbacks(server)
-	proposals, violation := server.Results()
-	switch {
-	case violation != nil:
-		return out, violation
-	case ctx.Err() != nil:
-		return out, ctx.Err()
-	case handedOff.Load() && len(proposals) > 0:
-		// The cancel that ended this run was ours; the proposals are the result.
-		out.Proposals = proposals
-		return out, nil
-	case sendErr != nil:
-		return out, fmt.Errorf("send Cursor turn: %w", sendErr)
-	case len(proposals) > 0:
-		out.Proposals = proposals
-		return out, nil
-	}
-	if len(result.Result.Text) > maxTurnOutputBytes || (!streamed && len(result.Result.Text) > maxTurnOutputBytes-outputBytes) {
-		return out, errors.New("Cursor final output exceeded the per-turn safety limit; no retry was attempted")
-	}
-	out.Text, out.Usage = result.Result.Text, result.Result.Usage
-	if !streamed && out.Text != "" {
-		if err = emit(Event{Text: out.Text}); err != nil {
-			return out, err
-		}
-	}
-	return out, nil
+// RunTurn runs one generation on a fresh agent and never parks it. See Run.
+func (p *Process) RunTurn(ctx context.Context, key string, model Selection, tools []ToolDef, prompt string, emit func(Event) error, images ...Image) (Outcome, error) {
+	return p.Run(ctx, key, model, tools, prompt, emit, TurnOptions{}, images...)
 }
 
 // classify extracts model output from a stream event and refuses any tool

@@ -338,6 +338,26 @@ func (c *Client) Cancel(ctx context.Context, agentID, runID string) error {
 	var out struct{}
 	return c.Unary(ctx, agents+"CancelRun", map[string]string{"agentId": agentID, "runId": runID}, &out)
 }
+
+// ActiveRuns lists the agent's runs that are still starting or running.
+func (c *Client) ActiveRuns(ctx context.Context, agentID string) ([]string, error) {
+	var list struct {
+		Items []struct {
+			RunID  string `json:"runId"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := c.Unary(ctx, agents+"ListRuns", map[string]string{"agentId": agentID}, &list); err != nil {
+		return nil, err
+	}
+	var active []string
+	for _, item := range list.Items {
+		if item.RunID != "" && (item.Status == "RUN_LIFECYCLE_STATUS_RUNNING" || item.Status == "RUN_LIFECYCLE_STATUS_CREATING") {
+			active = append(active, item.RunID)
+		}
+	}
+	return active, nil
+}
 func (c *Client) CloseAgent(ctx context.Context, agentID string) error {
 	var out struct{}
 	return c.Unary(ctx, agents+"CloseAgent", map[string]string{"agentId": agentID}, &out)
