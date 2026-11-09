@@ -2,6 +2,28 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.3.3] - 2026-11-09
+
+### Features
+
+- Keep a Cursor run open when a turn ends in tool calls. PiG answers the waiting callbacks with the real tool results and continues the same run.
+- Replay the transcript on a new agent when the request differs from the parked conversation. Set `PIG_CURSOR_PARK=0` to turn parking off.
+- Show Cursor plan quota in `/usage` and in the footer.
+- Show cached and uncached input and output tokens for Cursor. The footer total is now correct. Add the `/cursor-usage` command and numeric usage records in the trace.
+- Show usage accounts in two columns in the auto-models dashboard.
+- Add `Client.Require`. PiG now uses a bridge control only when the bridge advertises it.
+
+### Bugfixes
+
+- Stream Cursor text and thinking deltas as the model writes them. PiG drops completed blocks that repeat streamed text.
+- Accept partial tool calls only inside the owned custom-tool channel.
+- Add a brevity rule to the Cursor host instructions. Merge repeated lines and keep each tool boundary line once.
+
+### Other
+
+- Document the Cursor bridge v1.2.0 protocol findings, the real `GetVersion` reply, and the agent reuse probe after a handoff cancel.
+- Add tests for parked runs, usage mapping, bridge contracts, and instruction size.
+
 ## [0.3.2] - 2026-11-08
 
 ### Features
