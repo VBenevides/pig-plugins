@@ -65,6 +65,11 @@ type Session struct {
 	timer     *time.Timer
 	proposals []Proposal // calls the session waits to have answered
 
+	// Usage accounting. The SDK reports usage per model call and cumulatively.
+	calls    []TokenUsage // per-call usage seen in the current round
+	seen     TokenUsage   // sum of every per-call usage seen on this run
+	reported TokenUsage   // part of the run's usage that earlier rounds returned
+
 	// Selection and Tools are what the agent was created with.
 	Selection Selection
 	Tools     []ToolDef
@@ -226,6 +231,9 @@ func (s *Session) armGrace() {
 // handle processes one stream frame. It runs on the Send goroutine.
 func (s *Session) handle(data json.RawMessage) error {
 	traceEvent(data)
+	if usage := usageFrame(data); usage != nil {
+		s.recordUsage(*usage)
+	}
 	events, violation := classify(data, s.allow)
 	if violation != nil {
 		s.server.Fail(violation)
@@ -311,6 +319,7 @@ func (s *Session) wait(ctx context.Context, park bool) (out Outcome, err error) 
 			}
 		}
 		out.Proposals = proposals
+		out.Usage, out.ModelCalls = s.roundUsage(nil)
 		s.retireRound()
 		return out, nil
 	case <-s.sendEnded:
@@ -329,6 +338,7 @@ func (s *Session) wait(ctx context.Context, park bool) (out Outcome, err error) 
 		return out, fmt.Errorf("send Cursor turn: %w", sendErr)
 	case len(proposals) > 0:
 		out.Proposals = proposals
+		out.Usage, out.ModelCalls = s.roundUsage(nil)
 		s.retireRound()
 		return out, nil
 	}
@@ -338,7 +348,11 @@ func (s *Session) wait(ctx context.Context, park bool) (out Outcome, err error) 
 	if len(result.Result.Text) > maxTurnOutputBytes || (!r.streamed && len(result.Result.Text) > maxTurnOutputBytes-r.outputBytes) {
 		return out, errors.New("Cursor final output exceeded the per-turn safety limit; no retry was attempted")
 	}
-	out.Text, out.Usage = result.Result.Text, result.Result.Usage
+	out.Text = result.Result.Text
+	if result.Result.Usage != nil {
+		traceUsage("run-total", *result.Result.Usage)
+	}
+	out.Usage, out.ModelCalls = s.roundUsage(result.Result.Usage)
 	if !r.streamed && out.Text != "" {
 		if err = s.deliverFinal(r, out.Text); err != nil {
 			return out, err

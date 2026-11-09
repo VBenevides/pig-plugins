@@ -139,6 +139,25 @@ Lifecycle:
 
 Live check, one sample each on grok-4.6-fast at low effort, task `read notes.txt` then answer: the run parked on the `read` call and `Resume` continued it. Both answers were right ("charlie"), the tool call was not repeated, and each task used one generation request instead of two. Total time was 12.2 s and 7.1 s. The replay path took 9.3 s and 8.0 s in the earlier before and after runs. This task is too small to show a speed difference.
 
+Real PiG session (a built `pig` with this extension, `--mode json -p`, grok-4.6-fast at low effort, tools `read` and `ls`): the task "read three files and describe them" ran as 4 PiG turns on one Cursor run. The trace shows one run total, three callbacks answered in place, and no new agent between steps. The answer was correct.
+
+## Token usage
+
+Where to see the numbers:
+
+- **`/cursor-usage`** shows this session's totals for each Cursor model: input, how much of it was cached and uncached, output, reasoning, turns and model calls. The totals are kept in memory and start empty with each session.
+- **The message usage** that PiG shows in its footer and session file. `input` is the uncached part, and `cacheRead`, `cacheWrite` and `output` are separate, because PiG adds the four fields. Cursor's `inputTokens` includes cached tokens, so PiG's `totalTokens` equals Cursor's input plus output.
+- **`PIG_CURSOR_TRACE=<file>`** adds `usage` records with numbers only (`model-call` for each call the stream reports, `run-total` at the end of a run).
+
+Facts and limits:
+
+- Cursor reports usage for the whole run. A run that spans several PiG turns (parked run) reports it when the run ends, so tool-call turns show zero and the last turn carries all of it. The sum over the turns is right.
+- The bridge sends a per-call `usage` message only sometimes. The real session above sent none, so the `model calls` count can be 0.
+- Reasoning tokens are part of `output`. PiG's message has no field for them, so only `/cursor-usage` and the trace show them.
+- `inputTokens` includes the cache. This is inferred, not documented: the SDK docs list the total as input + output + cache read + cache write, but the bridge code computes input + output. The live numbers fit the inclusive reading better (grok-4.6-fast, one run of 4 PiG turns: input 69,954, cache read 52,224, output 319, reasoning 60). They do not prove it, because the per-call numbers are missing. If a later check shows otherwise, change `TokenUsage.UncachedInput` and `piUsage` only.
+- A cancelled or failed turn reports no usage. PiG shows 0 cost, because the Cursor catalog carries no prices.
+- The `/cursor-usage` command is covered by unit tests only. It was not run in a live session.
+
 ## Catalog persistence
 
 The host model store saves the catalog with a hash of the account credential.

@@ -41,6 +41,7 @@ const (
 type service struct {
 	manager *manager
 	parked  parkRegistry
+	usage   usageTally
 
 	mu         sync.Mutex
 	accountKey string       // hash of the key the cached catalog belongs to
@@ -56,6 +57,17 @@ func Extension() *sdk.Extension {
 	if err := e.RegisterNativeProvider(s.provider()); err != nil {
 		e.OnSessionStart(func(sdk.Context, map[string]any) (any, error) { return nil, err })
 	}
+	e.OnSessionStart(func(sdk.Context, map[string]any) (any, error) {
+		s.usage.reset()
+		return nil, nil
+	})
+	e.RegisterCommand("cursor-usage", sdk.CommandOptions{
+		Description: "Show Cursor token usage for this session: input (cached and uncached) and output",
+		Handler: func(ctx sdk.Context, _ string) error {
+			ctx.Notify(s.usage.report(), "info")
+			return nil
+		},
+	})
 	e.OnSessionShutdown(func(sdk.Context, map[string]any) (any, error) {
 		return nil, s.manager.closeAll()
 	})

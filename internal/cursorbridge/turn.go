@@ -50,7 +50,10 @@ type Outcome struct {
 	Usage        *TokenUsage
 	Text         string
 	CleanupError error
-	Session      *Session
+	// ModelCalls is the usage of each model call seen in this round, when the
+	// stream reported it. Usage is this round's share of the run's total.
+	ModelCalls []TokenUsage
+	Session    *Session
 }
 
 // RunTurn runs one generation on a fresh agent and never parks it. See Run.

@@ -164,3 +164,15 @@ func TraceRequestShape(keys []string, toolCount int) {
 		traceWrite(map[string]any{"event": "request", "keys": keys, "tools": toolCount})
 	}
 }
+
+// traceUsage records token counts. They are numbers only: no prompt, answer or
+// credential text.
+func traceUsage(kind string, usage TokenUsage) {
+	if os.Getenv(traceEnv) == "" {
+		return
+	}
+	traceWrite(map[string]any{"event": "usage", "kind": kind,
+		"input": int64(usage.InputTokens), "output": int64(usage.OutputTokens),
+		"cacheRead": int64(usage.CacheReadTokens), "cacheWrite": int64(usage.CacheWriteTokens),
+		"reasoning": int64(usage.ReasoningTokens), "total": int64(usage.TotalTokens)})
+}

@@ -130,12 +130,9 @@ func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, le
 			_ = run.Close()
 		}
 	}
+	s.usage.add(modelKey(modelID, level), outcome)
 	if usage := outcome.Usage; usage != nil {
-		out.msg["usage"] = map[string]any{
-			"input": int64(usage.InputTokens), "output": int64(usage.OutputTokens),
-			"cacheRead": int64(usage.CacheReadTokens), "cacheWrite": int64(usage.CacheWriteTokens),
-			"totalTokens": int64(usage.TotalTokens),
-		}
+		out.msg["usage"] = piUsage(*usage)
 	}
 	return nil
 }
