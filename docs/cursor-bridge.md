@@ -94,7 +94,21 @@ The release reports bridge version 1.0.0, protocol `sdk.v1`.
 
 PiG calls `Client.Require(capability)` before it uses an optional control. A bridge without the capability gives an explicit error.
 
-Consequence for the plan: the host text stays in the user message. Agent reuse can use `agent.resume`. A parked run keeps the callback request open across turns. Other Cursor integrations do this, but it needs its own tests.
+### Live probe: reusing an agent after a handoff cancel
+
+One live probe on grok-4.6-fast (low effort), one sample, against the real bridge:
+
+1. Turn 1 on a new agent ended in the normal handoff: PiG got a `read` proposal and cancelled its own stream.
+2. The run was still `RUN_LIFECYCLE_STATUS_RUNNING` on the bridge. A new `Send` on the same agent failed at once with `internal` ("Agent ... already has active run"). No model call ran.
+3. The stream frames carried no run id (deltas on), so `RunResult.RunID` stayed empty. `RunTurn` only calls `Cancel` when it has an id, so it relies on `CloseAgent` to end the run. That is not verified. `ListRuns` with the agent id returns the active run id.
+4. After `CancelRun` with that id, the same agent accepted a second `Send`. That message held only the tool result as plain text.
+5. The model did not use the result. It proposed `read notes.txt` again.
+
+Result: an agent whose last run ended with an unresolved tool call does not treat a text tool result as the answer to that call. Reuse with text results is not safe. The tool result must reach the open callback (a parked run), or the full structured transcript must be replayed as it is today.
+
+Open lead, not verified: the abandoned run keeps running on the bridge until the agent is closed. Whether it keeps spending tokens in that time is not measured.
+
+Consequence for the plan: the host text stays in the user message. Agent reuse with text tool results is rejected by the probe above. A parked run keeps the callback request open across turns. Other Cursor integrations do this, but it needs its own tests.
 
 ## Catalog persistence
 
