@@ -470,6 +470,34 @@ func TestRendererResistsForgedMarkers(t *testing.T) {
 	}
 }
 
+func TestHostInstructionsAreShortUniqueAndKeepTheToolBoundary(t *testing.T) {
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(hostInstructions), "\n") {
+		if seen[line] {
+			t.Errorf("duplicate instruction line %q", line)
+		}
+		seen[line] = true
+	}
+	if strings.Count(hostInstructions, "Be brief.") != 1 || !strings.Contains(hostInstructions, "Do not restate the task") {
+		t.Error("brevity rule must appear exactly once")
+	}
+	for _, boundary := range []string{
+		"empty sandbox",
+		"custom-user-tools provider",
+		"GetMcpTools",
+		"Do not use Cursor-native Shell, Read, Glob, search, git, agents, or external MCP servers.",
+		"actual structured call, never XML, JSON, or a plan printed as text",
+		"Do not repeat a completed tool call unless its inputs changed.",
+	} {
+		if strings.Count(hostInstructions, boundary) != 1 {
+			t.Errorf("boundary text %q must appear exactly once", boundary)
+		}
+	}
+	// The text is sent on every turn, so growth costs time. Raise the limit on purpose.
+	if len(hostInstructions) > 1100 {
+		t.Errorf("host instructions are %d bytes, limit 1100", len(hostInstructions))
+	}
+}
 func TestManagerReusesClosesAndRestarts(t *testing.T) {
 	var starts atomic.Int32
 	r := &fakeRunner{}
