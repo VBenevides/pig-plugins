@@ -66,7 +66,12 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 	}
 	ctx, cancel := context.WithTimeout(ctx, quotaHTTPTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	method, body := http.MethodGet, io.Reader(nil)
+	if provider == "Cursor" {
+		// Cursor's dashboard is a Connect RPC: an empty JSON request.
+		method, body = http.MethodPost, strings.NewReader("{}")
+	}
+	request, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return fmt.Errorf("%s usage: cannot create request", provider)
 	}
@@ -74,6 +79,9 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 	request.Header.Set("Accept", "application/json")
 	if provider == "Claude" {
 		request.Header.Set("anthropic-beta", "oauth-2025-04-20")
+	} else if provider == "Cursor" {
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Connect-Protocol-Version", "1")
 	} else if provider == "Codex" {
 		accountID := entry.AccountID
 		if accountID == "" {
@@ -118,6 +126,10 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		status := fmt.Sprintf("%s usage HTTP %d", provider, response.StatusCode)
+		if provider == "Cursor" && (response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden) {
+			// The API key that runs models is not a dashboard session.
+			return fmt.Errorf("%s; run /login cursor again to enable quota", status)
+		}
 		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
 			return &TransientError{status}
 		}

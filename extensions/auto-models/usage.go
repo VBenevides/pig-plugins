@@ -73,6 +73,7 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 		}
 		var claude *quota.ClaudeUsage
 		var codex *quota.CodexUsage
+		var cursor *quota.CursorUsage
 		fetchErr := authErr
 		if authErr == nil && validOAuth(entry, now) {
 			switch account.Provider {
@@ -80,6 +81,8 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 				claude, fetchErr = x.client.FetchClaude(run, entry)
 			case "openai-codex":
 				codex, fetchErr = x.client.FetchCodex(run, entry)
+			case "cursor":
+				cursor, fetchErr = x.client.FetchCursor(run, entry)
 			}
 		}
 		if err := run.Err(); err != nil {
@@ -108,6 +111,9 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 			}
 		}
 		available := quota.ClaudeAvailable(claude)
+		if cursor != nil {
+			available = quota.CursorAvailable(cursor)
+		}
 		switch {
 		case codex != nil && codex.RateLimit != nil && codex.RateLimit.LimitReached:
 			lines = append(lines, "  📊 ❌ Rate-limited")
@@ -128,6 +134,9 @@ func (x *extension) usageLines(run context.Context, source accountSource, active
 		switch {
 		case len(windows) > 0:
 			lines = append(lines, quota.FormatCodexUsageLines(windows, codex.PlanType, codex.AdditionalRateLimits, now)...)
+			lines = append(lines, "  ⏰ Real-time")
+		case len(quota.FormatCursorUsageLines(cursor, now)) > 0:
+			lines = append(lines, quota.FormatCursorUsageLines(cursor, now)...)
 			lines = append(lines, "  ⏰ Real-time")
 		case claude != nil && len(claude.Limits) > 0:
 			lines = append(lines, quota.FormatClaudeUsageLines(claude.Limits, now)...)

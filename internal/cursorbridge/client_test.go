@@ -17,9 +17,55 @@ import (
 	"time"
 )
 
-// realVersion is the reply the shipped v1.2.0 archive gives: it reports bridge
-// version 1.0.0, so the release tag cannot be used as the contract.
-const realVersion = `{"bridgeVersion":"1.0.0","protocolVersion":"sdk.v1","capabilities":["agent.create","agent.send","run.cancel","cursor.catalog","agent.usage"]}`
+// realVersion is the exact reply of the shipped v1.2.0 archive (captured with
+// GetVersion on a local run). It reports bridge version 1.0.0, so the release
+// tag cannot be the contract. It has no system-prompt or run.steer capability.
+const realVersion = `{"bridgeVersion":"1.0.0","protocolVersion":"sdk.v1","capabilities":["agent.create","agent.resume","agent.send","run.observe","run.wait","run.cancel","agent.management","cursor.catalog","artifacts.chunked","agent.usage"]}`
+
+func versionServer(t *testing.T, reply string) *Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "GetVersion") {
+			io.WriteString(w, reply)
+			return
+		}
+		io.WriteString(w, `{}`)
+	}))
+	t.Cleanup(server.Close)
+	client, err := NewClient(server.URL, "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	return client
+}
+
+func TestRealBridgeCapabilitiesSatisfyTheContract(t *testing.T) {
+	client := versionServer(t, realVersion)
+	if err := client.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Require("agent.resume"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRequireNamesAnUnadvertisedCapability(t *testing.T) {
+	client := versionServer(t, realVersion)
+	if err := client.Require("agent.resume"); err == nil {
+		t.Fatal("capability accepted before Check")
+	}
+	if err := client.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, missing := range []string{"run.steer", "agent.system_prompt"} {
+		err := client.Require(missing)
+		if err == nil || !strings.Contains(err.Error(), missing) {
+			t.Fatalf("Require(%q) = %v", missing, err)
+		}
+	}
+}
 
 func TestBridgeContractIsCheckedByProtocolAndCapabilities(t *testing.T) {
 	for name, reply := range map[string]string{

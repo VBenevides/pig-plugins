@@ -48,7 +48,7 @@ func (s *service) stream(model, request map[string]any, options sdk.ProviderStre
 			// Replay could repeat a remote generation, so the host must not retry it.
 			"replayProhibited": true,
 		}}
-		err := s.runTurn(ctx, out, key, modelID, level, tools, prompt, images)
+		err := s.runTurn(ctx, out, key, modelID, level, request, tools, prompt, images)
 		if err != nil {
 			reason := "error"
 			if ctx.Err() != nil {
@@ -64,7 +64,7 @@ func (s *service) stream(model, request map[string]any, options sdk.ProviderStre
 	return stream, nil
 }
 
-func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, level string, tools []cursorbridge.ToolDef, prompt string, images []cursorbridge.Image) error {
+func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, level string, request map[string]any, tools []cursorbridge.ToolDef, prompt string, images []cursorbridge.Image) error {
 	entries, err := s.entriesFor(ctx, key)
 	if err != nil {
 		return err
@@ -77,11 +77,33 @@ func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, le
 	if err != nil {
 		return err
 	}
-	defer release()
+	pinned := false // a parked run keeps the process until it ends
+	defer func() {
+		if !pinned {
+			release()
+		}
+	}()
 	if err = out.start(); err != nil {
 		return err
 	}
-	outcome, err := r.RunTurn(ctx, key, selection, tools, prompt, out.event, images...)
+	account := accountHash(key)
+	var outcome cursorbridge.Outcome
+	var run parkedRun
+	resumed := false
+	if parkingEnabled() {
+		outcome, resumed, err = s.tryResume(ctx, out, account, modelID, level, request, tools)
+	}
+	if !resumed && err == nil {
+		var opts cursorbridge.TurnOptions
+		opts.Park = parkingEnabled() && len(tools) > 0
+		outcome, run, err = r.Run(ctx, key, selection, tools, prompt, out.event, opts, images...)
+	}
+	defer func() {
+		// A parked run that was never registered would wait for its timeout.
+		if run != nil && !pinned {
+			_ = run.Close()
+		}
+	}()
 	if outcome.CleanupError != nil {
 		// The generation finished or failed on its own terms; teardown trouble stays visible.
 		out.msg["cleanupWarning"] = outcome.CleanupError.Error()
@@ -100,12 +122,17 @@ func (s *service) runTurn(ctx context.Context, out *turnWriter, key, modelID, le
 			}
 		}
 	}
-	if usage := outcome.Usage; usage != nil {
-		out.msg["usage"] = map[string]any{
-			"input": int64(usage.InputTokens), "output": int64(usage.OutputTokens),
-			"cacheRead": int64(usage.CacheReadTokens), "cacheWrite": int64(usage.CacheWriteTokens),
-			"totalTokens": int64(usage.TotalTokens),
+	if run != nil && len(outcome.Proposals) > 0 {
+		if fp, ok := fingerprint(account, modelID, level, tools, request, messageCount(request)); ok {
+			s.parked.put(account, &parkedEntry{run: run, fingerprint: fp, release: release})
+			pinned = true
+		} else {
+			_ = run.Close()
 		}
+	}
+	s.usage.add(modelKey(modelID, level), outcome)
+	if usage := outcome.Usage; usage != nil {
+		out.msg["usage"] = piUsage(*usage)
 	}
 	return nil
 }

@@ -64,6 +64,10 @@ func (x *extension) accountQuota(run context.Context, source accountSource, acco
 	case "openai-codex":
 		usage, err := x.client.FetchCodex(run, entry)
 		return quota.CodexStatusQuota(usage), quota.CodexRemaining(usage), err
+	case "cursor":
+		usage, err := x.client.FetchCursor(run, entry)
+		// No remaining value: Cursor meters must not trigger automatic model switching.
+		return quota.CursorStatusQuota(usage), nil, err
 	default:
 		return nil, nil, nil
 	}

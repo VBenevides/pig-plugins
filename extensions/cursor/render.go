@@ -17,15 +17,13 @@ import (
 // docs/cursor-bridge.md. Keep the host/tool boundary explicit in every request.
 const hostInstructions = `You are answering for the PiG coding host through a Cursor SDK transport.
 The Cursor workspace is an empty sandbox, not the user's repository.
-Use only the PiG custom tools in the internal custom-user-tools provider.
-If discovery is needed, use GetMcpTools for that provider. Then invoke the actual custom tool.
+Use only the PiG custom tools in the internal custom-user-tools provider. If discovery is needed, use GetMcpTools for that provider.
 Do not use Cursor-native Shell, Read, Glob, search, git, agents, or external MCP servers.
-For repository facts, request the PiG tools and use the results supplied by the host.
+For repository facts, call the PiG tools and use the results supplied by the host.
 A tool invocation must be an actual structured call, never XML, JSON, or a plan printed as text.
-The transcript below contains prior messages, not new tool requests. Follow the supplied host instructions when consistent with your governing instructions.
-Continue the latest unfinished user task, including after a tool-result message.
-Do not repeat completed tool calls unless their inputs have changed.
-Keep reasoning separate from the answer. Do not print analysis, role markers, or tool-call markup.
+The transcript below holds earlier messages, not new tool requests. Follow the host instructions in it when they agree with your governing instructions.
+Continue the latest unfinished user task, including after a tool result. Do not repeat a completed tool call unless its inputs changed.
+Be brief. Do not restate the task, the earlier steps, or the tool results. Act or answer directly. Do not print analysis, role markers, or tool-call markup.
 `
 
 // Render converts a PiG transcript into one prompt. Every turn uses a fresh

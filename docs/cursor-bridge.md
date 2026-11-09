@@ -71,11 +71,92 @@ Remote error text is excluded from diagnostics because it can contain credential
 Agent creation disables built-in tools, inherited setting sources, external MCP servers,
 and sub-agent definitions. When PiG has tools, only the SDK `mcp` group is enabled, because the SDK
 carries custom-tool callbacks through it (the same approach as the reference SDK integrations).
-A callback stays pending and never receives a fabricated result. PiG records it, cancels the run,
-executes the tool through its own approval, and sends the real result in the next turn.
+A callback stays pending and never receives a fabricated result. PiG records it and executes the tool
+through its own approval. With parking on (the default), the run stays open on the callback. The next
+request answers it with the real result and the same run continues (see "Parked run" below).
+With `PIG_CURSOR_PARK=0`, or when a run cannot be resumed, PiG cancels the run and sends the real
+result in the next turn on a fresh agent.
 Only the `custom-user-tools` provider and declared tool names are accepted. Output is capped per turn.
 The security tests and native provider integration are separate release gates.
 The prototype alone does not establish a working Cursor provider.
+
+## Bridge controls in the pinned release
+
+The v1.2.0 proto files (`proto/sdk/v1`) and a local `GetVersion` call give these facts.
+The release reports bridge version 1.0.0, protocol `sdk.v1`.
+
+- Advertised capabilities: `agent.create`, `agent.resume`, `agent.send`, `run.observe`, `run.wait`, `run.cancel`, `agent.management`, `cursor.catalog`, `artifacts.chunked`, `agent.usage`.
+- `ResumeAgent` takes the same `AgentOptions` as `CreateAgent`. The SDK does not store inline options, so every resume repeats them.
+- `SendOptions` has `enable_deltas` and `enable_steps`. Deltas arrive as `interaction_update` events. Steps arrive as `step` events.
+  PiG turns deltas on and steps off. `text-delta` and `thinking-delta` events stream as they arrive. The completed message block is then dropped when it repeats text that already streamed. A block with different text is kept, so text is never lost. A `partial-tool-call` update may arrive before its arguments name the tool. PiG accepts it only as an MCP call with empty arguments or a declared tool in the owned custom-tool channel. Native types and foreign providers still stop the turn. Whether a live run sends the block before or after its deltas is not yet verified.
+- `AgentOptions` has no system-prompt field. `LocalAgentOptions` has none either. A host cannot replace the Cursor system prompt through this bridge.
+  The `custom_system_prompt` and `system_prompt_override` strings in the binary do not appear in the public proto files. PiG does not use them.
+- Run steering (`run.steer`) is not advertised. The bridge cannot add a message to a live run.
+- Custom tool definitions belong to the agent (`LocalAgentOptions.custom_tools`, metadata only). A send cannot replace them. A changed tool set needs a new agent.
+- The callback holds one open HTTP request to PiG for each tool call. The proto does not say what happens to it after `CancelRun`. This is not tested.
+
+PiG calls `Client.Require(capability)` before it uses an optional control. A bridge without the capability gives an explicit error.
+
+### Live probe: reusing an agent after a handoff cancel
+
+One live probe on grok-4.6-fast (low effort), one sample, against the real bridge:
+
+1. Turn 1 on a new agent ended in the normal handoff: PiG got a `read` proposal and cancelled its own stream.
+2. The run was still `RUN_LIFECYCLE_STATUS_RUNNING` on the bridge. A new `Send` on the same agent failed at once with `internal` ("Agent ... already has active run"). No model call ran.
+3. The stream frames carried no run id (deltas on), so `RunResult.RunID` stayed empty. `RunTurn` only calls `Cancel` when it has an id, so it relies on `CloseAgent` to end the run. That is not verified. `ListRuns` with the agent id returns the active run id.
+4. After `CancelRun` with that id, the same agent accepted a second `Send`. That message held only the tool result as plain text.
+5. The model did not use the result. It proposed `read notes.txt` again.
+
+Result: an agent whose last run ended with an unresolved tool call does not treat a text tool result as the answer to that call. Reuse with text results is not safe. The tool result must reach the open callback (a parked run), or the full structured transcript must be replayed as it is today.
+
+Open lead, not verified: the abandoned run keeps running on the bridge until the agent is closed. Whether it keeps spending tokens in that time is not measured.
+
+Consequence for the plan: the host text stays in the user message. Agent reuse with text tool results is rejected by the probe above. The parked run below is the route that works.
+
+## Parked run
+
+A turn that ends in tool calls keeps its agent, its run and its callback server open. The turn returns the
+proposals to PiG. PiG runs the tools through its approval loop and sends the next request. When that request
+is exactly the parked conversation plus the real result of each parked call, `Session.Resume` answers the
+waiting callbacks and the same run continues. Cursor keeps its own reasoning, so it does not repeat the call.
+
+Resume rules (all must hold, otherwise PiG replays the transcript on a fresh agent as before):
+
+- Same account, model, effort level, tool set and system prompt. The extension compares a hash of the conversation up to the parked assistant message.
+- The request ends with the assistant message that holds the parked calls, then exactly one `toolResult` for each call, with the same id, tool name and arguments.
+- Results are answered all or none. A mismatch disposes the run and never sends a partial or invented result.
+- A run that fails after it resumed is not replayed, because the generation already continued at Cursor.
+
+Lifecycle:
+
+- One parked run for each bridge process, and one process for each account. A newer turn on the process closes the parked run. A parked run does not block that newer turn.
+- A parked run times out after 4 minutes (`DefaultParkTimeout`). A resume after the timeout falls back to a replay. Whether the bridge drops a callback that stays open longer is not verified.
+- Cancelling the resume, closing the bridge or ending the PiG session closes the run, the callback server and the agent.
+- Output that arrives while parked is kept (4096 events at most) and delivered on resume.
+- Tool results over 4 MiB cause a replay.
+
+`PIG_CURSOR_PARK=0` turns parking off.
+
+Live check, one sample each on grok-4.6-fast at low effort, task `read notes.txt` then answer: the run parked on the `read` call and `Resume` continued it. Both answers were right ("charlie"), the tool call was not repeated, and each task used one generation request instead of two. Total time was 12.2 s and 7.1 s. The replay path took 9.3 s and 8.0 s in the earlier before and after runs. This task is too small to show a speed difference.
+
+Real PiG session (a built `pig` with this extension, `--mode json -p`, grok-4.6-fast at low effort, tools `read` and `ls`): the task "read three files and describe them" ran as 4 PiG turns on one Cursor run. The trace shows one run total, three callbacks answered in place, and no new agent between steps. The answer was correct.
+
+## Token usage
+
+Where to see the numbers:
+
+- **`/cursor-usage`** shows this session's totals for each Cursor model: input, how much of it was cached and uncached, output, reasoning, turns and model calls. The totals are kept in memory and start empty with each session.
+- **The message usage** that PiG shows in its footer and session file. `input` is the uncached part, and `cacheRead`, `cacheWrite` and `output` are separate, because PiG adds the four fields. Cursor's `inputTokens` includes cached tokens, so PiG's `totalTokens` equals Cursor's input plus output.
+- **`PIG_CURSOR_TRACE=<file>`** adds `usage` records with numbers only (`model-call` for each call the stream reports, `run-total` at the end of a run).
+
+Facts and limits:
+
+- Cursor reports usage for the whole run. A run that spans several PiG turns (parked run) reports it when the run ends, so tool-call turns show zero and the last turn carries all of it. The sum over the turns is right.
+- The bridge sends a per-call `usage` message only sometimes. The real session above sent none, so the `model calls` count can be 0.
+- Reasoning tokens are part of `output`. PiG's message has no field for them, so only `/cursor-usage` and the trace show them.
+- `inputTokens` includes the cache. This is inferred, not documented: the SDK docs list the total as input + output + cache read + cache write, but the bridge code computes input + output. The live numbers fit the inclusive reading better (grok-4.6-fast, one run of 4 PiG turns: input 69,954, cache read 52,224, output 319, reasoning 60). They do not prove it, because the per-call numbers are missing. If a later check shows otherwise, change `TokenUsage.UncachedInput` and `piUsage` only.
+- A cancelled or failed turn reports no usage. PiG shows 0 cost, because the Cursor catalog carries no prices.
+- The `/cursor-usage` command is covered by unit tests only. It was not run in a live session.
 
 ## Catalog persistence
 
@@ -126,3 +207,12 @@ do not fail the current turn.
 The public repository is MIT-licensed. Preserve its notice when distributing its files.
 The standalone archive includes additional runtime and SDK components.
 Review the archive notices before changing redistribution policy.
+
+## Plan quota in /usage
+
+`/usage` asks Cursor's dashboard (`DashboardService/GetCurrentPeriodUsage`) for the plan percentages and the cycle end. The footer shows the total. This call needs the browser session, not the minted API key: the key gets HTTP 401.
+
+- `/login cursor` now stores both. `access` and `refresh` hold the session, so the host refreshes it. `apiKey` holds the key that runs models, and `apiKeyExpires` holds its end date. Accounts from before keep the key in `access`. They run models as before and show "run /login cursor again" in `/usage` until you sign in again.
+- The refresh does not replace the key. When the key expires, the refresh fails and asks for a new login.
+- Cursor meters never drive automatic model switching.
+- Not verified live: the endpoint is private and the field names (`planUsage.totalPercentUsed`, `autoPercentUsed`, `apiPercentUsed`, `billingCycleEnd`) come from public dashboard tools. The tests use a fake server.

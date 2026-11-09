@@ -115,7 +115,7 @@ func userMessage(prompt string, images []Image) map[string]any {
 func (c *Client) Send(ctx context.Context, agentID, prompt string, images []Image, consume func(json.RawMessage) error) (RunResult, error) {
 	var result *RunResult
 	liveRunID := ""
-	err := c.Stream(ctx, agents+"Send", map[string]any{"agentId": agentID, "message": userMessage(prompt, images), "options": map[string]bool{"enableDeltas": false, "enableSteps": false}}, func(data json.RawMessage) error {
+	err := c.Stream(ctx, agents+"Send", map[string]any{"agentId": agentID, "message": userMessage(prompt, images), "options": map[string]bool{"enableDeltas": true, "enableSteps": false}}, func(data json.RawMessage) error {
 		var envelope struct {
 			Result     *RunResult `json:"result"`
 			SDKMessage struct {

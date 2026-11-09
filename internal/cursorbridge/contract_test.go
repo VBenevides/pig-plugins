@@ -146,6 +146,87 @@ func TestThinkingOnlyStreamStillReturnsFinalAnswer(t *testing.T) {
 	}
 }
 
+func deltaFrames(w http.ResponseWriter, updates ...map[string]any) {
+	for _, update := range updates {
+		frame(w, 0, map[string]any{"interactionUpdate": update})
+	}
+}
+
+func TestStreamedDeltasPrintOnceAndSendRequestsThem(t *testing.T) {
+	m := &mockBridge{t: t}
+	m.onSend = func(_ *mockBridge, w http.ResponseWriter, _ *http.Request, _ string) {
+		deltaFrames(w,
+			map[string]any{"type": "thinking-delta", "update": map[string]any{"text": "plan "}},
+			map[string]any{"type": "thinking-delta", "update": map[string]any{"text": "it"}},
+			map[string]any{"type": "text-delta", "update": map[string]any{"text": "final "}},
+			map[string]any{"type": "text-delta", "update": map[string]any{"text": "answer"}},
+		)
+		// Completed blocks repeat the text that already streamed.
+		frame(w, 0, map[string]any{"sdkMessage": map[string]any{"type": "thinking", "message": map[string]any{"text": "plan it"}}})
+		frame(w, 0, map[string]any{"sdkMessage": map[string]any{"type": "assistant", "message": map[string]any{"message": map[string]any{"content": []any{map[string]string{"type": "text", "text": "final answer"}}}}}})
+		finished(w, nil)
+	}
+	server := m.server()
+	defer server.Close()
+	var thinking, text strings.Builder
+	out, err := processFor(server).RunTurn(context.Background(), "key", Selection{ID: "grok"}, nil, "prompt", func(event Event) error {
+		if event.Thinking {
+			thinking.WriteString(event.Text)
+		} else {
+			text.WriteString(event.Text)
+		}
+		return nil
+	})
+	if err != nil || thinking.String() != "plan it" || text.String() != "final answer" || out.Text != "final answer" {
+		t.Fatalf("%v thinking=%q text=%q out=%q", err, thinking.String(), text.String(), out.Text)
+	}
+	m.mu.Lock()
+	sent := m.sendBody
+	m.mu.Unlock()
+	if !strings.Contains(sent, `"enableDeltas":true`) || !strings.Contains(sent, `"enableSteps":false`) {
+		t.Fatalf("send options missing: %s", sent)
+	}
+}
+
+func TestUnmatchedBlockIsKeptRatherThanLost(t *testing.T) {
+	var d deltaTracker
+	if !d.keep(Event{Text: "streamed", delta: true}) {
+		t.Fatal("delta dropped")
+	}
+	if !d.keep(Event{Text: "different text"}) {
+		t.Fatal("block with unseen text was dropped")
+	}
+	if !d.keep(Event{Text: "block without deltas"}) {
+		t.Fatal("block was dropped when no delta preceded it")
+	}
+}
+
+func TestPartialToolCallsStayInsideTheOwnedChannel(t *testing.T) {
+	allowed := map[string]bool{"read": true}
+	partial := func(call string) string {
+		return `{"interactionUpdate":{"type":"partial-tool-call","update":{"toolCall":` + call + `}}}`
+	}
+	for name, c := range map[string]struct {
+		raw string
+		ok  bool
+	}{
+		"mcp args not streamed yet": {partial(`{"type":"mcp","args":{}}`), true},
+		"owned declared tool":       {partial(`{"type":"mcp","args":{"providerIdentifier":"custom-user-tools","toolName":"read"}}`), true},
+		"undeclared tool":           {partial(`{"type":"mcp","args":{"providerIdentifier":"custom-user-tools","toolName":"bash"}}`), false},
+		"foreign provider":          {partial(`{"type":"mcp","args":{"providerIdentifier":"other","toolName":"read"}}`), false},
+		"native shell":              {partial(`{"type":"shell","args":{}}`), false},
+		"no tool type":              {partial(`{}`), false},
+	} {
+		_, err := classify(json.RawMessage(c.raw), allowed)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err=%v, want ok=%v", name, err, c.ok)
+		}
+	}
+	if _, err := classify(json.RawMessage(partial(`{"type":"mcp","args":{}}`)), nil); err == nil {
+		t.Error("partial call accepted when PiG offered no tools")
+	}
+}
+
 func TestRunawayOutputCancelsWithoutRetry(t *testing.T) {
 	m := &mockBridge{t: t}
 	m.onSend = func(_ *mockBridge, w http.ResponseWriter, _ *http.Request, _ string) {

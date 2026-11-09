@@ -23,6 +23,8 @@ type Process struct {
 	done     chan struct{}
 	root     string
 	turn     sync.Mutex
+	parkedMu sync.Mutex
+	parked   *Session // run waiting on tool results, if any
 	once     sync.Once
 	closeErr error
 }
@@ -126,8 +128,26 @@ func start(ctx context.Context, binary, key string, timeout time.Duration) (*Pro
 	}
 }
 
+// releaseParked stops a parked run's listener and request. The bridge shutdown
+// that follows ends the run itself, so no agent calls are made here.
+func (p *Process) releaseParked() {
+	if parked := p.takeParked(nil); parked != nil {
+		parked.mu.Lock()
+		if !parked.closed {
+			parked.closed = true
+			close(parked.gone)
+		}
+		parked.mu.Unlock()
+		parked.cancelRun()
+		if err := parked.server.Close(); err != nil {
+			p.closeErr = errors.Join(p.closeErr, fmt.Errorf("stop Cursor tool callback server: %w", err))
+		}
+	}
+}
+
 func (p *Process) Close() error {
 	p.once.Do(func() {
+		p.releaseParked()
 		if p.Client != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			var output struct{}

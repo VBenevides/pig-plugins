@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -145,5 +146,49 @@ func TestNativeAccountCancellationAndUnsupportedOpenAI(t *testing.T) {
 	text := strings.Join(lines, "\n")
 	if err != nil || !strings.Contains(text, "Quota unknown") || !strings.Contains(text, "Codex quota is separate") || strings.Contains(text, "Quota available") {
 		t.Fatalf("unsupported login: %s %v", text, err)
+	}
+}
+
+func TestNativeCursorQuotaUsesSessionAndShowsMeters(t *testing.T) {
+	reset := time.Now().Add(72 * time.Hour).UnixMilli()
+	source := &fakeAccounts{
+		accounts: []sdk.OAuthAccount{{ID: "local-cursor", Provider: "cursor", Label: "Work", Active: true}},
+		auth:     map[string]map[string]any{"local-cursor": {"type": "oauth", "access": "SESSION-TOKEN", "expires": float64(time.Now().Add(time.Hour).UnixMilli())}},
+	}
+	status := 200
+	var seen *http.Request
+	x := &extension{store: quota.Store{Dir: t.TempDir()}}
+	x.client = quota.Client{HTTP: &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
+		seen = r
+		body := `{"billingCycleEnd":"` + strconv.FormatInt(reset, 10) + `","planUsage":{"totalPercentUsed":42.4,"autoPercentUsed":10,"apiPercentUsed":88}}`
+		if status != 200 {
+			body = `{"code":"unauthenticated","detail":"SESSION-TOKEN"}`
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}}
+	lines, err := x.usageLines(context.Background(), source, "cursor", "grok-4.7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(lines, "\n")
+	for _, want := range []string{"Quota available", "Total", "42%", "Auto", "10%", "API", "88%", "resets"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q: %s", want, text)
+		}
+	}
+	if seen.Method != "POST" || seen.Header.Get("Authorization") != "Bearer SESSION-TOKEN" || seen.Header.Get("Connect-Protocol-Version") != "1" {
+		t.Fatalf("request %s %v", seen.Method, seen.Header)
+	}
+	account, _, _ := selectedAccount(source, "cursor")
+	footer, remaining, err := x.accountQuota(context.Background(), source, account)
+	if err != nil || footer == nil || footer.Percent != 42 || remaining != nil {
+		t.Fatalf("footer %+v remaining %v err %v: Cursor must not drive model switching", footer, remaining, err)
+	}
+
+	status = 401
+	lines, err = x.usageLines(context.Background(), source, "cursor", "grok-4.7")
+	text = strings.Join(lines, "\n")
+	if err != nil || !strings.Contains(text, "Quota unknown") || !strings.Contains(text, "/login cursor") || strings.Contains(text, "SESSION-TOKEN") {
+		t.Fatalf("a rejected token must explain the fix and leak nothing: %v %s", err, text)
 	}
 }

@@ -51,19 +51,27 @@ func newBrowserAuth() *browserAuth {
 	return &browserAuth{http: &http.Client{}, loginURL: loginURL, apiBaseURL: apiBaseURL, pollInterval: pollInterval, timeout: loginTimeout}
 }
 
+// loginSession is what one browser approval yields. Key goes to the SDK Bridge.
+// Browser is the dashboard session that reads quota. It stays zero when Cursor
+// gave no usable session, and the account then works without a quota meter.
+type loginSession struct {
+	Key     tokens
+	Browser tokens
+}
+
 // login shows the sign-in URL through show, then waits until the user approves it.
-func (b *browserAuth) login(ctx context.Context, show func(url string) error) (tokens, error) {
+func (b *browserAuth) login(ctx context.Context, show func(url string) error) (loginSession, error) {
 	verifier, challenge, err := newPKCE()
 	if err != nil {
-		return tokens{}, fmt.Errorf("Cursor login: create PKCE values: %w", err)
+		return loginSession{}, fmt.Errorf("Cursor login: create PKCE values: %w", err)
 	}
 	id, err := newUUID()
 	if err != nil {
-		return tokens{}, fmt.Errorf("Cursor login: create login id: %w", err)
+		return loginSession{}, fmt.Errorf("Cursor login: create login id: %w", err)
 	}
 	query := url.Values{"challenge": {challenge}, "uuid": {id}, "mode": {"login"}, "redirectTarget": {"sdk"}}
 	if err := show(b.loginURL + "?" + query.Encode()); err != nil {
-		return tokens{}, fmt.Errorf("Cursor login: show sign-in page: %w", err)
+		return loginSession{}, fmt.Errorf("Cursor login: show sign-in page: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.timeout)
 	defer cancel()
@@ -71,7 +79,7 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (t
 	for {
 		status, body, err := b.do(ctx, http.MethodGet, pollURL, nil)
 		if err != nil {
-			return tokens{}, fmt.Errorf("Cursor login: wait for approval: %w", err)
+			return loginSession{}, fmt.Errorf("Cursor login: wait for approval: %w", err)
 		}
 		switch status {
 		case http.StatusNotFound: // Cursor answers 404 until the user approves.
@@ -81,15 +89,24 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (t
 				RefreshToken string `json:"refreshToken"`
 			}
 			if err := json.Unmarshal(body, &wire); err != nil {
-				return tokens{}, errors.New("Cursor login: the approval reply was not valid")
+				return loginSession{}, errors.New("Cursor login: the approval reply was not valid")
 			}
-			return b.mintKey(ctx, wire.AccessToken)
+			key, err := b.mintKey(ctx, wire.AccessToken)
+			if err != nil {
+				return loginSession{}, err
+			}
+			// An unusable session is not fatal: the key alone still runs models.
+			browser, err := tokensFrom(wire.AccessToken, wire.RefreshToken, "")
+			if err != nil || browser.Refresh == "" {
+				browser = tokens{}
+			}
+			return loginSession{Key: key, Browser: browser}, nil
 		default:
-			return tokens{}, fmt.Errorf("Cursor login: approval check failed (HTTP %d)", status)
+			return loginSession{}, fmt.Errorf("Cursor login: approval check failed (HTTP %d)", status)
 		}
 		select {
 		case <-ctx.Done():
-			return tokens{}, fmt.Errorf("Cursor login: not approved in time: %w", ctx.Err())
+			return loginSession{}, fmt.Errorf("Cursor login: not approved in time: %w", ctx.Err())
 		case <-time.After(b.pollInterval):
 		}
 	}

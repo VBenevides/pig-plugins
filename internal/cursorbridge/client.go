@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,8 @@ const catalog = "SdkCursorService/"
 type Client struct {
 	endpoint, token string
 	http            *http.Client
+	mu              sync.RWMutex
+	capabilities    []string // advertised by the last successful Check
 }
 
 func NewClient(endpoint, token string) (*Client, error) {
@@ -40,7 +43,7 @@ func NewClient(endpoint, token string) (*Client, error) {
 		return nil, errors.New("invalid Cursor bridge address or bearer token")
 	}
 	transport := &http.Transport{Proxy: nil, ForceAttemptHTTP2: false, MaxConnsPerHost: 4, MaxIdleConnsPerHost: 4, ResponseHeaderTimeout: 30 * time.Second}
-	return &Client{strings.TrimRight(endpoint, "/"), token, &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &Client{endpoint: strings.TrimRight(endpoint, "/"), token: token, http: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 func (c *Client) Close() { c.http.CloseIdleConnections() }
@@ -207,6 +210,21 @@ func (c *Client) Check(ctx context.Context) error {
 			return fmt.Errorf("Cursor bridge lacks the %s capability", need)
 		}
 	}
+	c.mu.Lock()
+	c.capabilities = slices.Clone(version.Capabilities)
+	c.mu.Unlock()
+	return nil
+}
+
+// Require reports an explicit error when the checked bridge did not advertise
+// capability. Call it before the first use of an optional control, so PiG never
+// sends a field that the bridge may drop without notice.
+func (c *Client) Require(capability string) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !slices.Contains(c.capabilities, capability) {
+		return fmt.Errorf("Cursor bridge does not advertise the %s capability", capability)
+	}
 	return nil
 }
 
@@ -319,6 +337,26 @@ func (c *Client) Models(ctx context.Context, key string) ([]Model, error) {
 func (c *Client) Cancel(ctx context.Context, agentID, runID string) error {
 	var out struct{}
 	return c.Unary(ctx, agents+"CancelRun", map[string]string{"agentId": agentID, "runId": runID}, &out)
+}
+
+// ActiveRuns lists the agent's runs that are still starting or running.
+func (c *Client) ActiveRuns(ctx context.Context, agentID string) ([]string, error) {
+	var list struct {
+		Items []struct {
+			RunID  string `json:"runId"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := c.Unary(ctx, agents+"ListRuns", map[string]string{"agentId": agentID}, &list); err != nil {
+		return nil, err
+	}
+	var active []string
+	for _, item := range list.Items {
+		if item.RunID != "" && (item.Status == "RUN_LIFECYCLE_STATUS_RUNNING" || item.Status == "RUN_LIFECYCLE_STATUS_CREATING") {
+			active = append(active, item.RunID)
+		}
+	}
+	return active, nil
 }
 func (c *Client) CloseAgent(ctx context.Context, agentID string) error {
 	var out struct{}
