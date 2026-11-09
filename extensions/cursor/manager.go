@@ -13,13 +13,22 @@ import (
 
 // runner is the bridge surface the provider needs. Tests replace it.
 type runner interface {
-	RunTurn(ctx context.Context, key string, model cursorbridge.Selection, tools []cursorbridge.ToolDef, prompt string, emit func(cursorbridge.Event) error, images ...cursorbridge.Image) (cursorbridge.Outcome, error)
+	// Run runs one turn. With opts.Park and tool calls it also returns the parked run.
+	Run(ctx context.Context, key string, model cursorbridge.Selection, tools []cursorbridge.ToolDef, prompt string, emit func(cursorbridge.Event) error, opts cursorbridge.TurnOptions, images ...cursorbridge.Image) (cursorbridge.Outcome, parkedRun, error)
 	Models(ctx context.Context, key string) ([]cursorbridge.Model, error)
 	Me(ctx context.Context, key string) (cursorbridge.User, error)
 	Close() error
 }
 
 type processRunner struct{ *cursorbridge.Process }
+
+func (p processRunner) Run(ctx context.Context, key string, model cursorbridge.Selection, tools []cursorbridge.ToolDef, prompt string, emit func(cursorbridge.Event) error, opts cursorbridge.TurnOptions, images ...cursorbridge.Image) (cursorbridge.Outcome, parkedRun, error) {
+	out, err := p.Process.Run(ctx, key, model, tools, prompt, emit, opts, images...)
+	if out.Session == nil {
+		return out, nil, err
+	}
+	return out, out.Session, err
+}
 
 func (p processRunner) Models(ctx context.Context, key string) ([]cursorbridge.Model, error) {
 	return p.Client.Models(ctx, key)

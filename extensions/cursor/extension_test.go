@@ -34,25 +34,31 @@ type fakeRunner struct {
 	keys     []string
 	closed   atomic.Int32
 	block    chan struct{}
+	parkOpts []cursorbridge.TurnOptions
+	parkNext *fakeParked // returned as the parked run when a turn parks
 }
 
-func (f *fakeRunner) RunTurn(ctx context.Context, key string, model cursorbridge.Selection, tools []cursorbridge.ToolDef, prompt string, emit func(cursorbridge.Event) error, _ ...cursorbridge.Image) (cursorbridge.Outcome, error) {
+func (f *fakeRunner) Run(ctx context.Context, key string, model cursorbridge.Selection, tools []cursorbridge.ToolDef, prompt string, emit func(cursorbridge.Event) error, opts cursorbridge.TurnOptions, _ ...cursorbridge.Image) (cursorbridge.Outcome, parkedRun, error) {
 	f.mu.Lock()
 	f.selected, f.tools, f.prompts, f.keys = append(f.selected, model), append(f.tools, tools), append(f.prompts, prompt), append(f.keys, key)
+	f.parkOpts = append(f.parkOpts, opts)
 	f.mu.Unlock()
 	if f.block != nil {
 		select {
 		case <-f.block:
 		case <-ctx.Done():
-			return cursorbridge.Outcome{}, ctx.Err()
+			return cursorbridge.Outcome{}, nil, ctx.Err()
 		}
 	}
 	for _, event := range f.events {
 		if err := emit(event); err != nil {
-			return cursorbridge.Outcome{}, err
+			return cursorbridge.Outcome{}, nil, err
 		}
 	}
-	return f.outcome, f.runErr
+	if opts.Park && f.parkNext != nil && len(f.outcome.Proposals) > 0 {
+		return f.outcome, f.parkNext, f.runErr
+	}
+	return f.outcome, nil, f.runErr
 }
 func (f *fakeRunner) Models(context.Context, string) ([]cursorbridge.Model, error) {
 	return f.catalog, nil

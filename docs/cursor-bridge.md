@@ -71,8 +71,11 @@ Remote error text is excluded from diagnostics because it can contain credential
 Agent creation disables built-in tools, inherited setting sources, external MCP servers,
 and sub-agent definitions. When PiG has tools, only the SDK `mcp` group is enabled, because the SDK
 carries custom-tool callbacks through it (the same approach as the reference SDK integrations).
-A callback stays pending and never receives a fabricated result. PiG records it, cancels the run,
-executes the tool through its own approval, and sends the real result in the next turn.
+A callback stays pending and never receives a fabricated result. PiG records it and executes the tool
+through its own approval. With parking on (the default), the run stays open on the callback. The next
+request answers it with the real result and the same run continues (see "Parked run" below).
+With `PIG_CURSOR_PARK=0`, or when a run cannot be resumed, PiG cancels the run and sends the real
+result in the next turn on a fresh agent.
 Only the `custom-user-tools` provider and declared tool names are accepted. Output is capped per turn.
 The security tests and native provider integration are separate release gates.
 The prototype alone does not establish a working Cursor provider.
@@ -108,7 +111,33 @@ Result: an agent whose last run ended with an unresolved tool call does not trea
 
 Open lead, not verified: the abandoned run keeps running on the bridge until the agent is closed. Whether it keeps spending tokens in that time is not measured.
 
-Consequence for the plan: the host text stays in the user message. Agent reuse with text tool results is rejected by the probe above. A parked run keeps the callback request open across turns. Other Cursor integrations do this, but it needs its own tests.
+Consequence for the plan: the host text stays in the user message. Agent reuse with text tool results is rejected by the probe above. The parked run below is the route that works.
+
+## Parked run
+
+A turn that ends in tool calls keeps its agent, its run and its callback server open. The turn returns the
+proposals to PiG. PiG runs the tools through its approval loop and sends the next request. When that request
+is exactly the parked conversation plus the real result of each parked call, `Session.Resume` answers the
+waiting callbacks and the same run continues. Cursor keeps its own reasoning, so it does not repeat the call.
+
+Resume rules (all must hold, otherwise PiG replays the transcript on a fresh agent as before):
+
+- Same account, model, effort level, tool set and system prompt. The extension compares a hash of the conversation up to the parked assistant message.
+- The request ends with the assistant message that holds the parked calls, then exactly one `toolResult` for each call, with the same id, tool name and arguments.
+- Results are answered all or none. A mismatch disposes the run and never sends a partial or invented result.
+- A run that fails after it resumed is not replayed, because the generation already continued at Cursor.
+
+Lifecycle:
+
+- One parked run for each bridge process, and one process for each account. A newer turn on the process closes the parked run. A parked run does not block that newer turn.
+- A parked run times out after 4 minutes (`DefaultParkTimeout`). A resume after the timeout falls back to a replay. Whether the bridge drops a callback that stays open longer is not verified.
+- Cancelling the resume, closing the bridge or ending the PiG session closes the run, the callback server and the agent.
+- Output that arrives while parked is kept (4096 events at most) and delivered on resume.
+- Tool results over 4 MiB cause a replay.
+
+`PIG_CURSOR_PARK=0` turns parking off.
+
+Live check, one sample each on grok-4.6-fast at low effort, task `read notes.txt` then answer: the run parked on the `read` call and `Resume` continued it. Both answers were right ("charlie"), the tool call was not repeated, and each task used one generation request instead of two. Total time was 12.2 s and 7.1 s. The replay path took 9.3 s and 8.0 s in the earlier before and after runs. This task is too small to show a speed difference.
 
 ## Catalog persistence
 

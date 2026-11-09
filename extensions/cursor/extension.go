@@ -40,6 +40,7 @@ const (
 
 type service struct {
 	manager *manager
+	parked  parkRegistry
 
 	mu         sync.Mutex
 	accountKey string       // hash of the key the cached catalog belongs to

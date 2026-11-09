@@ -133,7 +133,10 @@ func start(ctx context.Context, binary, key string, timeout time.Duration) (*Pro
 func (p *Process) releaseParked() {
 	if parked := p.takeParked(nil); parked != nil {
 		parked.mu.Lock()
-		parked.closed = true
+		if !parked.closed {
+			parked.closed = true
+			close(parked.gone)
+		}
 		parked.mu.Unlock()
 		parked.cancelRun()
 		if err := parked.server.Close(); err != nil {

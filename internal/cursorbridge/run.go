@@ -49,6 +49,7 @@ type Session struct {
 
 	cancelRun context.CancelFunc
 	sendEnded chan struct{} // closed when the Send stream returned
+	gone      chan struct{} // closed when the session is disposed
 	proposed  chan struct{} // woken once per round after the grace period
 
 	emitMu sync.Mutex // held while emit runs, so a retired round never emits
@@ -68,6 +69,9 @@ type Session struct {
 	Selection Selection
 	Tools     []ToolDef
 }
+
+// Done is closed once the session is disposed, whatever the reason.
+func (s *Session) Done() <-chan struct{} { return s.gone }
 
 // Proposals returns the tool calls the parked run waits on.
 func (s *Session) Proposals() []Proposal {
@@ -92,7 +96,7 @@ func (p *Process) Run(ctx context.Context, key string, model Selection, tools []
 	}
 	// The run must outlive the caller's context when it parks, so it has its own.
 	runCtx, cancelRun := context.WithCancel(context.Background())
-	s := &Session{p: p, allow: map[string]bool{}, cancelRun: cancelRun, sendEnded: make(chan struct{}), proposed: make(chan struct{}, 1), Selection: model, Tools: tools}
+	s := &Session{p: p, allow: map[string]bool{}, cancelRun: cancelRun, sendEnded: make(chan struct{}), gone: make(chan struct{}), proposed: make(chan struct{}, 1), Selection: model, Tools: tools}
 	for _, tool := range tools {
 		s.allow[tool.Name] = true
 	}
@@ -359,6 +363,7 @@ func (s *Session) dispose() error {
 		return nil
 	}
 	s.closed = true
+	close(s.gone)
 	if s.timer != nil {
 		s.timer.Stop()
 	}
