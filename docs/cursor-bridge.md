@@ -207,3 +207,12 @@ do not fail the current turn.
 The public repository is MIT-licensed. Preserve its notice when distributing its files.
 The standalone archive includes additional runtime and SDK components.
 Review the archive notices before changing redistribution policy.
+
+## Plan quota in /usage
+
+`/usage` asks Cursor's dashboard (`DashboardService/GetCurrentPeriodUsage`) for the plan percentages and the cycle end. The footer shows the total. This call needs the browser session, not the minted API key: the key gets HTTP 401.
+
+- `/login cursor` now stores both. `access` and `refresh` hold the session, so the host refreshes it. `apiKey` holds the key that runs models, and `apiKeyExpires` holds its end date. Accounts from before keep the key in `access`. They run models as before and show "run /login cursor again" in `/usage` until you sign in again.
+- The refresh does not replace the key. When the key expires, the refresh fails and asks for a new login.
+- Cursor meters never drive automatic model switching.
+- Not verified live: the endpoint is private and the field names (`planUsage.totalPercentUsed`, `autoPercentUsed`, `apiPercentUsed`, `billingCycleEnd`) come from public dashboard tools. The tests use a fake server.

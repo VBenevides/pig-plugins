@@ -347,7 +347,27 @@ func TestBrowserLoginStoresVerifiedAccount(t *testing.T) {
 	if shown[0]["type"] != "auth_url" || u.Host != "cursor.example" || u.Query().Get("redirectTarget") != "sdk" || u.Query().Get("challenge") == "" || u.Query().Get("uuid") == "" || u.Query().Get("verifier") != "" {
 		t.Fatalf("sign-in notice %v", shown[0])
 	}
-	if credential.String("access") != "minted-user-key" || credential.String("refresh") != "" || credential.String("accountId") != "cursor-42" || credential.String("email") != "dev@example.com" {
+	if credential.String("access") != access || credential.String("refresh") != "refresh-1" || credential.String("apiKey") != "minted-user-key" || credential.String("accountId") != "cursor-42" || credential.String("email") != "dev@example.com" {
+		t.Fatalf("credential %v", credential)
+	}
+	if millis(credential, "expires") <= time.Now().UnixMilli() || millis(credential, "apiKeyExpires") <= millis(credential, "expires") {
+		t.Fatalf("expiry times %v", credential)
+	}
+	if got, err := s.provider().Auth.OAuth.ToAuth(credential); err != nil || got["apiKey"] != "minted-user-key" {
+		t.Fatalf("the bridge must get the minted key, not the session: %v %v", got, err)
+	}
+}
+
+func TestBrowserLoginWithoutUsableSessionKeepsKeyOnly(t *testing.T) {
+	good := &fakeRunner{user: cursorbridge.User{UserID: 42}}
+	s, _ := newService(map[string]*fakeRunner{"minted-user-key": good})
+	auth, _, _ := cursorServer(t, 0, "not-a-jwt")
+	s.auth = auth
+	credential, err := s.login(sdk.AuthInteraction{Notify: func(map[string]any) error { return nil }}, sdk.LoginOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential.String("access") != "minted-user-key" || credential.String("apiKey") != "" || credential.String("refresh") != "" {
 		t.Fatalf("credential %v", credential)
 	}
 }
@@ -408,15 +428,26 @@ func TestProviderAuthShape(t *testing.T) {
 	auth, _, seen := cursorServer(t, 0, "unused")
 	s.auth = auth
 	oauth := s.provider().Auth.OAuth
-	refreshed, err := oauth.Refresh(sdk.NewCredential("access", "old", "refresh", "refresh-1", "accountId", "cursor-42", "expires", 1), context.Background())
-	if err != nil || refreshed.String("access") == "old" || refreshed.String("refresh") != "refresh-2" || refreshed.String("accountId") != "cursor-42" || len(*seen) != 1 {
+	future := time.Now().Add(time.Hour).UnixMilli()
+	refreshed, err := oauth.Refresh(sdk.NewCredential("access", "old", "refresh", "refresh-1", "accountId", "cursor-42", "expires", 1, "apiKey", "key-1", "apiKeyExpires", future), context.Background())
+	if err != nil || refreshed.String("access") == "old" || refreshed.String("refresh") != "refresh-2" || refreshed.String("accountId") != "cursor-42" || refreshed.String("apiKey") != "key-1" || len(*seen) != 1 {
 		t.Fatal(refreshed, err, *seen)
 	}
-	if _, err = oauth.Refresh(sdk.NewCredential("access", "old"), context.Background()); err == nil {
+	if _, err = oauth.Refresh(sdk.NewCredential("access", "old", "apiKey", "key-1"), context.Background()); err == nil {
 		t.Fatal("session without a refresh token was refreshed")
+	}
+	if _, err = oauth.Refresh(sdk.NewCredential("access", "key-1", "refresh", "refresh-1"), context.Background()); err == nil || len(*seen) != 1 {
+		t.Fatal("an account without a separate key was refreshed, which would replace its key with a session token")
+	}
+	if _, err = oauth.Refresh(sdk.NewCredential("access", "old", "refresh", "refresh-1", "apiKey", "key-1", "apiKeyExpires", 1), context.Background()); err == nil || len(*seen) != 1 {
+		t.Fatal("an expired key was kept")
 	}
 	got, err := oauth.ToAuth(sdk.NewCredential("access", "k"))
 	if err != nil || got["apiKey"] != "k" {
+		t.Fatal(got, err)
+	}
+	got, err = oauth.ToAuth(sdk.NewCredential("access", "session", "apiKey", "key-1"))
+	if err != nil || got["apiKey"] != "key-1" {
 		t.Fatal(got, err)
 	}
 	if _, err = oauth.ToAuth(sdk.NewCredential("refresh", "r")); err == nil {

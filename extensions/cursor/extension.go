@@ -95,7 +95,15 @@ func (s *service) provider() *sdk.Provider {
 	p.Auth.OAuth = &sdk.OAuthAuth{
 		Name:  "Cursor",
 		Login: s.login,
+		// The host refreshes the browser session, which reads quota. The minted
+		// key lives in its own field and stays as it is.
 		Refresh: func(credential *sdk.Credential, ctx context.Context) (*sdk.Credential, error) {
+			if credential.String("apiKey") == "" {
+				return nil, errors.New("Cursor session cannot be renewed; run /login cursor again")
+			}
+			if ms := millis(credential, "apiKeyExpires"); ms > 0 && time.Now().UnixMilli() >= ms {
+				return nil, errors.New("Cursor API key expired; run /login cursor again")
+			}
 			session, err := s.browser().refresh(ctx, credential.String("refresh"))
 			if err != nil {
 				return nil, err
@@ -107,7 +115,7 @@ func (s *service) provider() *sdk.Provider {
 			return next, nil
 		},
 		ToAuth: func(credential *sdk.Credential) (map[string]any, error) {
-			key := credential.String("access")
+			key := apiKey(credential)
 			if key == "" {
 				return nil, errors.New("Cursor session is missing; run /login")
 			}
@@ -115,6 +123,29 @@ func (s *service) provider() *sdk.Provider {
 		},
 	}
 	return p
+}
+
+// apiKey returns the key for the SDK Bridge. Accounts from before quota support
+// keep the key in access.
+func apiKey(credential *sdk.Credential) string {
+	if key := credential.String("apiKey"); key != "" {
+		return key
+	}
+	return credential.String("access")
+}
+
+// millis reads a stored time. The number type depends on whether the value was
+// loaded from disk or set in this process, so the text form is the common path.
+func millis(credential *sdk.Credential, key string) int64 {
+	value, ok := credential.Get(key)
+	if !ok {
+		return 0
+	}
+	n, err := strconv.ParseFloat(fmt.Sprint(value), 64)
+	if err != nil {
+		return 0
+	}
+	return int64(n)
 }
 
 // login signs in through the browser and checks the minted key with the bridge.
@@ -137,26 +168,35 @@ func (s *service) login(interaction sdk.AuthInteraction, _ sdk.LoginOptions) (*s
 	if err != nil {
 		return nil, err
 	}
+	key := session.Key.Access
 	checkCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	r, release, err := s.manager.acquire(checkCtx, session.Access)
+	r, release, err := s.manager.acquire(checkCtx, key)
 	if err != nil {
 		return nil, fmt.Errorf("start Cursor bridge for login: %w", err)
 	}
-	user, err := r.Me(checkCtx, session.Access)
+	user, err := r.Me(checkCtx, key)
 	release()
 	if err != nil {
 		// A rejected token must not leave a process holding it.
-		s.manager.drop(session.Access)
+		s.manager.drop(key)
 		return nil, fmt.Errorf("the Cursor bridge did not accept the browser login: %w", err)
 	}
 	credential := sdk.NewCredential(
 		"type", "oauth",
-		"access", session.Access,
-		"refresh", session.Refresh,
-		"expires", session.Expires.UnixMilli(),
+		"access", key,
+		"refresh", "",
+		"expires", session.Key.Expires.UnixMilli(),
 		"accountId", "cursor-"+strconv.FormatInt(int64(user.UserID), 10),
 	)
+	if session.Browser.Access != "" {
+		// Quota reads the dashboard with the browser session, not with the key.
+		credential.Set("apiKey", key)
+		credential.Set("apiKeyExpires", session.Key.Expires.UnixMilli())
+		credential.Set("access", session.Browser.Access)
+		credential.Set("refresh", session.Browser.Refresh)
+		credential.Set("expires", session.Browser.Expires.UnixMilli())
+	}
 	if user.Email != "" {
 		credential.Set("email", user.Email)
 	}
@@ -226,7 +266,7 @@ func (s *service) refreshModels(refresh sdk.RefreshModelsContext) error {
 	}
 	key := ""
 	if refresh.Credential != nil {
-		key = refresh.Credential.String("access")
+		key = apiKey(refresh.Credential)
 	}
 	if key == "" {
 		_, err := refresh.Publish(sdk.ModelsPublication{Persist: json.RawMessage("null"), Update: func() error { s.clearCatalog(); return nil }})
