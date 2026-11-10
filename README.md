@@ -950,6 +950,16 @@ The state is in memory only and resets to ACT when a session starts.
 In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` permits only exact reviewed read-only tool names. Unknown tools remain blocked even under `lsp_`, `code_` or `memory_` prefixes. Shell calls are denied because command names and argument filtering cannot prove read-only execution; use dedicated read/search tools or switch to ACT.
 `write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
 
+## session-resume
+
+Opening pig in the terminal UI resumes the newest earlier session of the working directory that has a conversation, then shows "Session auto resumed, if you want a new session use /new". With no earlier session, or when the current session already has messages, pig starts empty as after `/new`. `-c`, `-r`, `--session`, `--fork`, `--no-session` and `-p` skip it, since they already choose the session. A `/resume` you type yourself shows no notice.
+
+## path-complete
+
+Type `~/`, `./` or `../` at the start of a word, or a quote before a path, and a list of the matching files and folders appears. A path that starts with `/` after other words does not open the list by itself: press Tab. It reads the folder each time the list opens, so it is always current. Folders come first, matching ignores case, and dot files show only after you type a `.`. The list stops at 50 entries and the last one says how many more there are.
+Choosing a folder adds `/` and the list continues inside it. A name with spaces is wrapped in double quotes for you: `"~/My Projects/"`. You can also type the quotes yourself, or write `\ ` for a space (`~/My\ Projects`). Inside quotes, `\"` and `\\` stand for `"` and `\`.
+A `/` word with no second `/` (`/`, `/sk`, `/skill:x`) and `//` stay with the skills and commands menu and plain text; an absolute path starts listing at its second slash (`/etc/`). `/fs <path>` lists a folder and completes it with the same list; the whole rest of the line is the path, so spaces need no quotes. Choosing an entry replaces `/fs <path>` with the path itself, quoted if it has spaces, and a folder keeps completing inline. Pressing Enter on `/fs <path>` puts that path in the prompt and sends nothing. A folder whose name you typed in full keeps no trailing slash, so `~/x/reports` can be sent as typed. `/fs` and its completions resolve relative paths from the extension's working directory.
+
 ## goal
 
 `/goal set <objective>` starts one objective and the agent keeps working on it until it is reached or everything left is blocked. The objective can be any text; `/skill:name` tokens anywhere in it expand to the skill's content, as they do in a normal prompt, and an unknown skill name stays plain text.

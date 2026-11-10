@@ -39,6 +39,10 @@ extensions:
     origins: [local:./extensions/cursor]
   - name: ask-mode
     origins: [local:./extensions/ask-mode]
+  - name: path-complete
+    origins: [local:./extensions/path-complete]
+  - name: session-resume
+    origins: [local:./extensions/session-resume]
   - name: browser-use
     origins: [local:./extensions/browser-use]
   - name: goal
