@@ -1,8 +1,10 @@
 package toolsearch
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
@@ -83,5 +85,55 @@ func TestSearchBounds(t *testing.T) {
 	result, err := boundSearch(sdk.Context{}, map[string]any{"toolName": "tool_search", "input": map[string]any{"limit": float64(21)}})
 	if err != nil || result == nil {
 		t.Fatalf("result=%v err=%v", result, err)
+	}
+}
+
+func TestDiscoveryCapsTotalActivations(t *testing.T) {
+	pigtest.RequirePig(t)
+	home := pigtest.NewHome(t)
+	fixture := filepath.Join(t.TempDir(), "many-tools", "extension.go")
+	if err := os.MkdirAll(filepath.Dir(fixture), 0700); err != nil {
+		t.Fatal(err)
+	}
+	source := `package fixture
+import ("fmt"; sdk "github.com/MichaelKinsy/PiG/extensions/sdk")
+func Extension() *sdk.Extension {
+ e := sdk.New("many-tools")
+ for i:=0; i<30; i++ { e.RegisterTool(sdk.ToolDefinition{Name:fmt.Sprintf("zzgroup_%02d",i), Description:"zzgroup", Exposure:sdk.ToolExposureDeferred, Parameters:map[string]any{"type":"object"}, Execute:func(sdk.Context,map[string]any)(any,error){return nil,nil}}) }
+ return e
+}`
+	if err := os.WriteFile(fixture, []byte(source), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(fixture), "go.mod"), []byte("module fixture\n\ngo 1.24.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	search, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func() pigtest.Reply {
+		return pigtest.Calls(pigtest.Call("tool_search", map[string]any{"query": "zzgroup", "limit": 10}))
+	}
+	mock := pigtest.NewMockLLM(call(), call(), call(), pigtest.Text("done"))
+	defer mock.Close()
+	result := home.Run(t, mock, pigtest.RunOptions{Extensions: []string{search, filepath.Dir(fixture)}, Prompt: "find tools"})
+	if result.ExitCode != 0 {
+		t.Fatalf("session failed: %+v", result)
+	}
+	requests := mock.Requests()
+	if len(requests) != 4 {
+		t.Fatalf("requests=%d", len(requests))
+	}
+	for i, want := range []int{0, 10, 20, 20} {
+		count := 0
+		for _, name := range requestNames(requests[i]) {
+			if strings.HasPrefix(name, "zzgroup_") {
+				count++
+			}
+		}
+		if count != want {
+			t.Fatalf("request %d schemas=%d want=%d", i, count, want)
+		}
 	}
 }

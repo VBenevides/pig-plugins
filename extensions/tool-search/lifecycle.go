@@ -44,7 +44,7 @@ func (d *discoveries) result(ctx sdk.Context, data map[string]any) (any, error) 
 		if !ok {
 			continue
 		}
-		if !cfg.ToolEnabled(name) {
+		if !cfg.ToolEnabled(name) || !d.loaded[name] && len(d.loaded) >= 20 {
 			denied[name] = true
 			continue
 		}
@@ -56,7 +56,7 @@ func (d *discoveries) result(ctx sdk.Context, data map[string]any) (any, error) 
 		return nil, nil
 	}
 	ctx.SetActiveTools(slices.DeleteFunc(active, func(name string) bool { return denied[name] }))
-	text := "No permitted tools matched."
+	text := "No tools loaded: permission or request activation limit."
 	if len(allowed) > 0 {
 		text = "Loaded tools: " + strings.Join(allowed, ", ")
 	}
