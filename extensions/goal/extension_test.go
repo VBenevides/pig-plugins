@@ -188,7 +188,7 @@ func TestGoalFinishWithoutGoalFails(t *testing.T) {
 		pigtest.Text("ok"),
 	}, nil, "plain prompt")
 	results := pigtest.ToolResults(mock)
-	if len(results) != 1 || !strings.Contains(results[0], "no goal is active") {
+	if len(results) != 1 || !strings.Contains(results[0], "Tool goal_finish not found") {
 		t.Fatalf("tool results = %q", results)
 	}
 }

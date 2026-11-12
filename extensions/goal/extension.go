@@ -81,6 +81,14 @@ func Extension() *sdk.Extension {
 		},
 		ExecutionMode: "sequential",
 		Execute:       x.finishTool,
+		PrepareLoadout: func(_ sdk.ToolLoadout) *sdk.ToolLoadoutChanges {
+			x.mu.Lock()
+			defer x.mu.Unlock()
+			if x.state != nil && x.state.Status == goal.Working {
+				return nil
+			}
+			return &sdk.ToolLoadoutChanges{HiddenDeclarations: []string{"goal_finish"}}
+		},
 	})
 	return e
 }
@@ -110,7 +118,10 @@ func announce(ctx footerstatus.Context, state *goal.State) {
 	footerstatus.Set(ctx, Name, text)
 }
 
-func (x *extension) appendPrompt(_ sdk.Context, data map[string]any) (any, error) {
+func (x *extension) appendPrompt(ctx sdk.Context, data map[string]any) (any, error) {
+	if err := x.syncFinishExposure(ctx); err != nil {
+		return nil, err
+	}
 	x.mu.Lock()
 	state := x.state
 	x.resumePending = false
@@ -299,6 +310,9 @@ func (x *extension) clear(ctx sdk.Context) error {
 	x.state = nil
 	x.mu.Unlock()
 	announce(ctx, nil)
+	if err := x.syncFinishExposure(ctx); err != nil {
+		return err
+	}
 	ctx.Notify("Goal cleared. A run in progress is not interrupted; press Esc to stop it.", "info")
 	return nil
 }
@@ -343,6 +357,9 @@ func (x *extension) finishTool(ctx sdk.Context, params map[string]any) (any, err
 		return nil, errors.New("goal_finish: no goal is active")
 	}
 	x.finish(ctx, goal.Outcome(outcome), summary)
+	if err := x.syncFinishExposure(ctx); err != nil {
+		return nil, err
+	}
 	return sdk.ToolResult{Content: "Goal finished (" + outcome + "). Reply with a short final note."}, nil
 }
 
