@@ -950,6 +950,10 @@ The state is in memory only and resets to ACT when a session starts.
 In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` permits only exact reviewed read-only tool names. Unknown tools remain blocked even under `lsp_`, `code_` or `memory_` prefixes. Shell calls are denied because command names and argument filtering cannot prove read-only execution; use dedicated read/search tools or switch to ACT.
 `write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
 
+## Cursor thinking levels
+
+Cursor Grok models use PiG's default thinking level, `medium`, when no saved level applies. Existing global, per-model, and session choices keep their current values. The Cursor provider passes the selected level to the bridge without changing settings. If a model does not support the selected level, the request returns an explicit error instead of selecting a different level. This default does not indicate measured performance or release qualification.
+
 ## session-resume
 
 Opening pig in the terminal UI resumes the newest earlier session of the working directory that has a conversation, then shows "Session auto resumed, if you want a new session use /new". With no earlier session, or when the current session already has messages, pig starts empty as after `/new`. `-c`, `-r`, `--session`, `--fork`, `--no-session` and `-p` skip it, since they already choose the session. A `/resume` you type yourself shows no notice.

@@ -103,6 +103,26 @@ func opts(key, level string) sdk.ProviderStreamOptions {
 	return sdk.ProviderStreamOptions{Values: map[string]any{"apiKey": key, "reasoning": level}}
 }
 
+func TestGrokPreservesMediumAndSavedThinkingLevels(t *testing.T) {
+	for _, level := range []string{"medium", "low", "high"} {
+		t.Run(level, func(t *testing.T) {
+			r := &fakeRunner{catalog: []cursorbridge.Model{{ID: "grok-4.6-low"}, {ID: "grok-4.6-medium"}, {ID: "grok-4.6-high"}}}
+			s, _ := newService(map[string]*fakeRunner{"key": r})
+			options := opts("key", level)
+			stream, err := s.stream(map[string]any{"id": "grok-4.6"}, request("hi"), options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			collect(t, stream)
+			if len(r.selected) != 1 || r.selected[0].ID != "grok-4.6-"+level {
+				t.Fatalf("selected = %v; want %s", r.selected, level)
+			}
+			if options.Values["reasoning"] != level {
+				t.Fatal("selected thinking level changed")
+			}
+		})
+	}
+}
 func TestStreamMapsThinkingLevelAndText(t *testing.T) {
 	r := &fakeRunner{catalog: grokCatalog, events: []cursorbridge.Event{{Thinking: true, Text: "hmm"}, {Text: "hel"}, {Text: "lo"}},
 		outcome: cursorbridge.Outcome{Usage: &cursorbridge.TokenUsage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10}}}
