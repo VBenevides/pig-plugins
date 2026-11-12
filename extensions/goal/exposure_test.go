@@ -1,10 +1,13 @@
 package goalext
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 
+	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/pigtest"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
 func TestNoGoalOmitsFinishDeclaration(t *testing.T) {
@@ -33,5 +36,24 @@ func TestActiveGoalDeclaresFinish(t *testing.T) {
 		if fn["name"] == "goal_finish" {
 			t.Fatal("goal_finish remains declared after completion")
 		}
+	}
+}
+
+func TestGoalPermissionDenialSurvivesActivation(t *testing.T) {
+	_, mock := run(t, []pigtest.Reply{pigtest.Text("waiting"), pigtest.Text("waiting"), pigtest.Text("waiting"), pigtest.Text("waiting")}, func(home *pigtest.Home) {
+		if err := toolsettings.Save(filepath.Join(home.AgentDir(), toolsettings.FileName), toolsettings.Config{DisabledTools: map[string]bool{"goal_finish": true}}); err != nil {
+			t.Fatal(err)
+		}
+	}, "/goal set denied finish")
+	if slices.Contains(pigtest.ToolNames(mock), "goal_finish") {
+		t.Fatal("goal activation bypassed a global denial")
+	}
+}
+
+func TestStaleFinishCallRejectsMissingGoal(t *testing.T) {
+	x := &extension{}
+	_, err := x.finishTool(sdk.Context{}, map[string]any{"outcome": "reached", "summary": "stale"})
+	if err == nil || err.Error() != "goal_finish: no goal is active" {
+		t.Fatalf("stale call error = %v", err)
 	}
 }
