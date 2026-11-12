@@ -43,6 +43,8 @@ extensions:
     origins: [local:./extensions/path-complete]
   - name: session-resume
     origins: [local:./extensions/session-resume]
+  - name: request-timer
+    origins: [local:./extensions/request-timer]
   - name: browser-use
     origins: [local:./extensions/browser-use]
   - name: goal
