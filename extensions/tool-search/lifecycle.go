@@ -33,6 +33,14 @@ func (d *discoveries) result(ctx sdk.Context, data map[string]any) (any, error) 
 	if err != nil {
 		return nil, fmt.Errorf("tool-search: read active tools: %w", err)
 	}
+	tools, err := ctx.GetAllTools()
+	if err != nil {
+		return nil, fmt.Errorf("tool-search: inspect wrapper dependencies: %w", err)
+	}
+	registered := map[string]bool{}
+	for _, tool := range tools {
+		registered[tool.Name] = true
+	}
 	var allowed []string
 	denied := map[string]bool{}
 	d.mu.Lock()
@@ -48,14 +56,29 @@ func (d *discoveries) result(ctx sdk.Context, data map[string]any) (any, error) 
 			denied[name] = true
 			continue
 		}
+		if owner := toolsettings.BackendOwner(name); owner != "" && registered[owner] {
+			denied[name] = true
+			name = owner
+			if !cfg.ToolEnabled(name) || !d.loaded[name] && len(d.loaded) >= 20 {
+				continue
+			}
+		}
 		d.loaded[name] = true
-		allowed = append(allowed, name)
+		if !slices.Contains(allowed, name) {
+			allowed = append(allowed, name)
+		}
 	}
 	d.mu.Unlock()
 	if len(denied) == 0 {
 		return nil, nil
 	}
-	ctx.SetActiveTools(slices.DeleteFunc(active, func(name string) bool { return denied[name] }))
+	active = slices.DeleteFunc(active, func(name string) bool { return denied[name] })
+	for _, name := range allowed {
+		if !slices.Contains(active, name) {
+			active = append(active, name)
+		}
+	}
+	ctx.SetActiveTools(active)
 	text := "No tools loaded: permission or request activation limit."
 	if len(allowed) > 0 {
 		text = "Loaded tools: " + strings.Join(allowed, ", ")
