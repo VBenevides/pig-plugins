@@ -1,8 +1,10 @@
 package requesttimerext
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
-	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 )
 
 func TestTimerSpansToolFollowUpAndClearsAtEnd(t *testing.T) {
+	fused := pigtest.UseFusedBinary(t)
 	pigtest.RequirePig(t)
 	home := pigtest.NewHome(t)
 	mock := pigtest.NewMockLLM(
@@ -22,21 +25,60 @@ func TestTimerSpansToolFollowUpAndClearsAtEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{path}, Prompts: []string{"test timer", "next request"}})
-	statuses := result.Statuses(Name)
-	starts := 0
-	for _, s := range statuses {
-		if s == "Working - 00h 00m 00s" {
-			starts++
+	extensions := []string{path}
+	if fused {
+		extensions = nil
+	}
+	home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: extensions, Prompts: []string{"test timer", "next request"}})
+	if len(mock.Requests()) != 3 {
+		t.Fatalf("completion record started an extra turn: %d requests", len(mock.Requests()))
+	}
+	files, err := filepath.Glob(filepath.Join(home.AgentDir(), "sessions", "*", "*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []string
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if line == "" {
+				continue
+			}
+			var entry struct {
+				Type       string          `json:"type"`
+				CustomType string          `json:"customType"`
+				Content    json.RawMessage `json:"content"`
+				Display    bool            `json:"display"`
+			}
+			if err := json.Unmarshal([]byte(line), &entry); err != nil {
+				t.Fatal(err)
+			}
+			if entry.Type != "custom_message" || entry.CustomType != Name {
+				continue
+			}
+			if !entry.Display {
+				t.Fatal("elapsed record is hidden")
+			}
+			var content string
+			if err := json.Unmarshal(entry.Content, &content); err != nil {
+				t.Fatal(err)
+			}
+			records = append(records, content)
 		}
 	}
-	if starts != 2 {
-		t.Fatalf("request resets: %v", statuses)
+	if len(records) != 2 {
+		t.Fatalf("durable elapsed records = %v", records)
 	}
-	if !slices.Contains(statuses, "Working - 00h 00m 02s") {
-		t.Fatalf("timer did not span tool follow-up: %v", statuses)
-	}
-	if len(statuses) == 0 || statuses[len(statuses)-1] != "" {
-		t.Fatalf("timer not cleared: %v", statuses)
+	for i, minimum := range []time.Duration{2 * time.Second, time.Second} {
+		if !strings.HasPrefix(records[i], "Elapsed - ") {
+			t.Fatal(records)
+		}
+		elapsed, err := time.ParseDuration(strings.ReplaceAll(strings.TrimPrefix(records[i], "Elapsed - "), " ", ""))
+		if err != nil || elapsed < minimum {
+			t.Fatalf("elapsed record %d = %q (%v); want at least %s", i, records[i], err, minimum)
+		}
 	}
 }

@@ -2,7 +2,11 @@
 package requesttimerext
 
 import (
+	"strings"
+	"sync"
+
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+
 	"github.com/VBenevides/pig-plugins/internal/requesttimer"
 )
 
@@ -12,8 +16,16 @@ const Name = "request-timer"
 func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	timer := &requesttimer.Timer{}
+	var mu sync.Mutex
+	var pending string
 	update := func(ctx sdk.Context) func(string) {
-		return func(text string) { ctx.SetStatus(Name, text) }
+		return func(text string) {
+			if text == "" {
+				ctx.ClearWorkingMessage()
+			} else {
+				ctx.SetWorkingMessage(text)
+			}
+		}
 	}
 	e.OnEvent(sdk.EventAgentStart, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		if ctx.HasUI() {
@@ -21,9 +33,34 @@ func Extension() *sdk.Extension {
 		}
 		return nil, nil
 	})
-	for _, event := range []string{sdk.EventAgentEnd, sdk.EventSessionShutdown, sdk.EventSessionStart} {
+	e.OnEvent(sdk.EventAgentEnd, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		elapsed, running := timer.Stop(update(ctx))
+		if !running {
+			return nil, nil
+		}
+		mu.Lock()
+		pending = "Elapsed - " + strings.TrimPrefix(requesttimer.Format(elapsed), "Working - ")
+		mu.Unlock()
+		return nil, nil
+	})
+	// A passive message appended during agent_end can keep an active turn running. Wait for settlement.
+	e.OnEvent(sdk.EventAgentSettled, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		mu.Lock()
+		text := pending
+		pending = ""
+		mu.Unlock()
+		if text == "" {
+			return nil, nil
+		}
+		trigger := false
+		return nil, ctx.SendMessage(Name, text, true, sdk.SendMessageOptions{TriggerTurn: &trigger})
+	})
+	for _, event := range []string{sdk.EventSessionShutdown, sdk.EventSessionStart} {
 		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
 			timer.Stop(update(ctx))
+			mu.Lock()
+			pending = ""
+			mu.Unlock()
 			return nil, nil
 		})
 	}
