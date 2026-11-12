@@ -1,0 +1,354 @@
+[
+  {
+    "trace": "workers/pig-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-1-run1/instance_ansible__ansible-622a49__v7X2dgb/agent/stdout.jsonl",
+    "line": 1307,
+    "tool": "edit",
+    "call_id": "call_713507f5d0b544dd92bc110b78e167ac|fc_06cfb9dafbd73a7e016af64651c97c87d2827309921aad6196",
+    "classification": "native_exact_text_mismatch",
+    "diagnostic": "Could not find edits[1] in lib/ansible/modules/network/icx/icx_ping.py. The oldText must match exactly including all whitespace and newlines."
+  },
+  {
+    "trace": "workers/pig-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-3-run1/instance_ansible__ansible-622a49__92woMZ8/agent/stdout.jsonl",
+    "line": 1648,
+    "tool": "edit",
+    "call_id": "call_ed04e1a6eef741a69b06414f22261f3f|fc_0297642048dae0b2016af648a4cb9887d2bb1e5a0aaa579cb8",
+    "classification": "native_exact_text_mismatch",
+    "diagnostic": "Could not find edits[1] in lib/ansible/modules/network/icx/icx_ping.py. The oldText must match exactly including all whitespace and newlines."
+  },
+  {
+    "trace": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-1-run1/instance_element-hq__element-web__tG68yPT/agent/stdout.jsonl",
+    "line": 1122,
+    "tool": "edit",
+    "call_id": "call_c0be4340cea04f7f8797f6f74ee5425c|fc_0f877ba07edf4502016af6464628d087d2bcbf9e2cc238284e",
+    "classification": "native_ambiguous_text",
+    "diagnostic": "Found 2 occurrences of edits[8] in src/async-components/views/dialogs/security/ExportE2eKeysDialog.tsx. Each oldText must be unique. Please provide more context to make it unique."
+  },
+  {
+    "trace": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-1-run1/instance_element-hq__element-web__tG68yPT/agent/stdout.jsonl",
+    "line": 2156,
+    "tool": "edit",
+    "call_id": "call_646fee29a8af4ad79b61f8e999d6ff71|fc_0f877ba07edf4502016af646595ab487d2b327297fc71d0d0e",
+    "classification": "native_ambiguous_text",
+    "diagnostic": "Found 2 occurrences of edits[9] in src/async-components/views/dialogs/security/ExportE2eKeysDialog.tsx. Each oldText must be unique. Please provide more context to make it unique."
+  },
+  {
+    "trace": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-1-run1/instance_element-hq__element-web__tG68yPT/agent/stdout.jsonl",
+    "line": 3079,
+    "tool": "edit",
+    "call_id": "call_5a093877fa83492895e31252c913cefb|fc_0f877ba07edf4502016af6466eb4d087d28d29283a988b0ba3",
+    "classification": "native_ambiguous_text",
+    "diagnostic": "Found 2 occurrences of edits[9] in src/async-components/views/dialogs/security/ExportE2eKeysDialog.tsx. Each oldText must be unique. Please provide more context to make it unique."
+  },
+  {
+    "trace": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-1-run1/instance_element-hq__element-web__tG68yPT/agent/stdout.jsonl",
+    "line": 3967,
+    "tool": "edit",
+    "call_id": "call_8f1c89f1133345a28ba41cb0f4576501|fc_0f877ba07edf4502016af64681e5d887d2a583a8b512549463",
+    "classification": "native_ambiguous_text",
+    "diagnostic": "Found 2 occurrences of edits[9] in src/async-components/views/dialogs/security/ExportE2eKeysDialog.tsx. Each oldText must be unique. Please provide more context to make it unique."
+  },
+  {
+    "trace": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-2-run1/instance_element-hq__element-web__9Cn6U2W/agent/stdout.jsonl",
+    "line": 1168,
+    "tool": "edit",
+    "call_id": "call_9a2653b032c34eac8ba5c6aaa6ef2ed8|fc_046dc961c132ee4c016af64731474087d28135e570bec15d98",
+    "classification": "native_exact_text_mismatch",
+    "diagnostic": "Could not find edits[5] in src/async-components/views/dialogs/security/ExportE2eKeysDialog.tsx. The oldText must match exactly including all whitespace and newlines."
+  },
+  {
+    "trace": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-2-run1/instance_element-hq__element-web__9Cn6U2W/agent/stdout.jsonl",
+    "line": 2203,
+    "tool": "edit",
+    "call_id": "call_5f9e6a2b820c48bdb6a375a2cc0098a2|fc_046dc961c132ee4c016af64744fb1c87d2b52386986bf5b145",
+    "classification": "native_ambiguous_text",
+    "diagnostic": "Found 2 occurrences of edits[9] in src/async-components/views/dialogs/security/ExportE2eKeysDialog.tsx. Each oldText must be unique. Please provide more context to make it unique."
+  },
+  {
+    "trace": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-3-run1/instance_element-hq__element-web__6dDbHmX/agent/stdout.jsonl",
+    "line": 1075,
+    "tool": "edit",
+    "call_id": "call_0e777299609043bb842071b8bf3a2ebc|fc_0e80535f7c77bf9c016af64801c6b087d28f5e2e798f6c12e5",
+    "classification": "native_ambiguous_text",
+    "diagnostic": "Found 2 occurrences of edits[9] in src/async-components/views/dialogs/security/ExportE2eKeysDialog.tsx. Each oldText must be unique. Please provide more context to make it unique."
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-1-run1/instance_NodeBB__NodeBB-4327a09d__aMXBT3A/agent/stdout.jsonl",
+    "line": 80,
+    "tool": "ast_search",
+    "call_id": "call_d61266b258694d1b96f813edbddab913|fc_065581b48425e909016af645a2181487d2a66e11014593f63e",
+    "classification": "missing_optional_dependency",
+    "diagnostic": "dependency_unavailable: install ast-grep on PATH: exec: \"ast-grep\": executable file not found in $PATH"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-1-run1/instance_NodeBB__NodeBB-4327a09d__aMXBT3A/agent/stdout.jsonl",
+    "line": 1243,
+    "tool": "edit",
+    "call_id": "call_5f4c07ccf1574f158b605754f5880012|fc_065581b48425e909016af645c6725887d2a300b0612fd51fc3",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-2-run1/instance_NodeBB__NodeBB-4327a09d__HEFPJ45/agent/stdout.jsonl",
+    "line": 446,
+    "tool": "edit",
+    "call_id": "call_d555437798c94189a5b1b4bcfeb26264|fc_04bd384bebafc2b7016af6473d2f5087d29dac07bb6976e36e",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-2-run1/instance_NodeBB__NodeBB-4327a09d__HEFPJ45/agent/stdout.jsonl",
+    "line": 1037,
+    "tool": "edit",
+    "call_id": "call_edd23ee4a20a48ecacaa6b888d98aafd|fc_04bd384bebafc2b7016af6474a21b887d2b552958740f0d911",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[0].anchor: stale anchor 64#2f91; line 64 now hashes to da39. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-2-run1/instance_NodeBB__NodeBB-4327a09d__HEFPJ45/agent/stdout.jsonl",
+    "line": 1506,
+    "tool": "edit",
+    "call_id": "call_894024d6470f444e81cc0e9a57ce47d4|fc_04bd384bebafc2b7016af6475efc3c87d2b93e0fc344743071",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - op: schema is false\n  - root: must not have additional properties\n  - edits.0.op: must have required properties op\n  - edits.0.lines: must not have fewer than 1 items"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-3-run1/instance_NodeBB__NodeBB-4327a09d__HQkkRzg/agent/stdout.jsonl",
+    "line": 929,
+    "tool": "edit",
+    "call_id": "call_5d16ee2e1d6546638701485ba18eb39f|fc_0e3e7e3497a9ace3016af6489da49c87d28a690131de0039da",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (default-benchmark)-1-run1/instance_NodeBB__NodeBB-0e07f3c9__XVrtKsh/agent/stdout.jsonl",
+    "line": 1470,
+    "tool": "edit",
+    "call_id": "call_0ce26f35c1674f3592493baa53b2437e|fc_01537484ade20483016af645ce687087d2936b7c1abb75380b",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (default-benchmark)-3-run1/instance_NodeBB__NodeBB-0e07f3c9__rCo4VXM/agent/stdout.jsonl",
+    "line": 987,
+    "tool": "edit",
+    "call_id": "call_c2b21a23eb6b4d18b86768769abf40a9|fc_0f7591e891f9b123016af647fd823887d286cf292324a090a1",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (default-benchmark)-3-run1/instance_NodeBB__NodeBB-0e07f3c9__rCo4VXM/agent/stdout.jsonl",
+    "line": 1296,
+    "tool": "edit",
+    "call_id": "call_93d896e304064954bce444945f4b0026|fc_0f7591e891f9b123016af64809440087d2a7b767bbff09089c",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.anchor: must match pattern \"^[1-9][0-9]*#[0-9a-f]{4}$\""
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (default-benchmark)-2-run1/instance_element-hq__element-web__bhKFvJo/agent/stdout.jsonl",
+    "line": 1027,
+    "tool": "edit",
+    "call_id": "call_ac4f2ff8457a4f38aed7ae4f5923a158|fc_0c4d92d51033b2ef016af647742a6c87d29d8e7c6707ab2f80",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[1].anchor: stale anchor 25#2345; line 25 now hashes to 4da3. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (default-benchmark)-2-run1/instance_element-hq__element-web__bhKFvJo/agent/stdout.jsonl",
+    "line": 1877,
+    "tool": "edit",
+    "call_id": "call_3cc00fe6831a41e1aaee2136cb039e93|fc_0c4d92d51033b2ef016af647858f0c87d2a61994724ae0eb60",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[6].end: stale anchor 173#ef45; line 173 now hashes to 372d. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (default-benchmark)-3-run1/instance_element-hq__element-web__bZfS9j4/agent/stdout.jsonl",
+    "line": 1635,
+    "tool": "edit",
+    "call_id": "call_c868d1c0794d4cee97796f286926416f|fc_0847cd22cb17c27b016af6485e41ec87d2b4e8900605a6813d",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.1.lines: must not have fewer than 1 items"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (default-benchmark)-1-run1/instance_ansible__ansible-ea04e0__GsxxQba/agent/stdout.jsonl",
+    "line": 107,
+    "tool": "ast_search",
+    "call_id": "call_cba4e1b99086487fa9c0f9a0fa5ea61a|fc_03302ef4fdf02722016af645a50bdc87d2a88897d9aab16746",
+    "classification": "missing_optional_dependency",
+    "diagnostic": "dependency_unavailable: install ast-grep on PATH: exec: \"ast-grep\": executable file not found in $PATH"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (default-benchmark)-1-run1/instance_ansible__ansible-ea04e0__GsxxQba/agent/stdout.jsonl",
+    "line": 799,
+    "tool": "edit",
+    "call_id": "call_11f09928a5ab47a1941cdeae01cd7afd|fc_03302ef4fdf02722016af645b0732c87d2bb14df20354b2f38",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.1.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (default-benchmark)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (default-benchmark)-3-run1/instance_ansible__ansible-ea04e0__gmBC3cA/agent/stdout.jsonl",
+    "line": 166,
+    "tool": "ast_search",
+    "call_id": "call_fa9ff9de2b524adfa0c61ba7540b963d|fc_0c125317bb6bb006016af64667e1e087d2855d0c819b64a620",
+    "classification": "missing_optional_dependency",
+    "diagnostic": "dependency_unavailable: install ast-grep on PATH: exec: \"ast-grep\": executable file not found in $PATH"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-4327a09d__KKbWytC/agent/stdout.jsonl",
+    "line": 367,
+    "tool": "edit",
+    "call_id": "call_2d2741c77430449e824ba51e8402192d|fc_001aa6501e1c83c0016af645a7652887d2b6d56c8e9c3b605f",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-4327a09d__KKbWytC/agent/stdout.jsonl",
+    "line": 1373,
+    "tool": "edit",
+    "call_id": "call_f159f28aa53f4234970fea5ea7f01cdc|fc_001aa6501e1c83c0016af645bc94f487d28836b1332c8fcb90",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-2-run1/instance_NodeBB__NodeBB-4327a09d__oH9uTEo/agent/stdout.jsonl",
+    "line": 1538,
+    "tool": "edit",
+    "call_id": "call_3db9e31bf3e748d8bbbc2a3ca6d78a26|fc_0554e205d993902b016af647483f5087d2b1140f1331eb92c8",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op\n  - edits.1.op: must have required properties op\n  - edits.1.anchor: must match pattern \"^[1-9][0-9]*#[0-9a-f]{4}$\"\n  - edits.1.lines: must not have fewer than 1 items"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-3-run1/instance_NodeBB__NodeBB-4327a09d__tLboPBr/agent/stdout.jsonl",
+    "line": 515,
+    "tool": "edit",
+    "call_id": "call_a3975494c1214f0f95d6cc9de8eda166|fc_05fb2faaaf679d01016af64883cfd087d2b9c9c2c4136ac4e0",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-3-run1/instance_NodeBB__NodeBB-4327a09d__tLboPBr/agent/stdout.jsonl",
+    "line": 1239,
+    "tool": "edit",
+    "call_id": "call_62dfacec04604862878c4b116ab9b9c6|fc_05fb2faaaf679d01016af6488f44b487d28ea1ebcb5932e94f",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.op: must have required properties op"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-plugins (minimum)-2-run1/instance_ansible__ansible-622a49__LasfzVM/agent/stdout.jsonl",
+    "line": 1920,
+    "tool": "edit",
+    "call_id": "call_3abf7319286a406fa18efc4b25568392|fc_04761804092a0844016af647afce1887d290976b1eef470729",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.1.anchor: must match pattern \"^[1-9][0-9]*#[0-9a-f]{4}$\""
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-0e07f3c9__QxqZxs4/agent/stdout.jsonl",
+    "line": 529,
+    "tool": "edit",
+    "call_id": "call_c1f6404855ec4dcb9cbb9ac26a8a520c|fc_057e41aef9d347ba016af645bac7d887d29e22a52cbc23d4d5",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[2].anchor: stale anchor 67#6028; line 67 now hashes to ea45. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-0e07f3c9__QxqZxs4/agent/stdout.jsonl",
+    "line": 855,
+    "tool": "edit",
+    "call_id": "call_80917765bba44c0ca70675279e0ea302|fc_057e41aef9d347ba016af645c3e17487d2a3d59e7012b90006",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[0].anchor: stale anchor 72#281c; line 72 now hashes to cf28. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-0e07f3c9__QxqZxs4/agent/stdout.jsonl",
+    "line": 1262,
+    "tool": "edit",
+    "call_id": "call_b747331543d54fbbbc7a1bdc7d3f91ae|fc_057e41aef9d347ba016af645d0d0f887d29b8e153b62abc1a4",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - version: must match pattern \"^[0-9a-f]{64}$\""
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-0e07f3c9__QxqZxs4/agent/stdout.jsonl",
+    "line": 1383,
+    "tool": "edit",
+    "call_id": "call_69330207d37848dc9f4c5bb18bd7b4ef|fc_057e41aef9d347ba016af645d4ddd087d29361e48788fdd635",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - version: must match pattern \"^[0-9a-f]{64}$\""
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-2-run1/instance_NodeBB__NodeBB-0e07f3c9__MCbCfbV/agent/stdout.jsonl",
+    "line": 787,
+    "tool": "edit",
+    "call_id": "call_3c659a69dfc14e258696890412fe1fc5|fc_09481ffdc25808c4016af647703a2087d2a76f7a5b533bfbe3",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.lines: must not have fewer than 1 items"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-1-run1/instance_element-hq__element-web__onHA8Mi/agent/stdout.jsonl",
+    "line": 1259,
+    "tool": "edit",
+    "call_id": "call_3a78749f750242e9977d2b77154669d1|fc_0bbaf75fd5cf653e016af6466a44ec87d2836ce8a128a33719",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.0.lines: must not have fewer than 1 items"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-1-run1/instance_element-hq__element-web__onHA8Mi/agent/stdout.jsonl",
+    "line": 1543,
+    "tool": "edit",
+    "call_id": "call_9f3371e43c904c8e9ed56ff1eedd14c6|fc_0bbaf75fd5cf653e016af646b1348c87d2a8c811d63c43aba3",
+    "classification": "undisplayed_source_rejected",
+    "diagnostic": "edit rejected: edits[0]: source lines 96-96 were not fully displayed. Read the complete range before replacing or deleting it; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-2-run1/instance_element-hq__element-web__X2g4uks/agent/stdout.jsonl",
+    "line": 1477,
+    "tool": "edit",
+    "call_id": "call_67f879fb8da442dc9febf9e0dec63f36|fc_0d0429eae5bd683a016af647e931a087d2b10ff38be833ce86",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[0].anchor: stale anchor 89#d388; line 89 now hashes to d68d. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-2-run1/instance_element-hq__element-web__X2g4uks/agent/stdout.jsonl",
+    "line": 1637,
+    "tool": "edit",
+    "call_id": "call_df9b7bdf606444888fc668bc9d2d5570|fc_0d0429eae5bd683a016af647ec388c87d29d33d211d4186078",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.1.op: must have required properties op\n  - edits.1.lines: must not have fewer than 1 items"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-3-run1/instance_element-hq__element-web__Fewf42n/agent/stdout.jsonl",
+    "line": 1147,
+    "tool": "edit",
+    "call_id": "call_3c3ad47e407b47a98b28b768339119f4|fc_057c98afe9cd5282016af648935c9487d2a64dd77671010c8a",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[0].end: stale anchor 27#da39; line 27 now hashes to cf20. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-3-run1/instance_element-hq__element-web__Fewf42n/agent/stdout.jsonl",
+    "line": 2592,
+    "tool": "edit",
+    "call_id": "call_fe5af36f650f43e3935f4e705eae4b49|fc_057c98afe9cd5282016af648f7cd0887d2942c04d89c351411",
+    "classification": "undisplayed_source_rejected",
+    "diagnostic": "edit rejected: edits[0]: source lines 88-88 were not fully displayed. Read the complete range before replacing or deleting it; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-3-run1/instance_element-hq__element-web__Fewf42n/agent/stdout.jsonl",
+    "line": 2957,
+    "tool": "edit",
+    "call_id": "call_e790cdf0665f48469aaf5c5b26f57a74|fc_057c98afe9cd5282016af64935464c87d2850bd7b1614433e0",
+    "classification": "invalid_arguments",
+    "diagnostic": "Validation failed for tool \"edit\":\n  - edits.1.anchor: must match pattern \"^[1-9][0-9]*#[0-9a-f]{4}$\"\n  - edits.1.lines: must not have fewer than 1 items"
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (minimum)-1-run1/instance_ansible__ansible-ea04e0__GmvaES4/agent/stdout.jsonl",
+    "line": 841,
+    "tool": "edit",
+    "call_id": "call_8a815641a6be4ecd8ff309be32a6fa44|fc_007fbe3452b5bc1e016af645bc052087d28774ddba3e32905b",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[1].anchor: stale anchor 2029#ef06; line 2029 now hashes to a727. The file changed since it was read. Read it again; nothing was edited."
+  },
+  {
+    "trace": "workers/pig-plugins (minimum)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (minimum)-2-run1/instance_ansible__ansible-ea04e0__iowJQe2/agent/stdout.jsonl",
+    "line": 791,
+    "tool": "edit",
+    "call_id": "call_c9a7f98569a249d18a8614399ca7f81f|fc_09eaa2e440fa9529016af64628722087d2a9c29c40287e2aaa",
+    "classification": "stale_anchor_rejected",
+    "diagnostic": "edit rejected: edits[1].anchor: stale anchor 2029#ef06; line 2029 now hashes to a727. The file changed since it was read. Read it again; nothing was edited."
+  }
+]
