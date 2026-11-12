@@ -75,6 +75,9 @@ func (h *Home) WriteModels(t testing.TB, providers map[string]ProviderModels) {
 			if p.Vision {
 				models[i].(map[string]any)["input"] = []string{"text", "image"}
 			}
+			if p.Reasoning {
+				models[i].(map[string]any)["reasoning"] = true
+			}
 		}
 		entries[name] = map[string]any{"baseUrl": p.Mock.URL, "apiKey": "x", "api": "openai-completions", "models": models}
 	}
@@ -97,6 +100,8 @@ type ProviderModels struct {
 	Models []string
 	// Vision enables image input on the mock models.
 	Vision bool
+	// Reasoning enables host thinking-level selection for this mock model.
+	Reasoning bool
 }
 
 // RunOptions tune one pig invocation.

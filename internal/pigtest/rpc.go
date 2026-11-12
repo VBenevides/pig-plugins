@@ -19,6 +19,8 @@ type RPCOptions struct {
 	Extensions []string
 	// Vision enables image input for the mock model.
 	Vision bool
+	// Reasoning enables host thinking-level selection for the mock model.
+	Reasoning bool
 	// Env adds or overrides environment variables.
 	Env map[string]string
 	// Prompts are sent in order, one at a time. A slash command is answered at once; any other prompt runs the
@@ -71,7 +73,7 @@ var dialogMethods = map[string]bool{"confirm": true, "select": true, "input": tr
 // RunRPC starts `pig --mode rpc` on provider "mock", model "mock-model", sends each prompt and answers dialogs.
 func (h *Home) RunRPC(t testing.TB, mock *MockLLM, opts RPCOptions) RPCResult {
 	t.Helper()
-	h.WriteModels(t, map[string]ProviderModels{"mock": {Mock: mock, Models: []string{"mock-model"}, Vision: opts.Vision}})
+	h.WriteModels(t, map[string]ProviderModels{"mock": {Mock: mock, Models: []string{"mock-model"}, Vision: opts.Vision, Reasoning: opts.Reasoning}})
 	timeout := opts.Timeout
 	if timeout == 0 {
 		timeout = 90 * time.Second
