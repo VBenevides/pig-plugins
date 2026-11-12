@@ -950,6 +950,18 @@ The state is in memory only and resets to ACT when a session starts.
 In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` permits only exact reviewed read-only tool names. Unknown tools remain blocked even under `lsp_`, `code_` or `memory_` prefixes. Shell calls are denied because command names and argument filtering cannot prove read-only execution; use dedicated read/search tools or switch to ACT.
 `write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
 
+## tool-settings
+
+Run `/tool-settings` to choose global tool and skill settings. Use Tab or Left/Right to switch tabs, Up/Down to select an entry, and Space to change its checkbox. Enter saves and reloads extensions; Escape cancels. R asks for confirmation before it restores the original tool states and enables skill discovery.
+
+Choices are saved in the agent directory as `tool-settings.json` and apply across projects and restarts. Open sessions in other terminals need `/reload` to rebuild skill discovery. Disabled tools are removed from declarations and blocked at invocation. Disabled skills are excluded from the `user-resources` catalog, including their slash-command expansion. This works with the fused pig-plugins discovery configuration. Plain pig can load ambient skills through a separate path; these choices do not control that independent catalog.
+
+This is not a filesystem sandbox. Ordinary read and shell tools can still open skill files. Existing conversation messages are not removed when a skill is disabled. Use `/new` if you need a conversation without previously loaded skill text. Settings and recovery commands remain available.
+
+Each entry shows a character count and an estimate of tokens at four characters per token. Tool estimates use their serialized schemas; skill discovery estimates use metadata, not full files. Shared prompt wrappers and provider-specific formatting are not counted. Full expanded skill blocks in the last model request have separate per-skill counts and a total. These counts are unknown until the first request after a session starts or reloads. The full text is neither saved nor logged by this feature.
+
+Concurrent dialogs cannot silently replace newer saved choices. A failed write is reported and keeps the old file. An interrupted save can leave `tool-settings.json.lock`; inspect the writer and lock before removing a stale lock.
+
 ## Cursor thinking levels
 
 Cursor Grok models use PiG's default thinking level, `medium`, when no saved level applies. Existing global, per-model, and session choices keep their current values. The Cursor provider passes the selected level to the bridge without changing settings. If a model does not support the selected level, the request returns an explicit error instead of selecting a different level. This default does not indicate measured performance or release qualification.

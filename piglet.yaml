@@ -55,6 +55,8 @@ extensions:
     origins: [local:./extensions/context-prune]
   - name: user-resources
     origins: [local:./extensions/user-resources]
+  - name: tool-settings
+    origins: [local:./extensions/tool-settings]
 discovery:
   extensions: []
   skills: []

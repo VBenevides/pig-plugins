@@ -22,6 +22,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/agentdir"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
 const (
@@ -87,6 +88,17 @@ func resolve(getenv func(string) string) (map[string][]string, error) {
 		for _, p := range *spec.configured {
 			result[key] = append(result[key], expand(p, dir, home))
 		}
+	}
+	choices, err := toolsettings.Load(filepath.Join(dir, toolsettings.FileName))
+	if err != nil {
+		return nil, err
+	}
+	if paths, err := toolsettings.FilterSkills(result["skillPaths"], choices); err != nil {
+		return nil, err
+	} else if len(paths) > 0 {
+		result["skillPaths"] = paths
+	} else {
+		delete(result, "skillPaths")
 	}
 	return result, nil
 }
