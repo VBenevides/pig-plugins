@@ -7,6 +7,7 @@ import (
 	"fmt"
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/sdkctx"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 	"github.com/VBenevides/pig-plugins/internal/websearch"
 	"os"
 	"slices"
@@ -47,8 +48,13 @@ func Extension() *sdk.Extension {
 				if err != nil {
 					return nil, err
 				}
-				if !slices.Contains(active, "tool_search") && !slices.Contains(active, "codemode") {
+				cfg, err := toolsettings.LoadEffective(toolsettings.Path())
+				if err != nil {
+					return nil, fmt.Errorf("web-search: read fallback permissions: %w", err)
+				}
+				if cfg.ToolEnabled("web_search") && !slices.Contains(active, "web_search") && !slices.Contains(active, "tool_search") && !slices.Contains(active, "codemode") {
 					ctx.SetActiveTools(append(active, "web_search"))
+					ctx.Notify("web_search remains directly available because tool discovery is inactive.", "warn")
 				}
 			}
 			return nil, x.sync(ctx)
