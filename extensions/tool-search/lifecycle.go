@@ -56,14 +56,18 @@ func (d *discoveries) result(ctx sdk.Context, data map[string]any) (any, error) 
 			denied[name] = true
 			continue
 		}
+		own := true
 		if owner := toolsettings.BackendOwner(name); owner != "" && registered[owner] {
 			denied[name] = true
 			name = owner
+			own = !slices.Contains(active, name)
 			if !cfg.ToolEnabled(name) || !d.loaded[name] && len(d.loaded) >= 20 {
 				continue
 			}
 		}
-		d.loaded[name] = true
+		if own {
+			d.loaded[name] = true
+		}
 		if !slices.Contains(allowed, name) {
 			allowed = append(allowed, name)
 		}

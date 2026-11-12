@@ -140,8 +140,12 @@ func Extension() *sdk.Extension {
 
 func TestBackendDiscoveryLoadsWrapper(t *testing.T) {
 	pigtest.RequirePig(t)
-	for _, denied := range []bool{false, true} {
-		t.Run(map[bool]string{false: "allowed", true: "denied"}[denied], func(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		denied, direct bool
+	}{{"allowed", false, false}, {"denied", true, false}, {"already-active", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			denied := tc.denied
 			home := pigtest.NewHome(t)
 			if denied {
 				if err := toolsettings.Save(filepath.Join(home.AgentDir(), toolsettings.FileName), toolsettings.Config{DisabledTools: map[string]bool{"web_search": true}}); err != nil {
@@ -159,6 +163,9 @@ func Extension() *sdk.Extension {
  for _,name:=range []string{"web_search","mcp__parallel__web_search"} { e.RegisterTool(sdk.ToolDefinition{Name:name,Description:name,Exposure:sdk.ToolExposureDeferred,Parameters:map[string]any{"type":"object"},Execute:func(sdk.Context,map[string]any)(any,error){return nil,nil}}) }
  return e
 }`
+			if tc.direct {
+				source = strings.Replace(source, "Exposure:sdk.ToolExposureDeferred", `Exposure:func() sdk.ToolExposure { if name == "web_search" { return sdk.ToolExposureDirect }; return sdk.ToolExposureDeferred }()`, 1)
+			}
 			if err := os.WriteFile(filepath.Join(dir, "extension.go"), []byte(source), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -169,19 +176,19 @@ func Extension() *sdk.Extension {
 			if err != nil {
 				t.Fatal(err)
 			}
-			mock := pigtest.NewMockLLM(pigtest.Calls(pigtest.Call("tool_search", map[string]any{"query": "mcp__parallel__web_search", "limit": 1})), pigtest.Text("done"))
+			mock := pigtest.NewMockLLM(pigtest.Calls(pigtest.Call("tool_search", map[string]any{"query": "mcp__parallel__web_search", "limit": 1})), pigtest.Text("done"), pigtest.Text("next request"))
 			defer mock.Close()
-			result := home.Run(t, mock, pigtest.RunOptions{Extensions: []string{search, dir}, Prompt: "search"})
-			if result.ExitCode != 0 {
-				t.Fatalf("session failed: %+v", result)
-			}
+			home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{search, dir}, Prompts: []string{"search", "next request"}})
 			requests := mock.Requests()
-			if len(requests) != 2 {
+			if len(requests) != 3 {
 				t.Fatalf("requests=%d", len(requests))
 			}
 			names := requestNames(requests[1])
 			if slices.Contains(names, "mcp__parallel__web_search") || slices.Contains(names, "web_search") == denied {
 				t.Fatalf("declared=%v denied=%v", names, denied)
+			}
+			if got := slices.Contains(requestNames(requests[2]), "web_search"); got != tc.direct {
+				t.Fatalf("next request wrapper active=%v want=%v", got, tc.direct)
 			}
 		})
 	}
