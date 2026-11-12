@@ -11,6 +11,8 @@ type Row struct {
 	Enabled, Visible          bool
 	LoadedChars               int
 	DefaultEnabled            bool
+	// Exposure describes registration or lifecycle, independently of permission and current visibility.
+	Exposure string
 	// Variant is empty for ordinary tools, or hashline/native for file-tool alternatives.
 	Variant string
 	// Group is the category shown as a collapsible header. Empty means the row has no category.
@@ -26,6 +28,7 @@ type Menu struct {
 	ResetPending                  bool
 	Reset                         bool
 	LoadedKnown                   bool
+	OtherLoadedChars              int
 	ShowHelp                      bool
 	PresetPending                 bool
 	RestrictTools, RestrictSkills bool
@@ -176,7 +179,11 @@ func (m *Menu) Render(width int) []string {
 		if source == "" {
 			source = "unknown source"
 		}
-		lines = append(lines, line(r.Name+"  ·  "+source))
+		exposure := ""
+		if r.Exposure != "" {
+			exposure = "  ·  " + r.Exposure
+		}
+		lines = append(lines, line(r.Name+exposure+"  ·  "+source))
 		n, tokens := Characters(r.Context)
 		if r.Variant != "" && r.Context == "" {
 			lines = append(lines, line("Schema counts available after save and reload."))
@@ -200,8 +207,9 @@ func (m *Menu) Render(width int) []string {
 		}
 		lines = append(lines, line(fmt.Sprintf("%s: %s chars / ~%s tokens", []string{"Tools", "Skills"}[tab], number(chars), number((chars+3)/4))))
 	}
+	// Skill bodies from user-only skills can remain in history even though their metadata is omitted.
 	if m.ShowHelp {
-		loaded := 0
+		loaded := m.OtherLoadedChars
 		for _, r := range m.Tabs[1] {
 			loaded += r.LoadedChars
 		}
@@ -210,7 +218,16 @@ func (m *Menu) Render(width int) []string {
 		} else {
 			lines = append(lines, line("Loaded skill counts: unknown until the first model request."))
 		}
-		for _, text := range []string{"Totals count enabled, visible discovery context.", "Tokens are estimates: 4 characters per token.", "Tool schemas and skill metadata exclude shared wrappers.", "Loaded skill blocks are counted separately from metadata.", "Disabled skills can remain in old messages.", "Skill choices do not restrict filesystem access."} {
+		deferred, chars := 0, 0
+		for _, r := range m.Tabs[0] {
+			if r.Enabled && !r.Visible && (r.Exposure == "deferred" || r.Exposure == "codemode") {
+				deferred++
+				n, _ := Characters(r.Context)
+				chars += n
+			}
+		}
+		lines = append(lines, line(fmt.Sprintf("Discoverable: %d tools / %s schema chars (not declared)", deferred, number(chars))))
+		for _, text := range []string{"Checkboxes are permissions, not schema activation.", "Totals estimate active schemas and visible skill metadata.", "Tokens are estimates: 4 characters per token.", "Provider wrappers and shared instructions are excluded.", "Loaded skill blocks are counted separately from metadata.", "Old messages and user-invoked skills can still use context.", "Skill choices do not restrict filesystem access."} {
 			lines = append(lines, line(text))
 		}
 	}
@@ -265,6 +282,26 @@ func (m *Menu) renderEntry(e entry, pointer string, nameWidth int, wide bool) st
 		state = "hidden"
 		if r.Visible {
 			state = "visible"
+		}
+	}
+	if r.Enabled && r.Exposure != "" {
+		switch r.Exposure {
+		case "deferred", "codemode":
+			state = "defer"
+			if r.Visible {
+				state = "loaded"
+			}
+		case "conditional":
+			state = "cond"
+			if r.Visible {
+				state = "active"
+			}
+		case "backend":
+			state = "backend"
+		case "direct":
+			if r.Visible {
+				state = "direct"
+			}
 		}
 	}
 	if r.Enabled && r.Variant != "" && r.Context == "" {

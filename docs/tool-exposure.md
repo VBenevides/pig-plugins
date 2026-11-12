@@ -31,7 +31,7 @@ This inventory describes the pinned PiG 0.5.1 SDK and local registrations. It do
 | AST search extension | `ast_search` | Deferred | Parser support |
 | Pi curator extension | Memory tools | Deferred | Memory service configuration |
 | Browser extension | Browser tools | Registration-dependent | Browser configuration and activation |
-| Todo extension | `todo` | Direct | Substantial task workflow |
+| Todo extension | `todo` | Deferred | Direct fallback with a warning when discovery is inactive |
 | Ask-user-question extension | `ask_user_question` | Model-only | Interactive input support |
 | Host or other providers | Repository and recovery tools | Inspect runtime metadata | Do not infer ownership or dependencies from tool names |
 
@@ -45,7 +45,11 @@ The pinned host implements discovery in `coding/extension/builtin/toolsearch/too
 It searches only `deferred` and `codemode` registrations that are not active.
 It activates matches through `SetActiveTools`. Results contain names and descriptions, not complete schemas.
 Direct tools such as `goal_finish` are not discovery candidates.
-The search loop does not consult this project's saved permission file or a general lifecycle predicate.
+The native search loop does not consult this project's saved permission file or a general lifecycle predicate.
+The tool-search extension filters denied activations before the next declaration. It redirects verified search dependencies to web_search.
+It releases only its reported discoveries at agent_settled. Pre-existing and codemode-owned activations are not removed.
+Search accepts at most 4096 query bytes and 20 results. A request can activate at most 20 tools through this extension.
+The host can rank denied candidates before filtering. A search can therefore return fewer allowed matches than requested.
 
 The SDK provides `PrepareLoadout` and `HiddenDeclarations`. A tool can hide its declaration without denying internal execution.
 The SDK does not provide a general registration-time lifecycle predicate or a backend-only exposure value.
@@ -60,11 +64,18 @@ After the change, the first request omits it without a goal. A working goal incl
 
 These tests do not measure tokens or qualify every provider, session branch, or concurrent lifecycle transition.
 
-## Settings risks
+## Settings
 
-The current settings activation loop can activate every explicitly enabled tool. This can turn a deferred permission into a direct schema.
-Inactive tools must not become disabled merely because they are absent from the active list.
-Restricted allowlists must preserve omitted entries. Profile and variant actions need explicit intent, not only checkbox differences.
+Checkboxes control permission, not schema activation. Deferred permissions no longer force direct declarations.
+Inactive and omitted entries keep their saved permission state. Explicit presets apply all listed choices.
+STATE separates direct, defer, loaded, conditional, and backend states. The detail pane shows the full exposure label.
+The menu omits wrapper-owned search backends except disabled recovery entries. Other MCP tools remain independent.
+User-only skills are omitted even when disabled. Their user commands and saved permissions remain unchanged.
+The help pane separates discoverable schemas from current schema estimates and loaded skill bodies.
+Loaded bodies from user-only skills are still counted. Old messages are not removed.
+Schema estimates exclude provider wrappers and shared instructions. They are not exact provider token counts.
+
+Audited direct exceptions: url_context keeps its existing model-dependent visibility. ask_user_question keeps model-only exposure to preserve interactive input and nested-call restrictions.
 
 ## Rollout gates
 

@@ -2,7 +2,6 @@
 package toolsettingsext
 
 import (
-	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -163,50 +162,26 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 	}
 	sort.Slice(cfg.Skills, func(i, j int) bool { return cfg.Skills[i].Name < cfg.Skills[j].Name })
 	menu := &toolsettings.Menu{LoadedKnown: loaded != nil, RestrictTools: cfg.ToolAllowlist != nil, RestrictSkills: cfg.SkillAllowlist != nil, NativeFiles: cfg.NativeFiles}
+	registered := map[string]bool{}
 	for _, tool := range tools {
-		schema := struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			Parameters  json.RawMessage `json:"parameters"`
-		}{tool.Name, tool.Description, tool.Parameters}
-		raw, err := json.Marshal(schema)
-		if err != nil {
-			return fmt.Errorf("count tool %s: %w", tool.Name, err)
-		}
-		visible := !slices.Contains(options.HiddenTools, tool.Name)
-		// Only list tools the model can see. A tool the user disabled stays listed so it can be enabled again.
-		if !visible && !cfg.DisabledTools[tool.Name] {
-			continue
-		}
-		source := tool.SourceInfo.Path
-		if source == "" {
-			source = tool.SourceInfo.Origin
-		}
-		if source == "" {
-			source = tool.SourceInfo.Source
-		}
-		if source == "" {
-			source = "builtin"
-		}
+		registered[tool.Name] = true
+	}
+	for _, tool := range tools {
 		if _, ok := cfg.Defaults[tool.Name]; !ok {
 			cfg.Defaults[tool.Name] = slices.Contains(active, tool.Name) || tool.Exposure == sdk.ToolExposureDeferred || tool.Exposure == sdk.ToolExposureCodemode
 		}
-		menu.Tabs[0] = append(menu.Tabs[0], toolsettings.Row{Name: tool.Name, ID: tool.Name, Source: source, Context: string(raw), Enabled: cfg.ToolEnabled(tool.Name), Visible: visible, DefaultEnabled: cfg.Defaults[tool.Name], Group: toolsettings.GroupFor(tool.Name, source)})
+		row, include, err := modelToolRow(tool, cfg, active, options.HiddenTools, registered)
+		if err != nil {
+			return err
+		}
+		if include {
+			menu.Tabs[0] = append(menu.Tabs[0], row)
+		}
 	}
 	menu.ExpandFileVariants()
 	menu.CollapseGroups("Files")
 	menu.MarkInitial()
-	for _, s := range cfg.Skills {
-		// Discovery metadata, not the full skill file. XML escaping matches the prompt's metadata representation.
-		text := fmt.Sprintf("<skill>\n<name>%s</name>\n<description>%s</description>\n<location>%s</location>\n</skill>", escape(s.Name), escape(s.Description), escape(s.Path))
-		// User-only skills (model invocation disabled) never reach the model. Keep them out of the list unless
-		// disabled, and preserve their allowlist entry when a restricted list is saved.
-		if s.Hidden && cfg.SkillEnabled(s.Path) {
-			menu.KeepSkills = append(menu.KeepSkills, s.Path)
-			continue
-		}
-		menu.Tabs[1] = append(menu.Tabs[1], toolsettings.Row{Name: s.Name, ID: s.Path, Source: "skill", Context: text, Enabled: cfg.SkillEnabled(s.Path), Visible: !s.Hidden, LoadedChars: loaded[s.Path]})
-	}
+	addModelSkills(menu, cfg, loaded)
 	result, err := ctx.Custom(&component{menu: menu, theme: ctx.UITheme()}, nil)
 	if err != nil {
 		return err
