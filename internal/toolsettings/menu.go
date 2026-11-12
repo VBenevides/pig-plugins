@@ -63,6 +63,9 @@ func (m *Menu) Handle(key string) (done, save bool) {
 		case "3":
 			m.ApplyPreset(NativePreset)
 			m.PresetPending = false
+		case "4":
+			m.ApplyPreset(BenchmarkPreset)
+			m.PresetPending = false
 		case "escape", "p", "P":
 			m.PresetPending = false
 		}
@@ -235,7 +238,7 @@ func (m *Menu) Render(width int) []string {
 	if m.ResetPending {
 		lines = append(lines, line("Reset global choices to defaults?"), line("Y confirm  ·  N cancel"))
 	} else if m.PresetPending {
-		lines = append(lines, line("1 Default  · default tools + all skills; Hashline"), line("2 Minimum  · read/bash/edit/write; no skills; Hashline"), line("3 Native   · read/bash/edit/write; no skills; native files"), line("Choose 1, 2, or 3  ·  Esc back  ·  Enter saves afterward"))
+		lines = append(lines, line("1 default  · default tools + all skills; Hashline"), line("2 minimum  · read/bash/edit/write; no skills; Hashline"), line("3 native   · read/bash/edit/write; no skills; native files"), line("4 default-benchmark · default without ask_user_question"), line("Choose 1, 2, 3, or 4  ·  Esc back  ·  Enter saves afterward"))
 	} else {
 		lines = append(lines, line("Space toggle  ·  ←/→ fold  ·  Tab switch  ·  P profiles"), line("Enter save  ·  Esc cancel  ·  ? help  ·  R reset"))
 	}

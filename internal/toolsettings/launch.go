@@ -31,12 +31,13 @@ func ParseProfile(args []string) ([]string, string, error) {
 		if arg == "--profile" {
 			i++
 			if i >= len(args) {
-				return nil, "", fmt.Errorf("--profile requires default, minimum, or native")
+				return nil, "", fmt.Errorf("--profile requires default, minimum, native, or default-benchmark")
 			}
 			value = args[i]
 		}
-		if value != "default" && value != "minimum" && value != "native" {
-			return nil, "", fmt.Errorf("unknown profile %q; use default, minimum, or native", value)
+		value = strings.ToLower(value)
+		if value != DefaultPreset && value != MinimumPreset && value != NativePreset && value != BenchmarkPreset {
+			return nil, "", fmt.Errorf("unknown profile %q; use default, minimum, native, or default-benchmark", value)
 		}
 		profile = value
 	}
@@ -49,13 +50,16 @@ func LoadEffective(path string) (Config, error) {
 	if err != nil {
 		return c, err
 	}
-	switch profile := os.Getenv(ProfileEnv); profile {
+	switch profile := strings.ToLower(os.Getenv(ProfileEnv)); profile {
 	case "":
 		return c, nil
-	case "default":
+	case DefaultPreset, BenchmarkPreset:
 		c.Reset()
-	case "minimum", "native":
-		c.NativeFiles = profile == "native"
+		if profile == BenchmarkPreset {
+			c.DisabledTools["ask_user_question"] = true
+		}
+	case MinimumPreset, NativePreset:
+		c.NativeFiles = profile == NativePreset
 		c.DisabledTools = map[string]bool{}
 		c.EnabledTools = map[string]bool{"read": true, "bash": true, "edit": true, "write": true}
 		c.ToolAllowlist = []string{"read", "bash", "edit", "write"}

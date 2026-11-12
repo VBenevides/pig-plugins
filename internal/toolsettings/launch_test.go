@@ -15,6 +15,9 @@ func TestParseProfile(t *testing.T) {
 	}{
 		{[]string{"--profile", "minimum", "hello"}, []string{"hello"}, "minimum", false},
 		{[]string{"--profile=default", "--model", "x"}, []string{"--model", "x"}, "default", false},
+		{[]string{"--profile", "default-benchmark"}, []string{}, "default-benchmark", false},
+		{[]string{"--profile=DeFaUlT-BeNcHmArK"}, []string{}, "default-benchmark", false},
+		{[]string{"--profile", "MINIMUM"}, []string{}, "minimum", false},
 		{[]string{"--", "--profile", "minimum"}, []string{"--", "--profile", "minimum"}, "", false},
 		{[]string{"--profile"}, nil, "", true},
 		{[]string{"--profile=bare"}, nil, "", true},
@@ -63,6 +66,14 @@ func TestLaunchProfileDoesNotChangeSavedChoices(t *testing.T) {
 	}
 	if !c.ToolEnabled("read") || c.SkillAllowlist != nil {
 		t.Fatal("default did not override saved restrictions")
+	}
+	t.Setenv(ProfileEnv, "DEFAULT-BENCHMARK")
+	c, err = LoadEffective(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ToolEnabled("ask_user_question") || !c.ToolEnabled("read") || !c.ToolEnabled("extra") || !c.SkillEnabled("/skill/SKILL.md") || c.NativeFiles {
+		t.Fatal("benchmark did not apply default permissions without questions")
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {

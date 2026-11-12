@@ -15,7 +15,7 @@ func TestPresetsAreStagedAndEditable(t *testing.T) {
 		t.Fatal(m.presetLabel())
 	}
 	m.Handle("p")
-	if !m.PresetPending || !strings.Contains(strings.Join(m.Render(96), "\n"), "2 Minimum") {
+	if !m.PresetPending || !strings.Contains(strings.Join(m.Render(96), "\n"), "2 minimum") {
 		t.Fatal("preset picker missing")
 	}
 	if done, save := m.Handle("2"); done || save {
@@ -37,7 +37,7 @@ func TestPresetsAreStagedAndEditable(t *testing.T) {
 	// Editing a preset remains possible without opening future tools automatically.
 	m.Cursor = 3
 	m.Handle(" ")
-	if m.presetLabel() != "Custom" || !m.RestrictTools {
+	if m.presetLabel() != "custom" || !m.RestrictTools {
 		t.Fatal("custom override lost restrictive policy")
 	}
 	m.Handle("P")
@@ -95,5 +95,22 @@ func TestMinimumPolicyPersistsAndBlocksFutureEntries(t *testing.T) {
 	c.Reset()
 	if c.ToolAllowlist != nil || c.SkillAllowlist != nil || !c.ToolEnabled("new_tool") || !c.SkillEnabled("/new/skill/SKILL.md") {
 		t.Fatal("reset retained restrictive preset")
+	}
+}
+
+func TestPresetNamesAreCaseInsensitive(t *testing.T) {
+	for _, name := range []string{DefaultPreset, MinimumPreset, NativePreset, BenchmarkPreset} {
+		for _, input := range []string{name, strings.ToUpper(name), strings.ToUpper(name[:1]) + name[1:]} {
+			t.Run(input, func(t *testing.T) {
+				m := &Menu{Tabs: [2][]Row{
+					{{ID: "read", Variant: "hashline", DefaultEnabled: true}, {ID: "read", Variant: "native", DefaultEnabled: true}, {ID: "ask_user_question", DefaultEnabled: true}},
+					{{ID: "skill"}},
+				}}
+				m.ApplyPreset(input)
+				if got := m.presetLabel(); got != name {
+					t.Fatalf("ApplyPreset(%q) label=%q want=%q", input, got, name)
+				}
+			})
+		}
 	}
 }
