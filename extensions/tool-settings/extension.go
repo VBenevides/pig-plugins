@@ -105,7 +105,8 @@ func apply(ctx sdk.Context) error {
 		return err
 	}
 	for _, tool := range tools {
-		if (cfg.EnabledTools[tool.Name] || cfg.ToolAllowlist != nil && cfg.ToolEnabled(tool.Name)) && !slices.Contains(active, tool.Name) {
+		deferred := tool.Exposure == sdk.ToolExposureDeferred || tool.Exposure == sdk.ToolExposureCodemode
+		if !deferred && (cfg.EnabledTools[tool.Name] || cfg.ToolAllowlist != nil && cfg.ToolEnabled(tool.Name)) && !slices.Contains(active, tool.Name) {
 			active = append(active, tool.Name)
 		}
 	}
@@ -188,9 +189,9 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 			source = "builtin"
 		}
 		if _, ok := cfg.Defaults[tool.Name]; !ok {
-			cfg.Defaults[tool.Name] = slices.Contains(active, tool.Name)
+			cfg.Defaults[tool.Name] = slices.Contains(active, tool.Name) || tool.Exposure == sdk.ToolExposureDeferred || tool.Exposure == sdk.ToolExposureCodemode
 		}
-		menu.Tabs[0] = append(menu.Tabs[0], toolsettings.Row{Name: tool.Name, ID: tool.Name, Source: source, Context: string(raw), Enabled: cfg.ToolEnabled(tool.Name) && slices.Contains(active, tool.Name), Visible: visible, DefaultEnabled: cfg.Defaults[tool.Name], Group: toolsettings.GroupFor(tool.Name, source)})
+		menu.Tabs[0] = append(menu.Tabs[0], toolsettings.Row{Name: tool.Name, ID: tool.Name, Source: source, Context: string(raw), Enabled: cfg.ToolEnabled(tool.Name), Visible: visible, DefaultEnabled: cfg.Defaults[tool.Name], Group: toolsettings.GroupFor(tool.Name, source)})
 	}
 	menu.ExpandFileVariants()
 	menu.CollapseGroups("Files")

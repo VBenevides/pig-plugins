@@ -1,5 +1,7 @@
 package toolsettings
 
+import "slices"
+
 // MarkInitial records each tool's checkbox as shown when the dialog opened. Call it once rows are final.
 func (m *Menu) MarkInitial() {
 	for i := range m.Tabs[0] {
@@ -7,15 +9,16 @@ func (m *Menu) MarkInitial() {
 	}
 }
 
-// ApplyTo writes the dialog's choices into cfg. A tool is "off" in the dialog when it is merely inactive
-// this session (for example deferred), so only tools whose checkbox changed are written to the enabled or
-// disabled sets; untouched tools keep their saved state. Allowlists still list every enabled tool.
+// ApplyTo saves permission choices without changing exposure. Untouched rows keep their saved state.
+// Explicit presets apply every listed choice, even when its checkbox did not change.
 func (m *Menu) ApplyTo(cfg *Config) {
 	if m.Reset {
 		cfg.Reset()
 		return
 	}
 	cfg.NativeFiles = m.NativeFiles
+	previousTools := cfg.ToolAllowlist
+	previousSkills := cfg.SkillAllowlist
 	cfg.ToolAllowlist, cfg.SkillAllowlist = nil, nil
 	if m.RestrictTools {
 		cfg.ToolAllowlist = []string{}
@@ -30,7 +33,7 @@ func (m *Menu) ApplyTo(cfg *Config) {
 		if r.Enabled && m.RestrictTools {
 			cfg.ToolAllowlist = append(cfg.ToolAllowlist, r.ID)
 		}
-		if r.Enabled == r.Initial {
+		if r.Enabled == r.Initial && !m.ApplyAll {
 			continue
 		}
 		if r.Enabled {
@@ -52,6 +55,25 @@ func (m *Menu) ApplyTo(cfg *Config) {
 			delete(cfg.DisabledSkills, r.ID)
 		} else {
 			cfg.DisabledSkills[r.ID] = true
+		}
+	}
+	if !m.ApplyAll {
+		preserveOmitted := func(previous []string, rows []Row, current *[]string) {
+			listed := map[string]bool{}
+			for _, r := range rows {
+				listed[r.ID] = true
+			}
+			for _, id := range previous {
+				if !listed[id] && !slices.Contains(*current, id) {
+					*current = append(*current, id)
+				}
+			}
+		}
+		if m.RestrictTools {
+			preserveOmitted(previousTools, m.Tabs[0], &cfg.ToolAllowlist)
+		}
+		if m.RestrictSkills {
+			preserveOmitted(previousSkills, m.Tabs[1], &cfg.SkillAllowlist)
 		}
 	}
 }

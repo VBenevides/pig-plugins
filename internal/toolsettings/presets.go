@@ -15,6 +15,7 @@ func (m *Menu) ApplyPreset(preset string) {
 	if preset != DefaultPreset && preset != MinimumPreset && preset != NativePreset {
 		return
 	}
+	m.ApplyAll = true
 	restricted := preset != DefaultPreset
 	m.NativeFiles = preset == NativePreset
 	m.RestrictTools, m.RestrictSkills = restricted, restricted

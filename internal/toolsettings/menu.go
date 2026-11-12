@@ -34,6 +34,8 @@ type Menu struct {
 	Collapsed map[string]bool
 	// KeepSkills lists enabled skills omitted from the dialog; a restricted skill allowlist still includes them.
 	KeepSkills []string
+	// ApplyAll records an explicit preset action, including unchanged checkboxes.
+	ApplyAll bool
 }
 
 func (m *Menu) Handle(key string) (done, save bool) {
