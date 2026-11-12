@@ -13,6 +13,10 @@ type Row struct {
 	DefaultEnabled            bool
 	// Variant is empty for ordinary tools, or hashline/native for file-tool alternatives.
 	Variant string
+	// Group is the category shown as a collapsible header. Empty means the row has no category.
+	Group string
+	// Initial is Enabled as shown when the dialog opened; only changed rows are saved.
+	Initial bool
 }
 
 // Menu keeps edits local until the user saves. Reset requires an explicit second key.
@@ -26,6 +30,10 @@ type Menu struct {
 	PresetPending                 bool
 	RestrictTools, RestrictSkills bool
 	NativeFiles                   bool
+	// Collapsed holds the folded categories of the Tools tab.
+	Collapsed map[string]bool
+	// KeepSkills lists enabled skills omitted from the dialog; a restricted skill allowlist still includes them.
+	KeepSkills []string
 }
 
 func (m *Menu) Handle(key string) (done, save bool) {
@@ -60,22 +68,33 @@ func (m *Menu) Handle(key string) (done, save bool) {
 		return true, false
 	case "enter":
 		return true, true
-	case "tab", "left", "right":
-		m.Tab = 1 - m.Tab
-		m.Cursor = 0
+	case "tab", "shift+tab":
+		m.Tab, m.Cursor = 1-m.Tab, 0
+	case "left", "right":
+		if m.Tab == 0 && m.hasGroups() {
+			m.fold(key == "left")
+		} else {
+			m.Tab, m.Cursor = 1-m.Tab, 0
+		}
 	case "up":
 		m.Cursor = max(0, m.Cursor-1)
 	case "down":
-		m.Cursor = min(max(0, len(m.Tabs[m.Tab])-1), m.Cursor+1)
+		m.Cursor = min(max(0, len(m.entries())-1), m.Cursor+1)
 	case " ", "space":
-		if len(m.Tabs[m.Tab]) > 0 {
-			r := &m.Tabs[m.Tab][m.Cursor]
-			if m.Tab == 0 && r.Variant != "" && !m.SelectedVariant(*r) {
-				m.SwitchFileVariant(r.Variant == "native")
-				r.Enabled = true
-			} else {
-				r.Enabled = !r.Enabled
-			}
+		es := m.entries()
+		if m.Cursor >= len(es) {
+			break
+		}
+		if es[m.Cursor].header {
+			m.toggleGroup(es[m.Cursor].group)
+			break
+		}
+		r := &m.Tabs[m.Tab][es[m.Cursor].row]
+		if m.Tab == 0 && r.Variant != "" && !m.SelectedVariant(*r) {
+			m.SwitchFileVariant(r.Variant == "native")
+			r.Enabled = true
+		} else {
+			r.Enabled = !r.Enabled
 		}
 	case "?":
 		m.ShowHelp = !m.ShowHelp
@@ -106,7 +125,6 @@ func (m *Menu) Render(width int) []string {
 		}
 		return left + strings.Repeat("─", width-2) + right
 	}
-	rows := m.Tabs[m.Tab]
 	counts := [2]int{}
 	for tab, rs := range m.Tabs {
 		for _, r := range rs {
@@ -121,52 +139,37 @@ func (m *Menu) Render(width int) []string {
 	}
 	lines := []string{rule("╭", "╮"), line("TOOL SETTINGS  ·  " + m.presetLabel() + "  ·  global"), line(tabs), line("")}
 	const pageSize = 8
-	cursor := min(max(0, m.Cursor), max(0, len(rows)-1))
-	start := min(max(0, cursor-pageSize/2), max(0, len(rows)-pageSize))
-	end := min(len(rows), start+pageSize)
+	es := m.entries()
+	cursor := min(max(0, m.Cursor), max(0, len(es)-1))
+	start := min(max(0, cursor-pageSize/2), max(0, len(es)-pageSize))
+	end := min(len(es), start+pageSize)
 	nameWidth := max(8, inner-33)
 	wide := inner >= 48
 	if wide {
 		lines = append(lines, line("      "+tui.Pad("NAME", nameWidth)+fmt.Sprintf(" %-7s %8s %8s", "STATE", "CHARS", "TOKENS")))
 	}
 	for i := start; i < end; i++ {
-		r := rows[i]
-		mark, pointer := " ", " "
-		if r.Enabled {
-			mark = "x"
-		}
+		pointer := " "
 		if i == cursor {
 			pointer = "›"
 		}
-		state := "off"
-		if r.Enabled {
-			state = "hidden"
-			if r.Visible {
-				state = "visible"
-			}
-		}
-		if r.Enabled && r.Variant != "" && r.Context == "" {
-			state = "pending"
-		}
-		n, tokens := Characters(r.Context)
-		text := fmt.Sprintf("%s [%s] %s", pointer, mark, r.Name)
-		if wide {
-			chars, estimate := number(n), "~"+number(tokens)
-			if r.Variant != "" && r.Context == "" {
-				chars, estimate = "—", "—"
-			}
-			text = fmt.Sprintf("%s [%s] %s %-7s %8s %8s", pointer, mark, tui.Pad(tui.Fit(r.Name, nameWidth), nameWidth), state, chars, estimate)
-		}
-		lines = append(lines, line(text))
+		lines = append(lines, line(m.renderEntry(es[i], pointer, nameWidth, wide)))
 	}
-	if len(rows) == 0 {
+	if len(es) == 0 {
 		lines = append(lines, line("No entries in this tab."))
 	} else {
-		lines = append(lines, line(fmt.Sprintf("%d–%d of %d  ·  ↑↓ navigate", start+1, end, len(rows))))
+		lines = append(lines, line(fmt.Sprintf("%d–%d of %d  ·  ↑↓ navigate", start+1, end, len(es))))
 	}
 	lines = append(lines, rule("├", "┤"))
-	if len(rows) > 0 {
-		r := rows[cursor]
+	if len(es) > 0 && es[cursor].header {
+		group := es[cursor].group
+		enabled, total := m.groupState(group)
+		chars := m.groupChars(group)
+		lines = append(lines, line(fmt.Sprintf("%s  ·  category  ·  %d of %d enabled", group, enabled, total)))
+		lines = append(lines, line(fmt.Sprintf("Selected: %s chars / ~%s tokens", number(chars), number((chars+3)/4))))
+		lines = append(lines, line("Space toggles the whole category  ·  ←/→ fold or unfold"))
+	} else if len(es) > 0 {
+		r := m.Tabs[m.Tab][es[cursor].row]
 		source := r.Source
 		if source == "" {
 			source = "unknown source"
@@ -215,7 +218,7 @@ func (m *Menu) Render(width int) []string {
 	} else if m.PresetPending {
 		lines = append(lines, line("1 Default  · default tools + all skills; Hashline"), line("2 Minimum  · read/bash/edit/write; no skills; Hashline"), line("3 Native   · read/bash/edit/write; no skills; native files"), line("Choose 1, 2, or 3  ·  Esc back  ·  Enter saves afterward"))
 	} else {
-		lines = append(lines, line("Space toggle  ·  Tab switch  ·  P profiles"), line("Enter save  ·  Esc cancel  ·  ? help  ·  R reset"))
+		lines = append(lines, line("Space toggle  ·  ←/→ fold  ·  Tab switch  ·  P profiles"), line("Enter save  ·  Esc cancel  ·  ? help  ·  R reset"))
 	}
 	return append(lines, rule("╰", "╯"))
 }
@@ -226,4 +229,56 @@ func number(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// renderEntry formats one list line. Group headers show a fold arrow, a tri-state checkbox, and the totals
+// of their enabled rows; rows inside a group are indented under the header.
+func (m *Menu) renderEntry(e entry, pointer string, nameWidth int, wide bool) string {
+	if e.header {
+		enabled, total := m.groupState(e.group)
+		mark, arrow := " ", "v"
+		switch {
+		case total > 0 && enabled == total:
+			mark = "x"
+		case enabled > 0:
+			mark = "~"
+		}
+		if m.Collapsed[e.group] {
+			arrow = ">"
+		}
+		chars := m.groupChars(e.group)
+		name := fmt.Sprintf("%s %s (%d/%d)", arrow, e.group, enabled, total)
+		if !wide {
+			return fmt.Sprintf("%s [%s] %s", pointer, mark, name)
+		}
+		return fmt.Sprintf("%s [%s] %s %-7s %8s %8s", pointer, mark, tui.Pad(tui.Fit(name, nameWidth), nameWidth), "", number(chars), "~"+number((chars+3)/4))
+	}
+	r := m.Tabs[m.Tab][e.row]
+	mark := " "
+	if r.Enabled {
+		mark = "x"
+	}
+	state := "off"
+	if r.Enabled {
+		state = "hidden"
+		if r.Visible {
+			state = "visible"
+		}
+	}
+	if r.Enabled && r.Variant != "" && r.Context == "" {
+		state = "pending"
+	}
+	name := r.Name
+	if e.group != "" {
+		name = "    " + name
+	}
+	n, tokens := Characters(r.Context)
+	if !wide {
+		return fmt.Sprintf("%s [%s] %s", pointer, mark, name)
+	}
+	chars, estimate := number(n), "~"+number(tokens)
+	if r.Variant != "" && r.Context == "" {
+		chars, estimate = "—", "—"
+	}
+	return fmt.Sprintf("%s [%s] %s %-7s %8s %8s", pointer, mark, tui.Pad(tui.Fit(name, nameWidth), nameWidth), state, chars, estimate)
 }

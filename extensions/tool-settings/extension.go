@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
@@ -26,6 +27,11 @@ type component struct {
 
 func (c *component) Render(width int) []string {
 	lines := c.menu.Render(width)
+	// The box is capped in width; center it in wider terminals. Frame glyphs are one cell each.
+	margin := ""
+	if len(lines) > 0 {
+		margin = strings.Repeat(" ", max(0, (width-utf8.RuneCountInString(lines[0]))/2))
+	}
 	for i, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "│ ›"):
@@ -35,6 +41,9 @@ func (c *component) Render(width int) []string {
 		case strings.HasPrefix(line, "╭"), strings.HasPrefix(line, "├"), strings.HasPrefix(line, "╰"):
 			lines[i] = c.theme.Fg("muted", line)
 		}
+	}
+	for i := range lines {
+		lines[i] = margin + lines[i]
 	}
 	return lines
 }
@@ -164,6 +173,10 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 			return fmt.Errorf("count tool %s: %w", tool.Name, err)
 		}
 		visible := !slices.Contains(options.HiddenTools, tool.Name)
+		// Only list tools the model can see. A tool the user disabled stays listed so it can be enabled again.
+		if !visible && !cfg.DisabledTools[tool.Name] {
+			continue
+		}
 		source := tool.SourceInfo.Path
 		if source == "" {
 			source = tool.SourceInfo.Origin
@@ -177,12 +190,20 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 		if _, ok := cfg.Defaults[tool.Name]; !ok {
 			cfg.Defaults[tool.Name] = slices.Contains(active, tool.Name)
 		}
-		menu.Tabs[0] = append(menu.Tabs[0], toolsettings.Row{Name: tool.Name, ID: tool.Name, Source: source, Context: string(raw), Enabled: cfg.ToolEnabled(tool.Name) && slices.Contains(active, tool.Name), Visible: visible, DefaultEnabled: cfg.Defaults[tool.Name]})
+		menu.Tabs[0] = append(menu.Tabs[0], toolsettings.Row{Name: tool.Name, ID: tool.Name, Source: source, Context: string(raw), Enabled: cfg.ToolEnabled(tool.Name) && slices.Contains(active, tool.Name), Visible: visible, DefaultEnabled: cfg.Defaults[tool.Name], Group: toolsettings.GroupFor(tool.Name, source)})
 	}
 	menu.ExpandFileVariants()
+	menu.CollapseGroups("Files")
+	menu.MarkInitial()
 	for _, s := range cfg.Skills {
 		// Discovery metadata, not the full skill file. XML escaping matches the prompt's metadata representation.
 		text := fmt.Sprintf("<skill>\n<name>%s</name>\n<description>%s</description>\n<location>%s</location>\n</skill>", escape(s.Name), escape(s.Description), escape(s.Path))
+		// User-only skills (model invocation disabled) never reach the model. Keep them out of the list unless
+		// disabled, and preserve their allowlist entry when a restricted list is saved.
+		if s.Hidden && cfg.SkillEnabled(s.Path) {
+			menu.KeepSkills = append(menu.KeepSkills, s.Path)
+			continue
+		}
 		menu.Tabs[1] = append(menu.Tabs[1], toolsettings.Row{Name: s.Name, ID: s.Path, Source: "skill", Context: text, Enabled: cfg.SkillEnabled(s.Path), Visible: !s.Hidden, LoadedChars: loaded[s.Path]})
 	}
 	result, err := ctx.Custom(&component{menu: menu, theme: ctx.UITheme()}, nil)
@@ -193,43 +214,7 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 	if !save {
 		return nil
 	}
-	if menu.Reset {
-		cfg.Reset()
-	} else {
-		cfg.NativeFiles = menu.NativeFiles
-		cfg.ToolAllowlist, cfg.SkillAllowlist = nil, nil
-		if menu.RestrictTools {
-			cfg.ToolAllowlist = []string{}
-		}
-		if menu.RestrictSkills {
-			cfg.SkillAllowlist = []string{}
-		}
-		for _, r := range menu.Tabs[0] {
-			if !menu.SelectedVariant(r) {
-				continue
-			}
-			if r.Enabled {
-				if menu.RestrictTools {
-					cfg.ToolAllowlist = append(cfg.ToolAllowlist, r.ID)
-				}
-				delete(cfg.DisabledTools, r.ID)
-				cfg.EnabledTools[r.ID] = true
-			} else {
-				cfg.DisabledTools[r.ID] = true
-				delete(cfg.EnabledTools, r.ID)
-			}
-		}
-		for _, r := range menu.Tabs[1] {
-			if r.Enabled {
-				if menu.RestrictSkills {
-					cfg.SkillAllowlist = append(cfg.SkillAllowlist, r.ID)
-				}
-				delete(cfg.DisabledSkills, r.ID)
-			} else {
-				cfg.DisabledSkills[r.ID] = true
-			}
-		}
-	}
+	menu.ApplyTo(&cfg)
 	if err := toolsettings.SaveIfUnchanged(toolsettings.Path(), previous, cfg); err != nil {
 		return err
 	}
