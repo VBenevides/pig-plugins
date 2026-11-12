@@ -950,9 +950,19 @@ The state is in memory only and resets to ACT when a session starts.
 In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` permits only exact reviewed read-only tool names. Unknown tools remain blocked even under `lsp_`, `code_` or `memory_` prefixes. Shell calls are denied because command names and argument filtering cannot prove read-only execution; use dedicated read/search tools or switch to ACT.
 `write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
 
+## request-timer
+
+The working indicator shows `Working - 00h 00m 00s` during a request, including tool execution and follow-up model calls. When the agent finishes, an `Elapsed - 00h 00m 00s` message is saved at the end of the interaction. The final record does not start another model request. The timer resets for the next request.
+
 ## tool-settings
 
-Run `/tool-settings` to choose global tool and skill settings. Use Tab or Left/Right to switch tabs, Up/Down to select an entry, and Space to change its checkbox. Enter saves and reloads extensions; Escape cancels. R asks for confirmation before it restores the original tool states and enables skill discovery.
+Run `/tool-settings` to choose global tool and skill settings. The compact table shows eight entries at a time, with details for the selected entry and totals below. Use Tab or Left/Right to switch tabs, Up/Down to select an entry, and Space to change its checkbox. Press `?` to show or hide help and loaded-context totals. Enter saves and reloads extensions; Escape cancels. R asks for confirmation before it restores the original tool states and enables skill discovery.
+
+Press P for profiles: 1 selects **Default** (original default tools and all skills), 2 selects **Minimum** (`read`, `bash`, `edit`, and `write`, with no skills), and 3 selects **Native** (the same four tools and no skills, but native file tools). Default and Minimum use Hashline read/edit/write. Native skips Hashline registration, leaving the host's native implementations under the same names. These implementations are exclusive, not additional tools. Enter saves and reloads; Escape cancels. You can change individual checkboxes before saving. Minimum and Native block newly added tools and skills unless explicitly enabled. Default removes that restriction. Settings and recovery commands remain available. Previously saved Files only choices remain unchanged; select Minimum to add Bash.
+
+The Tools tab lists both Hashline and native variants of read/edit/write. Press Space on an inactive variant to select that implementation for all three file tools together, preserving their enabled states. This keeps Hashline edit paired with its required read authority. Only the selected implementation is saved under each shared tool name. Alternative schema counts are unknown until save and reload; they are not shown as zero.
+
+For a launch-only override, run `pig-plugins --profile default`, `pig-plugins --profile minimum`, or `pig-plugins --profile native`. The `--profile=native` form also works. The choice persists through extension reloads in that process but does not change saved global settings. During an override, `/tool-settings` reports the selected profile instead of editing global choices. Restart without the flag to use or edit your saved settings.
 
 Choices are saved in the agent directory as `tool-settings.json` and apply across projects and restarts. Open sessions in other terminals need `/reload` to rebuild skill discovery. Disabled tools are removed from declarations and blocked at invocation. Disabled skills are excluded from the `user-resources` catalog, including their slash-command expansion. This works with the fused pig-plugins discovery configuration. Plain pig can load ambient skills through a separate path; these choices do not control that independent catalog.
 

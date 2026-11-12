@@ -86,7 +86,7 @@ func TestMenuControlsAndCounts(t *testing.T) {
 		t.Fatal("skill not enabled")
 	}
 	text := strings.Join(m.Render(120), "\n")
-	if !strings.Contains(text, "2 chars / ~1 tokens") || !strings.Contains(text, "Tools enabled visible context: 0") {
+	if !strings.Contains(text, "Skills: 2 chars / ~1 tokens") || !strings.Contains(text, "Tools: 0 chars / ~0 tokens") {
 		t.Fatal(text)
 	}
 	m.Handle("r")

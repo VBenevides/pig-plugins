@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -31,6 +32,10 @@ type Config struct {
 	Defaults       map[string]bool `json:"defaults,omitempty"`
 	DisabledSkills map[string]bool `json:"disabledSkills"`
 	Skills         []Skill         `json:"skills,omitempty"`
+	// Nil preserves normal defaults; an empty non-nil list permits no entries.
+	ToolAllowlist  []string `json:"toolAllowlist"`
+	SkillAllowlist []string `json:"skillAllowlist"`
+	NativeFiles    bool     `json:"nativeFiles,omitempty"`
 }
 
 func Path() string { return filepath.Join(agentdir.Dir(os.Getenv), FileName) }
@@ -66,9 +71,12 @@ func Save(path string, c Config) error { return fsutil.WriteJSONFileAtomic(path,
 
 // Reset restores each tool's initial active state and restores skill discovery.
 func (c *Config) Reset() {
+	c.NativeFiles = false
 	c.EnabledTools = map[string]bool{}
 	c.DisabledTools = map[string]bool{}
 	c.DisabledSkills = map[string]bool{}
+	c.ToolAllowlist = nil
+	c.SkillAllowlist = nil
 	for name, enabled := range c.Defaults {
 		if enabled {
 			c.EnabledTools[name] = true
@@ -76,6 +84,16 @@ func (c *Config) Reset() {
 			c.DisabledTools[name] = true
 		}
 	}
+}
+
+// ToolEnabled and SkillEnabled apply restrictive presets to new entries as well as existing entries.
+func (c Config) ToolEnabled(name string) bool {
+	return !c.DisabledTools[name] && (c.ToolAllowlist == nil || slices.Contains(c.ToolAllowlist, name))
+}
+
+func (c Config) SkillEnabled(path string) bool {
+	path = Canonical(path)
+	return !c.DisabledSkills[path] && (c.SkillAllowlist == nil || slices.Contains(c.SkillAllowlist, path))
 }
 
 // Characters counts Unicode characters, not UTF-8 bytes. Tokens are an estimate, rounded up.
@@ -94,7 +112,10 @@ func Canonical(path string) string {
 // FilterSkills expands resource roots only when a skill is disabled. The host still parses metadata and
 // decides which Markdown files are skills. Files within a skill directory are not independent skills.
 func FilterSkills(paths []string, c Config) ([]string, error) {
-	if len(c.DisabledSkills) == 0 {
+	if c.SkillAllowlist != nil && len(c.SkillAllowlist) == 0 {
+		return nil, nil
+	}
+	if len(c.DisabledSkills) == 0 && c.SkillAllowlist == nil {
 		return paths, nil
 	}
 	var out []string
@@ -114,14 +135,14 @@ func FilterSkills(paths []string, c Config) ([]string, error) {
 			return fmt.Errorf("inspect skill path %s: %w", path, err)
 		}
 		if !info.IsDir() {
-			if strings.HasSuffix(path, ".md") && !c.DisabledSkills[canonical] {
+			if strings.HasSuffix(path, ".md") && c.SkillEnabled(canonical) {
 				out = append(out, path)
 			}
 			return nil
 		}
 		skillFile := filepath.Join(path, "SKILL.md")
 		if _, err := os.Stat(skillFile); err == nil {
-			if !c.DisabledSkills[Canonical(skillFile)] {
+			if c.SkillEnabled(Canonical(skillFile)) {
 				out = append(out, path)
 			}
 			return nil

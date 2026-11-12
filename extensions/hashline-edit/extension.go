@@ -6,11 +6,21 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/hashline"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
 // Extension replaces the built-in read, edit, and write tool registrations.
 func Extension() *sdk.Extension {
 	e := sdk.New("hashline-edit")
+	choices, err := toolsettings.LoadEffective(toolsettings.Path())
+	if err != nil {
+		e.OnSessionStart(func(sdk.Context, map[string]any) (any, error) { return nil, err })
+		return e
+	}
+	// Do not register replacements: the host's native tools keep the same exclusive names.
+	if choices.NativeFiles {
+		return e
+	}
 	engine := hashline.NewEngine()
 	for _, event := range []string{"session_start", "session_tree", "session_shutdown"} {
 		e.OnEvent(event, func(_ sdk.Context, _ map[string]any) (any, error) {

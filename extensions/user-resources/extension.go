@@ -89,7 +89,7 @@ func resolve(getenv func(string) string) (map[string][]string, error) {
 			result[key] = append(result[key], expand(p, dir, home))
 		}
 	}
-	choices, err := toolsettings.Load(filepath.Join(dir, toolsettings.FileName))
+	choices, err := toolsettings.LoadEffective(filepath.Join(dir, toolsettings.FileName))
 	if err != nil {
 		return nil, err
 	}

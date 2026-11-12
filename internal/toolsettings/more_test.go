@@ -62,6 +62,7 @@ func TestLoadedSkillCountsUseSuppliedBlocksNotFiles(t *testing.T) {
 		t.Fatal(counts)
 	}
 	m := &Menu{LoadedKnown: true, Tabs: [2][]Row{nil, {{Name: "a", Enabled: false, LoadedChars: n}}}}
+	m.Handle("?")
 	text := strings.Join(m.Render(160), "\n")
 	if !strings.Contains(text, "Last request loaded skill blocks:") || strings.Contains(text, "unknown until") {
 		t.Fatal(text)
