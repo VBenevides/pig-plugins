@@ -14,6 +14,10 @@ const toolName = "tool_search"
 
 func Extension() *sdk.Extension {
 	e := sdk.New(Name)
+	state := &discoveries{}
+	e.OnEvent(sdk.EventToolCall, boundSearch)
+	e.OnEvent(sdk.EventToolResult, state.result)
+	e.OnEvent(sdk.EventAgentSettled, state.settle)
 	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
 		return nil, setEnabled(ctx, true)
 	})
