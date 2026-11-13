@@ -22,7 +22,7 @@ func TestExplicitPresetWritesUnchangedCheckbox(t *testing.T) {
 	cfg := Config{DisabledTools: map[string]bool{}, EnabledTools: map[string]bool{}, DisabledSkills: map[string]bool{}, ToolAllowlist: []string{"omitted"}}
 	m := &Menu{Tabs: [2][]Row{{{ID: "read", Enabled: true, DefaultEnabled: true}, {ID: "extra"}}, nil}}
 	m.MarkInitial()
-	m.ApplyPreset(MinimumPreset)
+	m.ApplyPreset(MinimalPreset)
 	m.ApplyTo(&cfg)
 	if !cfg.DisabledTools["extra"] || !cfg.EnabledTools["read"] || !reflect.DeepEqual(cfg.ToolAllowlist, []string{"read"}) {
 		t.Fatalf("preset did not apply: %+v", cfg)

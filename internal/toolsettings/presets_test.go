@@ -15,13 +15,13 @@ func TestPresetsAreStagedAndEditable(t *testing.T) {
 		t.Fatal(m.presetLabel())
 	}
 	m.Handle("p")
-	if !m.PresetPending || !strings.Contains(strings.Join(m.Render(96), "\n"), "2 minimum") {
+	if !m.PresetPending || !strings.Contains(strings.Join(m.Render(96), "\n"), "2 minimal") {
 		t.Fatal("preset picker missing")
 	}
 	if done, save := m.Handle("2"); done || save {
 		t.Fatal("preset saved without Enter")
 	}
-	if m.presetLabel() != MinimumPreset || !m.RestrictTools || !m.RestrictSkills {
+	if m.presetLabel() != MinimalPreset || !m.RestrictTools || !m.RestrictSkills {
 		t.Fatal(m.presetLabel())
 	}
 	for _, r := range m.Tabs[0] {
@@ -99,7 +99,7 @@ func TestMinimumPolicyPersistsAndBlocksFutureEntries(t *testing.T) {
 }
 
 func TestPresetNamesAreCaseInsensitive(t *testing.T) {
-	for _, name := range []string{DefaultPreset, MinimumPreset, NativePreset, BenchmarkPreset} {
+	for _, name := range []string{DefaultPreset, MinimalPreset, BenchmarkPreset} {
 		for _, input := range []string{name, strings.ToUpper(name), strings.ToUpper(name[:1]) + name[1:]} {
 			t.Run(input, func(t *testing.T) {
 				m := &Menu{Tabs: [2][]Row{

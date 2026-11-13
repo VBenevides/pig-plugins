@@ -4,8 +4,7 @@ import "strings"
 
 const (
 	DefaultPreset   = "default"
-	MinimumPreset   = "minimum"
-	NativePreset    = "native"
+	MinimalPreset   = "minimal"
 	BenchmarkPreset = "default-benchmark"
 )
 
@@ -21,12 +20,12 @@ func defaultTool(name string) bool {
 // ApplyPreset stages choices in the dialog. Enter saves them; Escape cancels the dialog.
 func (m *Menu) ApplyPreset(preset string) {
 	preset = strings.ToLower(preset)
-	if preset != DefaultPreset && preset != MinimumPreset && preset != NativePreset && preset != BenchmarkPreset {
+	if preset != DefaultPreset && preset != MinimalPreset && preset != BenchmarkPreset {
 		return
 	}
 	m.ApplyAll = true
-	restricted := preset == MinimumPreset || preset == NativePreset
-	m.NativeFiles = preset != MinimumPreset
+	restricted := preset == MinimalPreset
+	m.NativeFiles = true
 	m.RestrictTools, m.RestrictSkills = restricted, restricted
 	for i := range m.Tabs[0] {
 		row := &m.Tabs[0][i]
@@ -68,11 +67,8 @@ func (m *Menu) presetLabel() string {
 	if benchmark {
 		return BenchmarkPreset
 	}
-	if files {
-		if m.NativeFiles {
-			return NativePreset
-		}
-		return MinimumPreset
+	if files && m.NativeFiles {
+		return MinimalPreset
 	}
 	return "custom"
 }

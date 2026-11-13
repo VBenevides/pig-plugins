@@ -15,10 +15,10 @@ func TestBenchmarkPresetDisablesQuestionsAndKeepsDefaults(t *testing.T) {
 	}, {{ID: "skill"}}}}
 	m.MarkInitial()
 	m.Handle("p")
-	if !strings.Contains(strings.Join(m.Render(96), "\n"), "4 default-benchmark") {
+	if !strings.Contains(strings.Join(m.Render(96), "\n"), "3 default-benchmark") {
 		t.Fatal("benchmark profile missing from chooser")
 	}
-	m.Handle("4")
+	m.Handle("3")
 	if m.PresetPending || !m.NativeFiles || m.RestrictTools || m.RestrictSkills || m.presetLabel() != BenchmarkPreset {
 		t.Fatalf("profile state: %+v", m)
 	}

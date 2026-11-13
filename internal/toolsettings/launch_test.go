@@ -13,11 +13,13 @@ func TestParseProfile(t *testing.T) {
 		profile   string
 		bad       bool
 	}{
-		{[]string{"--profile", "minimum", "hello"}, []string{"hello"}, "minimum", false},
+		{[]string{"--profile", "minimal", "hello"}, []string{"hello"}, "minimal", false},
 		{[]string{"--profile=default", "--model", "x"}, []string{"--model", "x"}, "default", false},
 		{[]string{"--profile", "default-benchmark"}, []string{}, "default-benchmark", false},
 		{[]string{"--profile=DeFaUlT-BeNcHmArK"}, []string{}, "default-benchmark", false},
-		{[]string{"--profile", "MINIMUM"}, []string{}, "minimum", false},
+		{[]string{"--profile", "MINIMAL"}, []string{}, "minimal", false},
+		{[]string{"--profile", "minimum"}, nil, "", true},
+		{[]string{"--profile", "native"}, nil, "", true},
 		{[]string{"--", "--profile", "minimum"}, []string{"--", "--profile", "minimum"}, "", false},
 		{[]string{"--profile"}, nil, "", true},
 		{[]string{"--profile=bare"}, nil, "", true},
@@ -46,7 +48,7 @@ func TestLaunchProfileDoesNotChangeSavedChoices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(ProfileEnv, "minimum")
+	t.Setenv(ProfileEnv, "minimal")
 	c, err := LoadEffective(path)
 	if err != nil {
 		t.Fatal(err)

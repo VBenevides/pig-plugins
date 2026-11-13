@@ -30,17 +30,8 @@ func TestBothFileVariantsAreVisibleAndExclusive(t *testing.T) {
 	if !m.Tabs[0][1].Enabled || !m.Tabs[0][3].Enabled || m.Tabs[0][5].Enabled {
 		t.Fatal("enable state was not transferred")
 	}
-	m.ApplyPreset(MinimumPreset)
-	if m.NativeFiles || m.presetLabel() != MinimumPreset {
-		t.Fatal("minimum profile incorrect")
-	}
-	for _, r := range m.Tabs[0] {
-		if r.Enabled != (r.Variant == "hashline") {
-			t.Fatal(r)
-		}
-	}
-	m.ApplyPreset(NativePreset)
-	if !m.NativeFiles || m.presetLabel() != NativePreset {
+	m.ApplyPreset(MinimalPreset)
+	if !m.NativeFiles || m.presetLabel() != MinimalPreset {
 		t.Fatal("native profile incorrect")
 	}
 	for _, r := range m.Tabs[0] {

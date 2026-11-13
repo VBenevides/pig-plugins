@@ -12,7 +12,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
-func TestMinimumPresetUsesBashAndHashlineEdit(t *testing.T) {
+func TestCustomRestrictedSettingsUseBashAndHashlineEdit(t *testing.T) {
 	fused := pigtest.UseFusedBinary(t)
 	pigtest.RequirePig(t)
 	home := pigtest.NewHome(t)
@@ -94,7 +94,7 @@ func TestMinimumPresetUsesBashAndHashlineEdit(t *testing.T) {
 		t.Fatalf("preset tool names=%v", names)
 	}
 	if !hashlineEdit {
-		t.Fatal("minimum preset did not expose the hashline edit schema")
+		t.Fatal("explicit Hashline settings did not expose the hashline edit schema")
 	}
 	raw, err := json.Marshal(requests[0])
 	if err != nil {

@@ -12,7 +12,7 @@ Permission and exposure are separate states. A permission allows execution throu
 | Backend | Omitted from direct use | Prefer wrapper-only access | Normal hooks through the wrapper |
 
 The initial direct core is `read`, `edit`, `write`, `bash`, and `tool_search`, subject to saved permissions.
-The default uses native file tools. Hashline remains an explicit setting. Minimum and native still restrict permissions.
+The default uses native file tools. Hashline remains an explicit setting. The minimal profile restricts permissions to the four native file and shell tools, with no skills or discovery.
 Before each user request, tool-settings removes non-core activations. Discovered tools remain active through the request and are released at agent_settled.
 If discovery is unavailable or disabled, only the four core tools remain exposed. Show a warning; do not activate the other tools automatically.
 
