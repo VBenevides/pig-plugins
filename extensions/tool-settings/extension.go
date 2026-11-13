@@ -188,7 +188,7 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 		}
 	}
 	menu.ExpandFileVariants()
-	menu.CollapseGroups("Files")
+	menu.CollapseGroups("")
 	menu.MarkInitial()
 	addModelSkills(menu, cfg, loaded)
 	result, err := ctx.Custom(&component{menu: menu, theme: ctx.UITheme()}, nil)

@@ -8,7 +8,7 @@ import (
 
 func TestPresetsAreStagedAndEditable(t *testing.T) {
 	m := &Menu{NativeFiles: true, Tabs: [2][]Row{
-		{{ID: "read", Enabled: true, DefaultEnabled: true}, {ID: "edit", Enabled: true, DefaultEnabled: true}, {ID: "write", Enabled: true, DefaultEnabled: true}, {ID: "bash", Enabled: true, DefaultEnabled: true}, {ID: "extra", DefaultEnabled: false}},
+		{{ID: "read", Enabled: true, DefaultEnabled: true}, {ID: "edit", Enabled: true, DefaultEnabled: true}, {ID: "write", Enabled: true, DefaultEnabled: true}, {ID: "bash", Enabled: true, DefaultEnabled: true}, {ID: "extra", Enabled: true, DefaultEnabled: false}},
 		{{ID: "skill-a", Enabled: true}, {ID: "skill-b", Enabled: true}},
 	}}
 	if m.presetLabel() != DefaultPreset {
@@ -45,8 +45,8 @@ func TestPresetsAreStagedAndEditable(t *testing.T) {
 	if m.presetLabel() != DefaultPreset || m.RestrictTools || m.RestrictSkills {
 		t.Fatal("default preset did not restore defaults")
 	}
-	if m.Tabs[0][4].Enabled {
-		t.Fatal("default preset enabled a non-default tool")
+	if !m.Tabs[0][4].Enabled {
+		t.Fatal("default preset did not enable an optional non-browser tool")
 	}
 	m.Handle("P")
 	m.Handle("escape")

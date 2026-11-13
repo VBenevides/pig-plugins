@@ -881,6 +881,10 @@ The binary embeds only `prompts/agent/default/SYSTEM.md`. The `default-prompt` e
 To override the built-in prompt, create `~/.pig/agent/SYSTEM.md` (or a project `SYSTEM.md`, or use `--system-prompt`). A non-empty custom prompt is never replaced. User `APPEND_SYSTEM.md` and `AGENTS.md` files still add instructions.
 `default-prompt` must stay first in `piglet.yaml`, before extensions that append to the system prompt.
 
+## path-check
+
+Before `read` and `edit`, checks ordinary filesystem paths with surrounding spaces, tabs, or line breaks. If the exact path is missing but the trimmed path exists, blocks the call and reports the possible match to the model and UI. Retry with the explicit path. It never changes tool input or retries automatically. Existing exact paths and other filesystem errors keep normal tool behavior. `write` is unchanged. Special host path syntax (`~`, `@`, and URLs) stays with the host resolver.
+
 ## project-prompt
 
 The bundled native extension loads project-specific instructions on `before_agent_start` and preserves the entire host prompt.
@@ -894,9 +898,8 @@ The host also discovers some project files itself and can cache them as its base
 
 ## tool-search
 
-Enables the built-in `tool_search` tool at session start. `/tool-search on` and
-`/tool-search off` enable or disable discovery; `/tool-search` shows its current state.
-New sessions and `/reload` enable it again, subject to permissions. Before each user request, tool-settings exposes only `read`, `write`, `edit`, `bash`, and permitted `tool_search`. Other permitted tools load through discovery for that request. Without discovery, only the four core tools remain exposed and a warning is shown.
+Controls the built-in `tool_search` tool through `/tool-settings`. Toggle the `tool_search` row and press Enter to save and reload. There is no `/tool-search` command.
+New sessions and `/reload` respect the saved setting and launch profile. Before each user request, tool-settings exposes only `read`, `write`, `edit`, `bash`, and permitted `tool_search`. Other permitted tools load through discovery for that request. Without discovery, only the four core tools remain exposed and a warning is shown.
 Disabling discovery does not stop MCP servers. Discovered tools expire at the safe request boundary.
 Discovery searches registered session tools; it does not scan directories or install tools.
 
@@ -965,11 +968,11 @@ The working indicator shows `Working - 00h 00m 00s` during a request, including 
 
 ## tool-settings
 
-Run `/tool-settings` to choose global tool and skill settings. The compact table shows eight entries at a time, with details for the selected entry and totals below. Tools are grouped into categories (Files, Shell, MCP servers, extensions). Space on a category header toggles every tool in it (`[~]` means partly enabled); Left/Right folds or unfolds it. Use Tab to switch tabs, Up/Down to select an entry, and Space to change its checkbox. Press `?` to show or hide help and loaded-context totals. Enter saves and reloads extensions; Escape cancels. R asks for confirmation before it restores the original tool states and enables skill discovery.
+Run `/tool-settings` to choose global tool and skill settings. The compact table shows eight entries at a time, with details for the selected entry and totals below. Tools are grouped into categories (Files, Shell, MCP servers, extensions). Space on a category header toggles every tool in it (`[~]` means partly enabled); Left/Right folds or unfolds it. Use Tab to switch tabs, Up/Down to select an entry, and Space to change its checkbox. Press `?` to show or hide help and loaded-context totals. Enter saves and reloads extensions; Escape cancels. R asks for confirmation before it restores current default permissions and enables skill discovery.
 
-Default permissions allow other tools, but their schemas remain deferred. Goal, todo, and ask-mode instructions remain independent of schema exposure.
+Default permissions allow all non-browser tools, including MCP, Parallel, Exa, and todo. Only the five-tool core is declared initially; other schemas load through tool_search. Search backends remain behind web_search. Browser tools require explicit enablement and a browser mode. Goal, todo, and ask-mode instructions remain independent of schema exposure. To replace older saved denials, select P → 1 (default), then Enter; installing alone preserves saved choices.
 
-Press P for profiles: 1 selects **default** (default tool permissions and all skills), 2 selects **minimum** (`read`, `bash`, `edit`, and `write`, with no skills and Hashline file tools), 3 selects **native** (the same four tools and no skills, with native file tools), and 4 selects **default-benchmark** (default with `ask_user_question` disabled). Names are case-insensitive. Default and default-benchmark use native read/edit/write. Fresh settings and older settings without `nativeFiles` also use native tools. An explicit `nativeFiles: false` keeps Hashline. Enter saves and reloads; Escape cancels. The minimum and native profiles block newly added tools and skills unless explicitly enabled. Default and default-benchmark remove that restriction. Settings and recovery commands remain available.
+Press P for profiles: 1 selects **default** (all non-browser tools and all skills), 2 selects **minimum** (`read`, `bash`, `edit`, and `write`, with no skills and Hashline file tools), 3 selects **native** (the same four tools and no skills, with native file tools), and 4 selects **default-benchmark** (default with `ask_user_question` disabled). Names are case-insensitive. Default and default-benchmark use native read/edit/write. Fresh settings and older settings without `nativeFiles` also use native tools. An explicit `nativeFiles: false` keeps Hashline. Enter saves and reloads; Escape cancels. The minimum and native profiles block newly added tools and skills unless explicitly enabled. Default and default-benchmark remove that restriction. Settings and recovery commands remain available.
 
 The binary uses only the reduced default instructions. Prompt reduction has offline contract checks, not benchmark-quality qualification.
 

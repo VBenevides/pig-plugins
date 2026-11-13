@@ -23,6 +23,17 @@ func TestFiveToolCoreAndDeferredLifecycle(t *testing.T) {
 	for _, target := range []string{"todo", "ask_user_question", "context_recover", "url_context", "web_search", "goal_finish", "browser_navigate", "ast_search", "lsp_symbols", "code_search"} {
 		t.Run(target, func(t *testing.T) {
 			home := pigtest.NewHome(t)
+			if target == "browser_navigate" {
+				path := filepath.Join(home.AgentDir(), toolsettings.FileName)
+				cfg, err := toolsettings.Load(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cfg.EnabledTools[target] = true
+				if err := toolsettings.Save(path, cfg); err != nil {
+					t.Fatal(err)
+				}
+			}
 			var extensions []string
 			for _, name := range []string{"default-prompt", "tool-search", "todo", "ask-user-question", "context-prune", "web-search", "goal", "browser-use", "ast-search", "lsp", "tool-settings"} {
 				path, err := filepath.Abs("../" + name)

@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
 func modelToolRow(tool sdk.ToolInfo, cfg toolsettings.Config, active, hidden []string, registered map[string]bool) (toolsettings.Row, bool, error) {
-	if slices.Contains(hidden, tool.Name) && !cfg.DisabledTools[tool.Name] {
+	browserTool := strings.HasPrefix(tool.Name, "browser_")
+	// Browser tools stay configurable while their runtime mode hides them from discovery.
+	if slices.Contains(hidden, tool.Name) && !cfg.DisabledTools[tool.Name] && !browserTool {
 		return toolsettings.Row{}, false, nil
 	}
 	exposure := string(tool.Exposure)
@@ -41,5 +44,9 @@ func modelToolRow(tool sdk.ToolInfo, cfg toolsettings.Config, active, hidden []s
 	if source == "" {
 		source = "builtin"
 	}
-	return toolsettings.Row{Name: tool.Name, ID: tool.Name, Source: source, Context: string(raw), Enabled: cfg.ToolEnabled(tool.Name), Visible: slices.Contains(active, tool.Name) && !slices.Contains(hidden, tool.Name), DefaultEnabled: cfg.Defaults[tool.Name], Group: toolsettings.GroupFor(tool.Name, source), Exposure: exposure}, true, nil
+	group := toolsettings.GroupFor(tool.Name, source)
+	if browserTool || tool.Exposure == sdk.ToolExposureDeferred || tool.Exposure == sdk.ToolExposureCodemode {
+		group = "Deferred"
+	}
+	return toolsettings.Row{Name: tool.Name, ID: tool.Name, Source: source, Context: string(raw), Enabled: cfg.ToolEnabled(tool.Name), Visible: slices.Contains(active, tool.Name) && !slices.Contains(hidden, tool.Name), DefaultEnabled: cfg.Defaults[tool.Name], Group: group, Exposure: exposure}, true, nil
 }

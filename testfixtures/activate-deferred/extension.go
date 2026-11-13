@@ -6,6 +6,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 	"slices"
+	"strings"
 )
 
 func Extension() *sdk.Extension {
@@ -24,6 +25,10 @@ func Extension() *sdk.Extension {
 			return nil, err
 		}
 		for _, tool := range tools {
+			// Execution tests explicitly opt into browser tools. Explicit denials and allowlists still apply.
+			if strings.HasPrefix(tool.Name, "browser_") {
+				cfg.EnabledTools[tool.Name] = true
+			}
 			if tool.Exposure == sdk.ToolExposureDeferred && cfg.ToolEnabled(tool.Name) && !slices.Contains(active, tool.Name) {
 				active = append(active, tool.Name)
 			}

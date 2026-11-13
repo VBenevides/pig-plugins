@@ -79,18 +79,13 @@ func (c *Config) Reset() {
 	c.DisabledSkills = map[string]bool{}
 	c.ToolAllowlist = nil
 	c.SkillAllowlist = nil
-	for name, enabled := range c.Defaults {
-		if enabled {
-			c.EnabledTools[name] = true
-		} else {
-			c.DisabledTools[name] = true
-		}
-	}
 }
 
 // ToolEnabled and SkillEnabled apply restrictive presets to new entries as well as existing entries.
 func (c Config) ToolEnabled(name string) bool {
-	return !c.DisabledTools[name] && (c.ToolAllowlist == nil || slices.Contains(c.ToolAllowlist, name))
+	return !c.DisabledTools[name] &&
+		(c.ToolAllowlist == nil || slices.Contains(c.ToolAllowlist, name)) &&
+		(defaultTool(name) || c.EnabledTools[name] || slices.Contains(c.ToolAllowlist, name))
 }
 
 func (c Config) SkillEnabled(path string) bool {

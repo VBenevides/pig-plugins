@@ -10,6 +10,8 @@ extensions:
     origins: [local:./extensions/tool-search]
   - name: hashline-edit
     origins: [local:./extensions/hashline-edit]
+  - name: path-check
+    origins: [local:./extensions/path-check]
   - name: command-output
     origins: [local:./extensions/command-output]
   - name: ast-search

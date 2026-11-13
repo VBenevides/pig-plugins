@@ -13,6 +13,11 @@ func minimumTool(name string) bool {
 	return name == "read" || name == "bash" || name == "edit" || name == "write"
 }
 
+// defaultTool permits every non-browser tool. Exposure is controlled separately.
+func defaultTool(name string) bool {
+	return !strings.HasPrefix(name, "browser_")
+}
+
 // ApplyPreset stages choices in the dialog. Enter saves them; Escape cancels the dialog.
 func (m *Menu) ApplyPreset(preset string) {
 	preset = strings.ToLower(preset)
@@ -25,7 +30,7 @@ func (m *Menu) ApplyPreset(preset string) {
 	m.RestrictTools, m.RestrictSkills = restricted, restricted
 	for i := range m.Tabs[0] {
 		row := &m.Tabs[0][i]
-		row.Enabled = row.DefaultEnabled
+		row.Enabled = defaultTool(row.ID)
 		if restricted {
 			row.Enabled = minimumTool(row.ID)
 		}
@@ -46,9 +51,9 @@ func (m *Menu) presetLabel() string {
 		if !m.SelectedVariant(r) {
 			continue
 		}
-		want := r.DefaultEnabled && r.ID != "ask_user_question"
+		want := defaultTool(r.ID) && r.ID != "ask_user_question"
 		benchmark = benchmark && r.Enabled == want
-		full = full && r.Enabled == r.DefaultEnabled
+		full = full && r.Enabled == defaultTool(r.ID)
 		files = files && r.Enabled == minimumTool(r.ID)
 	}
 	for _, r := range m.Tabs[1] {

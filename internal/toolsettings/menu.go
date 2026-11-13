@@ -246,7 +246,7 @@ func (m *Menu) Render(width int) []string {
 	if m.ResetPending {
 		lines = append(lines, line("Reset global choices to defaults?"), line("Y confirm  ·  N cancel"))
 	} else if m.PresetPending {
-		lines = append(lines, line("1 default  · default tools + all skills; Hashline"), line("2 minimum  · read/bash/edit/write; no skills; Hashline"), line("3 native   · read/bash/edit/write; no skills; native files"), line("4 default-benchmark · default without ask_user_question"), line("Choose 1, 2, 3, or 4  ·  Esc back  ·  Enter saves afterward"))
+		lines = append(lines, line("1 default  · native core + discovery; all skills"), line("2 minimum  · read/bash/edit/write; no skills; Hashline"), line("3 native   · read/bash/edit/write; no skills; native files"), line("4 default-benchmark · default without ask_user_question"), line("Choose 1, 2, 3, or 4  ·  Esc back  ·  Enter saves afterward"))
 	} else {
 		lines = append(lines, line("Space toggle  ·  ←/→ fold  ·  Tab switch  ·  P profiles"), line("Enter save  ·  Esc cancel  ·  ? help  ·  R reset"))
 	}
@@ -277,7 +277,18 @@ func (m *Menu) renderEntry(e entry, pointer string, nameWidth int, wide bool) st
 			arrow = ">"
 		}
 		chars := m.groupChars(e.group)
-		name := fmt.Sprintf("%s %s (%d/%d)", arrow, e.group, enabled, total)
+		label := e.group
+		if label == "Deferred" {
+			status := "HIDDEN"
+			for _, tool := range m.Tabs[0] {
+				if tool.ID == "tool_search" && tool.Enabled {
+					status = "VISIBLE"
+					break
+				}
+			}
+			label += " - " + status
+		}
+		name := fmt.Sprintf("%s %s (%d/%d)", arrow, label, enabled, total)
 		if !wide {
 			return fmt.Sprintf("%s [%s] %s", pointer, mark, name)
 		}

@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-func TestResetRestoresOriginalToolStates(t *testing.T) {
+func TestResetRestoresCurrentDefaultPermissions(t *testing.T) {
 	c := Config{Defaults: map[string]bool{"bash": true, "optional": false}, DisabledTools: map[string]bool{"bash": true}, EnabledTools: map[string]bool{"optional": true}, DisabledSkills: map[string]bool{"a": true}}
 	c.Reset()
-	if !c.EnabledTools["bash"] || c.DisabledTools["bash"] || !c.DisabledTools["optional"] || c.EnabledTools["optional"] || len(c.DisabledSkills) != 0 {
+	if !c.ToolEnabled("bash") || !c.ToolEnabled("optional") || c.ToolEnabled("browser_navigate") || len(c.DisabledSkills) != 0 {
 		t.Fatalf("reset=%+v", c)
 	}
 }
