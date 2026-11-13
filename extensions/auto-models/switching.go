@@ -55,46 +55,54 @@ func (x *extension) rotateAccountWithPolicy(ctx accountSwitcher, account sdk.OAu
 	if err != nil {
 		return false, fmt.Errorf("native OAuth account enumeration failed")
 	}
-	for _, candidate := range accounts {
-		if candidate.Provider != account.Provider || candidate.ID == account.ID {
-			continue
-		}
-		remaining, err := x.accountRemaining(x.life, ctx, candidate)
-		if err != nil {
-			x.report(ctx, err)
-			continue
-		}
-		if remaining == nil || *remaining < 5 {
-			continue
-		}
-		current, found, err := selectedAccount(ctx, account.Provider)
-		if err != nil {
-			return false, err
-		}
-		if !found || current.ID != account.ID || ctx.ModelProvider() != account.Provider {
-			return false, nil
-		}
-		currPrimary, currFallback := x.slots()
-		if ctx.Model() != model || currPrimary != primary || currFallback != fallback {
-			return false, nil
-		}
-		if x.life.Err() != nil {
-			return false, x.life.Err()
-		}
-		if requireIdle {
-			idle, err := ctx.IsIdle()
-			if err != nil || !idle {
+	// Prefer reserve-preserving accounts. Only provider-failure recovery may
+	// use the remaining positive quota below the proactive threshold.
+	minimums := []float64{5}
+	if !requireIdle {
+		minimums = append(minimums, 0)
+	}
+	for _, minimum := range minimums {
+		for _, candidate := range accounts {
+			if candidate.Provider != account.Provider || candidate.ID == account.ID {
+				continue
+			}
+			remaining, err := x.accountRemaining(x.life, ctx, candidate)
+			if err != nil {
+				x.report(ctx, err)
+				continue
+			}
+			if remaining == nil || *remaining <= 0 || *remaining < minimum || (minimum == 0 && *remaining >= 5) {
+				continue
+			}
+			current, found, err := selectedAccount(ctx, account.Provider)
+			if err != nil {
 				return false, err
 			}
+			if !found || current.ID != account.ID || ctx.ModelProvider() != account.Provider {
+				return false, nil
+			}
+			currPrimary, currFallback := x.slots()
+			if ctx.Model() != model || currPrimary != primary || currFallback != fallback {
+				return false, nil
+			}
+			if x.life.Err() != nil {
+				return false, x.life.Err()
+			}
+			if requireIdle {
+				idle, err := ctx.IsIdle()
+				if err != nil || !idle {
+					return false, err
+				}
+			}
+			if err := ctx.SelectOAuthAccount(candidate.ID); err != nil {
+				return false, fmt.Errorf("native OAuth account selection failed")
+			}
+			if err := x.clearPrimaryCooldown(account.Provider); err != nil {
+				return true, err
+			}
+			notice.Show(ctx, "Switched to another "+clean(account.Provider)+" account with available quota", "info")
+			return true, nil
 		}
-		if err := ctx.SelectOAuthAccount(candidate.ID); err != nil {
-			return false, fmt.Errorf("native OAuth account selection failed")
-		}
-		if err := x.clearPrimaryCooldown(account.Provider); err != nil {
-			return true, err
-		}
-		notice.Show(ctx, "Switched to another "+clean(account.Provider)+" account with available quota", "info")
-		return true, nil
 	}
 	return false, nil
 }
