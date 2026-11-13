@@ -885,11 +885,12 @@ To override the built-in prompt, create `~/.pig/agent/SYSTEM.md` (or a project `
 
 The bundled native extension loads project-specific instructions on `before_agent_start` and preserves the entire host prompt.
 The global prompt is built into the binary (`default-prompt`), not installed as files.
-For trusted projects, it also loads the literal `.local/APPEND_SYSTEM.md` and
-`local/AGENTS.md` paths from the current working directory on each request.
-Missing files are optional; content already loaded by the host is not repeated.
+For trusted projects, it reads `SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`, and `RULES.md`
+inside each of `.local/`, `local/`, `.pig/`, and `pig/`, relative to the current working directory.
+All existing files append in that directory order, then file order; none replaces the host prompt.
+Files are reread on each request. Missing files are optional; content already loaded is not repeated.
 Files must be regular UTF-8 files within the project, at most 256 KiB each.
-`local/APPEND_SYSTEM.md` is not substituted for `.local/APPEND_SYSTEM.md`.
+The host also discovers some project files itself and can cache them as its base prompt. This extension preserves that base; restart the session to refresh host-owned instructions.
 
 ## tool-search
 
