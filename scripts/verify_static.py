@@ -1,25 +1,30 @@
-#!/usr/bin/env python3
 """Inspect a built ELF artifact without executing it. CGO=0 alone is not proof."""
 
 import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 
 def command(args):
     try:
         result = subprocess.run(
-            args, check=True, text=True, capture_output=True, timeout=30,
+            args,
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=30,
             env={**os.environ, "LC_ALL": "C"},
         )
     except (OSError, subprocess.SubprocessError) as error:
         detail = getattr(error, "stderr", "")
-        raise RuntimeError(f"artifact inspection failed: {args[0]}: {error}: {detail}") from error
+        raise RuntimeError(
+            f"artifact inspection failed: {args[0]}: {error}: {detail}"
+        ) from error
     return result.stdout
 
 
@@ -39,10 +44,13 @@ def inspect(binary):
     interpreter = re.findall(r"Requesting program interpreter:\s*([^\]]+)", program)
     has_interp = bool(re.search(r"^\s*INTERP\s", program, re.MULTILINE))
     return {
-        "path": str(binary), "sha256": digest.hexdigest(),
+        "path": str(binary),
+        "sha256": digest.hexdigest(),
         "fully_static": not has_interp and not needed,
-        "has_interpreter": has_interp, "interpreter": interpreter,
-        "needed": needed, "go_build_metadata": metadata,
+        "has_interpreter": has_interp,
+        "interpreter": interpreter,
+        "needed": needed,
+        "go_build_metadata": metadata,
     }
 
 
@@ -57,7 +65,10 @@ def main():
         return 2
     print(json.dumps(report, indent=2))
     if not report["fully_static"]:
-        print("verify-static: dynamic interpreter or shared libraries remain; CGO_ENABLED=0 is insufficient", file=sys.stderr)
+        print(
+            "verify-static: dynamic interpreter or shared libraries remain; CGO_ENABLED=0 is insufficient",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

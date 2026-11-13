@@ -1,12 +1,11 @@
-#!/usr/bin/env python3
 """Small fixture-only regression checks; never compile or install real binaries."""
+
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -23,7 +22,13 @@ class BuildScriptsTest(unittest.TestCase):
         shutil.copy2(ROOT / "COMPATIBILITY.json", self.root / "COMPATIBILITY.json")
         # Source is an ancestor of build staging: unrestricted cp recursively
         # copies its own output. These fixtures must never reach staged source.
-        for name in (".git", ".agent-work/worktrees/nested", "build/previous", "node_modules", ".ouro"):
+        for name in (
+            ".git",
+            ".agent-work/worktrees/nested",
+            "build/previous",
+            "node_modules",
+            ".ouro",
+        ):
             directory = self.root / name
             directory.mkdir(parents=True)
             (directory / "sentinel").write_text("do not copy")
@@ -41,12 +46,16 @@ class BuildScriptsTest(unittest.TestCase):
         (self.sdk / "go.mod").write_text("module sdk\n")
         self.tools = Path(self.tmp.name) / "tools"
         self.tools.mkdir()
-        self.env = dict(os.environ, PATH=f"{self.tools}:{os.environ['PATH']}",
-                        PIG_SOURCE_ROOT=str(self.root), SDK_FIXTURE=str(self.sdk),
-                        HOST_FIXTURE=str(self.root),
-                        PIG_HOME=str(Path(self.tmp.name) / "home"),
-                        PIG_PLUGINS_LINK_DIR=str(Path(self.tmp.name) / "bin"),
-                        TOOL_LOG=str(Path(self.tmp.name) / "tool.log"))
+        self.env = dict(
+            os.environ,
+            PATH=f"{self.tools}:{os.environ['PATH']}",
+            PIG_SOURCE_ROOT=str(self.root),
+            SDK_FIXTURE=str(self.sdk),
+            HOST_FIXTURE=str(self.root),
+            PIG_HOME=str(Path(self.tmp.name) / "home"),
+            PIG_PLUGINS_LINK_DIR=str(Path(self.tmp.name) / "bin"),
+            TOOL_LOG=str(Path(self.tmp.name) / "tool.log"),
+        )
         for name in ("GOFLAGS", "GOMAXPROCS", "PIG_BUILD_JOBS", "PIG_CODING_AGENT_DIR"):
             self.env.pop(name, None)
         self.tool("pig", 'echo "pig 0.4.1"\n')
@@ -54,12 +63,17 @@ class BuildScriptsTest(unittest.TestCase):
         # Tests never reach the network: Ouro's version lookup fails unless a test serves it.
         self.tool("curl", "exit 22\n")
         self.tool("ast-grep", "exit 0\n")
-        self.tool("git", '''case "$*" in
+        self.tool(
+            "git",
+            """case "$*" in
     *ls-files*) printf 'go.mod\\0piglet.yaml\\0prompts/agent/default/SYSTEM.md\\0' ;;
     *) exit 0 ;;
 esac
-''')
-        self.tool("go", '''printf '%s|%s|%s\\n' "${GOFLAGS:-}" "${GOMAXPROCS:-}" "$*" >> "$TOOL_LOG"
+""",
+        )
+        self.tool(
+            "go",
+            """printf '%s|%s|%s\\n' "${GOFLAGS:-}" "${GOMAXPROCS:-}" "$*" >> "$TOOL_LOG"
 case "$1" in
     run)
         if [ "$2" = ./cmd/install-ast-grep ]; then
@@ -86,12 +100,16 @@ case "$1" in
         chmod +x "$2"
         ;;
 esac
-''')
-        self.tool("builder", '''echo 'fixture fused progress' >&2
+""",
+        )
+        self.tool(
+            "builder",
+            """echo 'fixture fused progress' >&2
 while [ "$1" != --out ]; do shift; done
 printf '#!/bin/sh\\nexit 0\\n' > "$2"
 chmod +x "$2"
-''')
+""",
+        )
         self.env["BUILDER_FIXTURE"] = str(self.tools / "builder")
 
     def tool(self, name, body):
@@ -100,16 +118,27 @@ chmod +x "$2"
         path.chmod(0o755)
 
     def run_script(self, name, *args):
-        return subprocess.run([str(self.root / "scripts" / name), *map(str, args)],
-                              env=self.env, capture_output=True, text=True, timeout=10)
+        return subprocess.run(
+            [str(self.root / "scripts" / name), *map(str, args)],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
 
     def test_cursor_install_is_explicit_and_forwarded(self):
-        self.tool("cursor-binary", 'printf "cursor-invocation:%s\\n" "$*" >> "$TOOL_LOG"\n')
+        self.tool(
+            "cursor-binary", 'printf "cursor-invocation:%s\\n" "$*" >> "$TOOL_LOG"\n'
+        )
         self.env["CURSOR_BINARY_FIXTURE"] = str(self.tools / "cursor-binary")
-        self.tool("builder", '''while [ "$1" != --out ]; do shift; done
+        self.tool(
+            "builder",
+            """while [ "$1" != --out ]; do shift; done
 cp "$CURSOR_BINARY_FIXTURE" "$2"
 chmod +x "$2"
-''')
+""",
+        )
         result = self.run_script("install.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
         log = Path(self.env["TOOL_LOG"])
@@ -125,7 +154,7 @@ chmod +x "$2"
 
     def test_pinned_checkout_mismatch_stops_before_installation(self):
         self.env["PIG_PLUGINS_COMMIT"] = "a" * 40
-        self.tool("git", 'echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n')
+        self.tool("git", "echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n")
         result = self.run_script("install.sh")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checkout does not match pinned commit", result.stderr)
@@ -142,8 +171,12 @@ chmod +x "$2"
         installer.chmod(0o755)
         real_git = shutil.which("git")
         assert real_git is not None
+
         def git(*args):
-            return subprocess.check_output([real_git, "-C", str(remote), *args], text=True).strip()
+            return subprocess.check_output(
+                [real_git, "-C", str(remote), *args], text=True
+            ).strip()
+
         git("init", "--quiet")
         git("config", "user.name", "Fixture")
         git("config", "user.email", "fixture@example.invalid")
@@ -154,11 +187,22 @@ chmod +x "$2"
         git("commit", "--quiet", "-am", "new branch head")
         launcher = Path(self.tmp.name) / "bootstrap.sh"
         shutil.copy2(ROOT / "scripts/install.sh", launcher)
-        env = dict(self.env, PIG_PLUGINS_COMMIT=pinned, PIG_PLUGINS_REPO=str(remote),
-                   PIN_MARKER=str(marker))
+        env = dict(
+            self.env,
+            PIG_PLUGINS_COMMIT=pinned,
+            PIG_PLUGINS_REPO=str(remote),
+            PIN_MARKER=str(marker),
+        )
         # Bypass only the fixture git wrapper; exercise a real shallow fetch/checkout.
         env["PATH"] = os.environ["PATH"]
-        result = subprocess.run([str(launcher)], env=env, capture_output=True, text=True, timeout=15)
+        result = subprocess.run(
+            [str(launcher)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(marker.read_text(), "pinned")
 
@@ -174,7 +218,9 @@ chmod +x "$2"
                 self.assertFalse(marker.exists())
         log = Path(self.env["TOOL_LOG"]).read_text()
         self.assertIn("mod download github.com/MichaelKinsy/PiG@v0.5.1", log)
-        self.assertIn("mod download github.com/MichaelKinsy/PiG/extensions/sdk@v0.5.1", log)
+        self.assertIn(
+            "mod download github.com/MichaelKinsy/PiG/extensions/sdk@v0.5.1", log
+        )
         self.assertNotIn("@v0.4.1", log)
 
     def test_build_without_pig_on_path(self):
@@ -236,11 +282,23 @@ chmod +x "$2"
         agent = Path(self.env["PIG_HOME"]) / "agent"
         agent.mkdir(parents=True)
         repo = Path(__file__).resolve().parent.parent
-        shipped = {"SYSTEM.md": "prompts/agent/SYSTEM.md", "APPEND_SYSTEM.md": "prompts/agent/legacy/APPEND_SYSTEM.md",
-                   "AGENTS.md": "prompts/agent/AGENTS.md"}
+        shipped = {
+            "SYSTEM.md": "prompts/agent/SYSTEM.md",
+            "APPEND_SYSTEM.md": "prompts/agent/legacy/APPEND_SYSTEM.md",
+            "AGENTS.md": "prompts/agent/AGENTS.md",
+        }
         for name, path in shipped.items():
-            content = subprocess.run(["git", "show", f"8250e51:{path}"], cwd=repo, check=True, capture_output=True).stdout
-            (agent / name).write_bytes(content)
+            show = subprocess.run(
+                ["git", "show", f"8250e51:{path}"],
+                cwd=repo,
+                check=False,
+                capture_output=True,
+            )
+            if show.returncode != 0:
+                self.skipTest(
+                    "the 8250e51 release prompts need Git history, which this checkout lacks"
+                )
+            (agent / name).write_bytes(show.stdout)
         (agent / "AGENTS.md").write_text("edited by the user\n")
         result = self.run_script("install.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -261,8 +319,10 @@ chmod +x "$2"
 
     def test_extension_lock_uses_clean_module_snapshot(self):
         # Go factories resolve to the containing module, not the extension directory.
-        (self.root / '.agent-work/python').symlink_to(self.tools)
-        self.tool('builder', '''
+        (self.root / ".agent-work/python").symlink_to(self.tools)
+        self.tool(
+            "builder",
+            """
 module=$(dirname -- "$3")
 for name in .git .agent-work build node_modules .ouro go.work go.work.sum; do
     [ ! -e "$module/$name" ] || { echo "unexpected lock input: $name" >&2; exit 42; }
@@ -273,10 +333,11 @@ done
 while [ "$1" != --out ]; do shift; done
 printf '#!/bin/sh\\nexit 0\\n' > "$2"
 chmod +x "$2"
-''')
-        result = self.run_script('dev_build.sh')
+""",
+        )
+        result = self.run_script("dev_build.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.root / '.agent-work/python').is_symlink())
+        self.assertTrue((self.root / ".agent-work/python").is_symlink())
 
     def test_failure_preserves_existing_binary(self):
         out = self.root / "build/result"
@@ -300,7 +361,9 @@ chmod +x "$2"
         self.assertIn("fixture fused progress", result.stderr)
         for stage in range(1, 8):
             self.assertIn(f"install: [{stage}/7]", result.stderr)
-        self.assertTrue((Path(self.env["PIG_PLUGINS_LINK_DIR"]) / "pig-plugins").is_symlink())
+        self.assertTrue(
+            (Path(self.env["PIG_PLUGINS_LINK_DIR"]) / "pig-plugins").is_symlink()
+        )
         binary = Path(self.env["PIG_HOME"]) / "bin/pig-plugins"
         self.assertEqual(binary.read_text(), "#!/bin/sh\nexit 0\n")
         self.assertFalse((binary.parent / "pig-plugins-native").exists())
@@ -309,8 +372,24 @@ chmod +x "$2"
         (self.tools / "ast-grep").unlink()
         utilities = Path(self.tmp.name) / "utilities"
         utilities.mkdir()
-        for name in ("sh", "dirname", "tar", "mkdir", "mktemp", "date", "cmp",
-                     "cp", "mv", "rm", "chmod", "ln", "basename", "diff", "cat", "python3"):
+        for name in (
+            "sh",
+            "dirname",
+            "tar",
+            "mkdir",
+            "mktemp",
+            "date",
+            "cmp",
+            "cp",
+            "mv",
+            "rm",
+            "chmod",
+            "ln",
+            "basename",
+            "diff",
+            "cat",
+            "python3",
+        ):
             target = shutil.which(name)
             assert target is not None, f"missing fixture utility: {name}"
             (utilities / name).symlink_to(target)
@@ -322,10 +401,16 @@ chmod +x "$2"
         self.assertEqual(result.returncode, 0, result.stderr)
         dependency = Path(self.env["PIG_HOME"]) / "bin/ast-grep"
         self.assertTrue(os.access(dependency, os.X_OK))
-        self.assertEqual(Path(self.env["TOOL_LOG"]).read_text().count("run ./cmd/install-ast-grep"), 1)
+        self.assertEqual(
+            Path(self.env["TOOL_LOG"]).read_text().count("run ./cmd/install-ast-grep"),
+            1,
+        )
         result = self.run_script("install.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(Path(self.env["TOOL_LOG"]).read_text().count("run ./cmd/install-ast-grep"), 1)
+        self.assertEqual(
+            Path(self.env["TOOL_LOG"]).read_text().count("run ./cmd/install-ast-grep"),
+            1,
+        )
 
     def test_install_preserves_external_ast_grep(self):
         before = (self.tools / "ast-grep").read_bytes()
@@ -333,7 +418,9 @@ chmod +x "$2"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.tools / "ast-grep").read_bytes(), before)
         self.assertFalse((Path(self.env["PIG_HOME"]) / "bin/ast-grep").exists())
-        self.assertNotIn("run ./cmd/install-ast-grep", Path(self.env["TOOL_LOG"]).read_text())
+        self.assertNotIn(
+            "run ./cmd/install-ast-grep", Path(self.env["TOOL_LOG"]).read_text()
+        )
 
     def test_dependency_failure_stops_before_build_and_prompts(self):
         self.without_system_ast_grep()
@@ -353,7 +440,9 @@ chmod +x "$2"
         dependency.write_text("#!/bin/sh\necho managed-dependency\n")
         dependency.chmod(0o755)
         native = home_bin / "pig-plugins"
-        native.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo fixture; else ast-grep; fi\n')
+        native.write_text(
+            '#!/bin/sh\nif [ "$1" = --version ]; then echo fixture; else ast-grep; fi\n'
+        )
         native.chmod(0o755)
         result = self.run_script("pig-plugins.sh", "-p", "hello")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -389,14 +478,21 @@ chmod +x "$2"
         state = Path(self.tmp.name) / "ouro-version"
         if installed is not None:
             state.write_text(installed)
-        self.env.update(OURO_STATE=str(state), OURO_REMOTE=remote, OURO_INSTALL_DIR=str(self.tools))
-        self.tool("ouro", '''[ -f "$OURO_STATE" ] || exit 127
+        self.env.update(
+            OURO_STATE=str(state), OURO_REMOTE=remote, OURO_INSTALL_DIR=str(self.tools)
+        )
+        self.tool(
+            "ouro",
+            """[ -f "$OURO_STATE" ] || exit 127
 case "$1" in
     version) cat "$OURO_STATE"; echo ;;
     skill) printf -- '---\\nname: ouro-quality\\n---\\ntext from ouro %s\\n' "$(cat "$OURO_STATE")" ;;
 esac
-''')
-        self.tool("curl", '''url=""; out=""
+""",
+        )
+        self.tool(
+            "curl",
+            """url=""; out=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
         https://*) url=$1 ;;
@@ -409,7 +505,8 @@ case "$url" in
     */Ouro/main/install.sh) printf 'echo "$OURO_REMOTE" > "$OURO_STATE"\\necho installed >> "$TOOL_LOG"\\n' > "$out" ;;
     *) exit 22 ;;
 esac
-''')
+""",
+        )
 
     def ouro_skill(self):
         return Path(self.env["PIG_HOME"], "agent/skills/ouro-quality/SKILL.md")
@@ -454,11 +551,15 @@ esac
         self.assertFalse(self.ouro_skill().exists())
 
     def test_update_reinstalls_compatible_pig(self):
-        self.tool("curl", '''while [ "$1" != -o ]; do shift; done
+        self.tool(
+            "curl",
+            """while [ "$1" != -o ]; do shift; done
 printf '#!/bin/sh\\nprintf "%%s" "$PIG_VERSION" > "$TOOL_LOG"\\n' > "$2"
-''')
+""",
+        )
         (self.root / "COMPATIBILITY.json").write_text(
-            '{"dependencies":{"pig":{"path":"github.com/MichaelKinsy/PiG","version":"0.4.2"}}}\n')
+            '{"dependencies":{"pig":{"path":"github.com/MichaelKinsy/PiG","version":"0.4.2"}}}\n'
+        )
         self.env["PIG_PLUGINS_UPDATE"] = "1"
         self.env["PIG_INSTALL_DIR"] = str(self.tools)
         result = self.run_script("install.sh")
@@ -487,20 +588,28 @@ printf '#!/bin/sh\\nprintf "%%s" "$PIG_VERSION" > "$TOOL_LOG"\\n' > "$2"
 class PatchInventoryTest(unittest.TestCase):
     def patch_references(self, script):
         text = (ROOT / "scripts" / script).read_text()
-        return [line.split('patches/pig/', 1)[1].split('"', 1)[0]
-                for line in text.splitlines() if ' apply ' in line and 'patches/pig/' in line]
+        return [
+            line.split("patches/pig/", 1)[1].split('"', 1)[0]
+            for line in text.splitlines()
+            if " apply " in line and "patches/pig/" in line
+        ]
 
     def test_every_patch_is_used_and_numbered_consecutively(self):
         patches = sorted(path.name for path in (ROOT / "patches/pig").glob("*.patch"))
         references = self.patch_references("dev_build.sh")
         self.assertEqual(len(references), len(set(references)))
         self.assertEqual(set(patches), set(references))
-        self.assertEqual([int(name.split("-", 1)[0]) for name in patches],
-                         list(range(1, len(patches) + 1)))
+        self.assertEqual(
+            [int(name.split("-", 1)[0]) for name in patches],
+            list(range(1, len(patches) + 1)),
+        )
 
     def test_development_and_build_use_the_same_sdk_patches(self):
-        build_sdk = [name for name in self.patch_references("dev_build.sh")
-                     if name.endswith("-sdk.patch")]
+        build_sdk = [
+            name
+            for name in self.patch_references("dev_build.sh")
+            if name.endswith("-sdk.patch")
+        ]
         self.assertEqual(build_sdk, self.patch_references("gowork.sh"))
 
 

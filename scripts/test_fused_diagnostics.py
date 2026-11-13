@@ -10,8 +10,8 @@ import http.server
 import json
 import os
 import pty
-import select
 import re
+import select
 import struct
 import subprocess
 import sys
@@ -141,9 +141,7 @@ def check(binary, work):
         visible = "\n".join(
             dict.fromkeys(line.strip() for line in text.splitlines() if line.strip())
         )
-        raise AssertionError(
-            f"timeout waiting for {description}: {visible[-12000:]}"
-        )
+        raise AssertionError(f"timeout waiting for {description}: {visible[-12000:]}")
 
     try:
         env = {
@@ -185,7 +183,10 @@ def check(binary, work):
         # deliberately rejected during that window. This badge is published
         # by session_start after the normal submit handler is installed.
         pump_until(
-            lambda: b"fake-claude" in transcript and b"smart-approve-lancet lax" in transcript,
+            lambda: (
+                b"fake-claude" in transcript
+                and b"smart-approve-lancet lax" in transcript
+            ),
             "session/editor startup",
         )
         os.write(master, b"initial request")

@@ -1,16 +1,19 @@
-#!/usr/bin/env python3
 """Smoke-test a built distribution without downloading or installing anything.
 
 PIG_PLUGINS_TEST_BINARY=/absolute/path/to/pig-plugins python3 scripts/test_distribution_update.py
 """
+
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 
-@unittest.skipUnless(os.environ.get("PIG_PLUGINS_TEST_BINARY"), "set PIG_PLUGINS_TEST_BINARY to a fused build")
+@unittest.skipUnless(
+    os.environ.get("PIG_PLUGINS_TEST_BINARY"),
+    "set PIG_PLUGINS_TEST_BINARY to a fused build",
+)
 class DistributionUpdateTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -21,13 +24,19 @@ class DistributionUpdateTest(unittest.TestCase):
         self.marker = self.home / "installed"
         self.downloads = self.home / "downloads"
         self.downloads.mkdir()
-        self.env = dict(os.environ, HOME=str(self.home), PIG_HOME=str(self.home / ".pig"),
-                        PIG_CODING_AGENT_DIR=str(self.home / ".pig/agent"),
-                        PATH=f"{self.tools}:{os.environ['PATH']}", PI_OFFLINE="1",
-                        UPDATE_MARKER=str(self.marker), TMPDIR=str(self.downloads))
+        self.env = dict(
+            os.environ,
+            HOME=str(self.home),
+            PIG_HOME=str(self.home / ".pig"),
+            PIG_CODING_AGENT_DIR=str(self.home / ".pig/agent"),
+            PATH=f"{self.tools}:{os.environ['PATH']}",
+            PI_OFFLINE="1",
+            UPDATE_MARKER=str(self.marker),
+            TMPDIR=str(self.downloads),
+        )
         self.binary = str(Path(os.environ["PIG_PLUGINS_TEST_BINARY"]).resolve())
         curl = self.tools / "curl"
-        curl.write_text('''#!/bin/sh
+        curl.write_text("""#!/bin/sh
 set -eu
 while [ "$1" != -o ]; do url=$1; shift; done
 case "$url" in
@@ -40,19 +49,31 @@ case "$url" in
     exit "${DOWNLOAD_EXIT:-0}" ;;
   *) exit 1 ;;
 esac
-''')
+""")
         curl.chmod(0o755)
 
     def run_binary(self, *args):
-        return subprocess.run([self.binary, *args], env=self.env, cwd=self.home,
-                              capture_output=True, text=True, timeout=30)
+        return subprocess.run(
+            [self.binary, *args],
+            env=self.env,
+            cwd=self.home,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
 
     def test_self_update_routes(self):
-        for args in (("update",), ("--update",), ("update", "--self"),
-                     ("update", "pig"), ("update", "--force"),
-                     ("update", "--self", "--force"),
-                     ("update", "--self", "--extensions"),
-                     ("update", "--self", "--extensions", "--force")):
+        for args in (
+            ("update",),
+            ("--update",),
+            ("update", "--self"),
+            ("update", "pig"),
+            ("update", "--force"),
+            ("update", "--self", "--force"),
+            ("update", "--self", "--extensions"),
+            ("update", "--self", "--extensions", "--force"),
+        ):
             with self.subTest(args=args):
                 self.marker.unlink(missing_ok=True)
                 result = self.run_binary(*args)
