@@ -8,7 +8,7 @@ All notable changes to pig-plugins are documented here.
 
 - Add `/tool-settings` for global tool and skill permissions, native or Hashline file tools, and estimated context sizes. Enter saves and reloads.
 - Add collapsible categories that start closed. Group deferred tools together and show `VISIBLE` or `HIDDEN` based on the discovery setting.
-- Add `default`, `minimum`, `native`, and `default-benchmark` profiles through the menu and `--profile`. Launch profiles leave saved settings unchanged.
+- Add `default`, `minimal`, and `default-benchmark` profiles through the menu and `--profile`. The `minimal` profile uses native `read`, `edit`, `write`, and `bash`, with no discovery or skills. Launch profiles leave saved settings unchanged.
 - Use native `read`, `edit`, and `write` by default. Keep Hashline as an explicit option in `/tool-settings`.
 - Allow all non-browser tools in the default profile. Initially declare only `read`, `write`, `edit`, `bash`, and permitted `tool_search`.
 - Load other permitted tools through discovery for the current request. Release discovered tools at settlement and limit discovery to 20 activations per request.
@@ -20,6 +20,8 @@ All notable changes to pig-plugins are documented here.
 - Show live request elapsed time and a final elapsed-time message after settlement, including requests with tool follow-up calls.
 - Suggest an existing trimmed path when a `read` or `edit` path fails because of surrounding whitespace. Never retry automatically or change `write` paths.
 - Make explicit `/skill:format-commit` invocation create the requested commit. Message-only requests and workflow loading do not authorize extra commits.
+- Show the pig-plugins version in `--version` and in the `version` command. `PIG_VERSION_FORMAT=pi` still prints only the Pi version.
+- Build the `ouro-quality` skill from the output of `ouro skill`. The installer installs or updates `ouro` from the Ouro repository when it is missing or its version differs. The new skill text replaces the old one without a backup.
 
 ### Bugfixes
 
@@ -30,6 +32,10 @@ All notable changes to pig-plugins are documented here.
 - Keep Parallel and Exa search backends behind `web_search`. Preserve permission checks and ownership when discovery activates a wrapper dependency.
 - Remove automatic direct-tool fallbacks when discovery is disabled or unavailable. Keep only permitted core tools and show a warning.
 - Initialize the built-in prompt before other extensions append instructions. Preserve project trust, file validation, and workspace confinement.
+- Stop the stack-trace output at startup. When session auto-resume replaces the session, `better-footer` and `browser-use` now end their abandoned `session_start` handlers without an error. Other panics still appear.
+- Hide the transient `git` exit warning in `better-footer`. The footer keeps its last counts and tries again at the next refresh. Timeouts and missing `git` still warn.
+- After a quota failure in `auto-models`, rotate to an account that has at least 5% quota left. If none exists, use any account with known positive quota. Proactive rotation still keeps 5%.
+- Abort the run before a mid-run compact in `compact-settings`, so the next model request cannot leave first. A prompt that arrives during a compact now waits for it and checks the limit again.
 
 ### Other
 
@@ -39,6 +45,9 @@ All notable changes to pig-plugins are documented here.
 - Build with `CGO_ENABLED=0` through `make install`. Add `make verify-static` to inspect ELF dependencies without executing the binary.
 - Document that CGO-free output still requires shared libraries through the ONNX/purego path. Full static linking is not established.
 - Stop installing prompt files into the agent directory. Remove only known copies from earlier releases and preserve user-modified files.
+- Clear all `golangci-lint` findings, pass the Python and JavaScript quality gates, and add `scripts/ouro-go.sh` and `scripts/ouro-js.sh` to run gate commands in an Ouro snapshot. Add an ESLint configuration to the vendored `image-view` fixture.
+- Fix browser-use and goal fused tests that the five-tool core had broken. Add `RPCOptions.SettleWait` to the RPC test harness.
+- Remove the bundled `ouro-quality` skill from this repository.
 
 ### Breaking Changes
 
@@ -47,6 +56,9 @@ All notable changes to pig-plugins are documented here.
 - Remove legacy prompt selection. Old `promptStyle` settings are ignored. Use a custom `SYSTEM.md` to override the built-in default.
 - Native file tools replace Hashline as the default. Select Hashline in `/tool-settings` if your workflow requires anchors and version checks.
 - Non-core tools no longer appear automatically when discovery is unavailable. Enable `tool_search` in `/tool-settings` to use deferred tools.
+- Remove the `minimum` and `native` profiles. `--profile minimum` and `--profile native` now fail. Use `--profile minimal`, or select Hashline in `/tool-settings`.
+- Cursor error messages now start with a lower-case letter. Update any code that matches the old text.
+- The installer no longer ships its own `ouro-quality` skill. It needs network access, `git`, and `go` to get the skill from `ouro skill`. The old STE writing section and `references/STE_WRITING.md` are not part of the new skill text.
 
 ## [0.3.3] - 2026-11-09
 
