@@ -10,6 +10,10 @@
 #   <agent>/keybindings.json                   copied from config/agent/ only when absent; never overwritten
 #   <agent>/skills/<name>/         copied from skills/ (every directory holding a SKILL.md); a differing
 #                                  existing skill moves to <agent>/skills-backup/<timestamp>/<name>
+#   <agent>/skills/ouro-quality/   the output of `ouro skill`. The installer installs or updates ouro from
+#                                  https://github.com/VBenevides/Ouro when it is missing or its version differs from
+#                                  main's VERSION. The new text replaces the old skill without a backup. A failure only warns, and the
+#                                  previous skill stays in place
 #
 # <home> is $PIG_HOME or ~/.pig; <agent> is $PIG_CODING_AGENT_DIR or <home>/agent.
 # Re-running replaces the copy with the current repository state.
@@ -166,23 +170,71 @@ if [ -f "$keys_source" ]; then
     fi
 fi
 
+# install_skill SOURCE NAME: copy one skill directory into the agent directory. A differing existing skill moves
+# to skills-backup first.
+install_skill() {
+    target="$agent_dir/skills/$2"
+    mkdir -p -- "$agent_dir/skills"
+    if [ -e "$target" ] && ! diff -rq -- "$1" "$target" >/dev/null 2>&1; then
+        # Backups stay outside skills/ so PiG does not discover them as duplicate skills.
+        mkdir -p -- "$agent_dir/skills-backup/$stamp"
+        mv -- "$target" "$agent_dir/skills-backup/$stamp/$2"
+    fi
+    if [ ! -e "$target" ]; then
+        cp -R -- "$1" "$target.tmp.$$"
+        mv -- "$target.tmp.$$" "$target"
+    fi
+}
+
+# sync_ouro WORKDIR: make the installed ouro match the VERSION on Ouro's main branch, then save the text of
+# `ouro skill` as WORKDIR/ouro-quality/SKILL.md. Ouro owns that skill; this repository does not ship it.
+# A failure returns non-zero after printing the cause, so an offline install still finishes.
+sync_ouro() {
+    ouro_raw=https://raw.githubusercontent.com/VBenevides/Ouro/main
+    command -v curl >/dev/null 2>&1 || { echo "install: curl is required to install ouro" >&2; return 1; }
+    curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 10 --max-time 60 --max-filesize 4096 \
+        "$ouro_raw/VERSION" -o "$1/VERSION" >"$log" 2>&1 || { echo "install: could not read the Ouro version" >&2; cat -- "$log" >&2; return 1; }
+    ouro_remote=$(tr -d '[:space:]' <"$1/VERSION")
+    case "$ouro_remote" in
+        ''|*[!0-9A-Za-z.+-]*) echo "install: invalid Ouro version from main" >&2; return 1 ;;
+    esac
+    ouro_local=
+    if command -v ouro >/dev/null 2>&1; then
+        ouro_local=$(ouro version 2>/dev/null | tr -d '[:space:]') || ouro_local=
+    fi
+    if [ "$ouro_local" = "$ouro_remote" ]; then
+        echo "install: ouro $ouro_local is current" >&2
+    else
+        echo "install: installing ouro $ouro_remote (installed: ${ouro_local:-none})" >&2
+        curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 10 --max-time 60 --max-filesize 1048576 \
+            "$ouro_raw/install.sh" -o "$1/install.sh" >"$log" 2>&1 || { echo "install: could not download the Ouro installer" >&2; cat -- "$log" >&2; return 1; }
+        sh "$1/install.sh" >"$log" 2>&1 || { echo "install: ouro installation failed (it needs git and go)" >&2; cat -- "$log" >&2; return 1; }
+        # Ouro installs to ~/.local/bin by default, which may not be on PATH yet.
+        PATH="${OURO_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
+        export PATH
+        command -v ouro >/dev/null 2>&1 || { echo "install: ouro is not on PATH after installation" >&2; return 1; }
+    fi
+    mkdir -p -- "$1/ouro-quality"
+    ouro skill >"$1/ouro-quality/SKILL.md" 2>"$log" || { echo "install: 'ouro skill' failed" >&2; cat -- "$log" >&2; return 1; }
+    grep -q '^name: ouro-quality$' "$1/ouro-quality/SKILL.md" || { echo "install: 'ouro skill' did not print the ouro-quality skill" >&2; return 1; }
+}
+
 # 6. Copy the skills into the agent directory.
 echo "install: [6/7] installing skills" >&2
 for skill in "$dest"/skills/*/; do
     [ -f "$skill/SKILL.md" ] || continue
-    name=$(basename -- "$skill")
-    target="$agent_dir/skills/$name"
-    mkdir -p -- "$agent_dir/skills"
-    if [ -e "$target" ] && ! diff -rq -- "$skill" "$target" >/dev/null 2>&1; then
-        # Backups stay outside skills/ so PiG does not discover them as duplicate skills.
-        mkdir -p -- "$agent_dir/skills-backup/$stamp"
-        mv -- "$target" "$agent_dir/skills-backup/$stamp/$name"
-    fi
-    if [ ! -e "$target" ]; then
-        cp -R -- "$skill" "$target.tmp.$$"
-        mv -- "$target.tmp.$$" "$target"
-    fi
+    install_skill "$skill" "$(basename -- "$skill")"
 done
+ouro_work=$(mktemp -d "${TMPDIR:-/tmp}/pig-ouro.XXXXXX")
+if sync_ouro "$ouro_work"; then
+    # Ouro owns this skill, so the new text replaces the old one without a backup.
+    mkdir -p -- "$agent_dir/skills"
+    rm -rf -- "$agent_dir/skills/ouro-quality"
+    cp -R -- "$ouro_work/ouro-quality" "$agent_dir/skills/ouro-quality"
+else
+    echo "install: ouro-quality skill not updated; fix the error above and run the installer again" >&2
+fi
+rm -rf -- "$ouro_work"
 
 
 if [ "$install_cursor" -eq 1 ]; then

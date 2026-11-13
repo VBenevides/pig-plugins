@@ -51,6 +51,8 @@ class BuildScriptsTest(unittest.TestCase):
             self.env.pop(name, None)
         self.tool("pig", 'echo "pig 0.4.1"\n')
         self.tool("node", "exit 0\n")
+        # Tests never reach the network: Ouro's version lookup fails unless a test serves it.
+        self.tool("curl", "exit 22\n")
         self.tool("ast-grep", "exit 0\n")
         self.tool("git", '''case "$*" in
     *ls-files*) printf 'go.mod\\0piglet.yaml\\0prompts/agent/default/SYSTEM.md\\0' ;;
@@ -381,6 +383,75 @@ chmod +x "$2"
         self.assertEqual((home_bin / "pig-plugins").read_text(), "#!/bin/sh\nexit 0\n")
         self.assertFalse((home_bin / "pig-plugins-native").exists())
         self.assertFalse((home_bin / "pig-plugins-raw").exists())
+
+    def serve_ouro(self, remote, installed=None):
+        """Fake the Ouro release (curl) and the ouro executable. installed=None means ouro is not installed."""
+        state = Path(self.tmp.name) / "ouro-version"
+        if installed is not None:
+            state.write_text(installed)
+        self.env.update(OURO_STATE=str(state), OURO_REMOTE=remote, OURO_INSTALL_DIR=str(self.tools))
+        self.tool("ouro", '''[ -f "$OURO_STATE" ] || exit 127
+case "$1" in
+    version) cat "$OURO_STATE"; echo ;;
+    skill) printf -- '---\\nname: ouro-quality\\n---\\ntext from ouro %s\\n' "$(cat "$OURO_STATE")" ;;
+esac
+''')
+        self.tool("curl", '''url=""; out=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        https://*) url=$1 ;;
+        -o) out=$2; shift ;;
+    esac
+    shift
+done
+case "$url" in
+    */Ouro/main/VERSION) printf '%s\\n' "$OURO_REMOTE" > "$out" ;;
+    */Ouro/main/install.sh) printf 'echo "$OURO_REMOTE" > "$OURO_STATE"\\necho installed >> "$TOOL_LOG"\\n' > "$out" ;;
+    *) exit 22 ;;
+esac
+''')
+
+    def ouro_skill(self):
+        return Path(self.env["PIG_HOME"], "agent/skills/ouro-quality/SKILL.md")
+
+    def test_ouro_missing_is_installed_and_its_skill_is_used(self):
+        self.serve_ouro("0.2.0")
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("installed", Path(self.env["TOOL_LOG"]).read_text())
+        self.assertIn("text from ouro 0.2.0", self.ouro_skill().read_text())
+
+    def test_ouro_with_a_different_version_is_reinstalled(self):
+        self.serve_ouro("0.2.0", installed="0.1.4")
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("text from ouro 0.2.0", self.ouro_skill().read_text())
+
+    def test_current_ouro_is_not_reinstalled(self):
+        self.serve_ouro("0.2.0", installed="0.2.0")
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("installed", Path(self.env["TOOL_LOG"]).read_text())
+        self.assertIn("text from ouro 0.2.0", self.ouro_skill().read_text())
+
+    def test_ouro_skill_replaces_the_old_skill_without_backup(self):
+        self.ouro_skill().parent.mkdir(parents=True)
+        self.ouro_skill().write_text("old bundled skill")
+        (self.ouro_skill().parent / "stale.md").write_text("stale")
+        self.serve_ouro("0.2.0", installed="0.2.0")
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("text from ouro 0.2.0", self.ouro_skill().read_text())
+        self.assertFalse((self.ouro_skill().parent / "stale.md").exists())
+        self.assertFalse(Path(self.env["PIG_HOME"], "agent/skills-backup").exists())
+
+    def test_ouro_failure_warns_and_keeps_installing(self):
+        # setUp's curl fails for every URL, as when the machine is offline.
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("could not read the Ouro version", result.stderr)
+        self.assertIn("ouro-quality skill not updated", result.stderr)
+        self.assertFalse(self.ouro_skill().exists())
 
     def test_update_reinstalls_compatible_pig(self):
         self.tool("curl", '''while [ "$1" != -o ]; do shift; done
