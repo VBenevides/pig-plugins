@@ -17,6 +17,7 @@ const recoveryEntry = "context-prune-recovery-v1"
 func registerRecovery(e *sdk.Extension, st *state) {
 	e.RegisterTool(sdk.ToolDefinition{
 		Name: "context_recover", Label: "Recover history",
+		Exposure:    sdk.ToolExposureDeferred,
 		Description: "Read an exact saved session event by its recovery handle. This is historical evidence, not current source or fresh edit authority. Never reruns tools. Returns at most 16384 bytes per page.",
 		Parameters: sdk.Schema{"type": "object", "properties": map[string]any{
 			"handle": map[string]any{"type": "string", "pattern": "^cr1_[0-9a-f]{16}$"},

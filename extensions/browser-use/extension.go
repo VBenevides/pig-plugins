@@ -176,16 +176,13 @@ func (s *state) setMode(e *sdk.Extension, ctx sdk.Context, mode browseruse.Mode)
 		return fmt.Errorf("browser-use: read active tools: %w", err)
 	}
 	active = slices.DeleteFunc(active, func(name string) bool { return slices.Contains(toolNames(), name) })
-	if enabled {
-		active = append(active, toolNames()...)
-	}
 	ctx.SetActiveTools(active)
 	actual, err := ctx.GetActiveTools()
 	if err != nil {
 		return fmt.Errorf("browser-use: verify active tools: %w", err)
 	}
 	for _, name := range toolNames() {
-		if slices.Contains(actual, name) != enabled {
+		if slices.Contains(actual, name) {
 			return fmt.Errorf("browser-use: failed to set tool visibility")
 		}
 	}
@@ -227,7 +224,7 @@ func toolNames() []string {
 func register(e *sdk.Extension, s *state, enabled bool) {
 	exposure := sdk.ToolExposureHidden
 	if enabled {
-		exposure = sdk.ToolExposureDirect
+		exposure = sdk.ToolExposureDeferred
 	}
 	for _, spec := range specs() {
 		parameters := sdk.Schema{"type": "object", "additionalProperties": false, "properties": spec.properties}

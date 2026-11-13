@@ -554,8 +554,8 @@ It does not prevent startup or affect read/edit.
 ast_search({ pattern: "println($A)", lang: "go", path: "internal", limit: 50 })
 ```
 
-`ast_search` is deferred when tool discovery is available, and directly active
-otherwise. It is also available in ASK mode. It returns discovery-only snippets
+`ast_search` is deferred and is also available in ASK mode after discovery.
+It returns discovery-only snippets
 and 1-based source locations (exclusive end); call `read` for fresh edit anchors,
 version tokens and displayed-source authority before editing. Search never
 grants edit authority and exposes no rewrite/update flags. Existing read/edit/write
@@ -692,7 +692,7 @@ Positions use zero-based `line` and UTF-16 `character`.
 It adds read-only `lsp_rename_preview`, `code_overview`, and `code_search` from the `harness-code` reference.
 Structural search uses the existing outline heuristics, not an AST parser.
 Query and body expressions use bounded ECMAScript regexes.
-All eight tools are deferred. A session without `tool_search` or `codemode` activates them directly.
+All LSP tools are deferred. Without discovery, they remain undeclared.
 
 Global configuration lives at `<agent dir>/lsp.json`.
 `PI_AGENT_DIR`, when set, selects the original upstream configuration directory.
@@ -731,7 +731,7 @@ Do not enable `harness-code`, the TypeScript twin, at the same time.
 The native Go extension ports `pi-web-search@1.6.0`.
 `web_search` tries **Parallel MCP → current-model native search → Exa MCP**, stopping at the first success.
 `web_search` is deferred. Enable `builtin:tool-search` or `codemode` to discover it.
-Sessions without either discovery tool activate it directly.
+Without discovery, web tools remain undeclared. `url_context` is also deferred.
 Enable PiG's `builtin:mcp` support. With an explicit `--tools` allowlist, include `web_search`,
 `mcp__parallel__web_search`, and `mcp__exa__web_search_exa`; deferred exposure keeps them out of the initial model declaration.
 Supported transports are Google Gemini, OpenAI Responses (including Azure, Codex and Copilot),
@@ -895,9 +895,8 @@ Files must be regular UTF-8 files within the project, at most 256 KiB each.
 
 Enables the built-in `tool_search` tool at session start. `/tool-search on` and
 `/tool-search off` enable or disable discovery; `/tool-search` shows its current state.
-New sessions and `/reload` enable it again. Other active tools are preserved.
-Turning discovery off does not unload previously discovered tools or disable MCP
-servers, and tools remain reachable through `codemode` if it is active.
+New sessions and `/reload` enable it again, subject to permissions. Before each user request, tool-settings exposes only `read`, `write`, `edit`, `bash`, and permitted `tool_search`. Other permitted tools load through discovery for that request. Without discovery, only the four core tools remain exposed and a warning is shown.
+Disabling discovery does not stop MCP servers. Discovered tools expire at the safe request boundary.
 Discovery searches registered session tools; it does not scan directories or install tools.
 
 ## compact-settings
@@ -966,6 +965,8 @@ The working indicator shows `Working - 00h 00m 00s` during a request, including 
 ## tool-settings
 
 Run `/tool-settings` to choose global tool and skill settings. The compact table shows eight entries at a time, with details for the selected entry and totals below. Tools are grouped into categories (Files, Shell, MCP servers, extensions). Space on a category header toggles every tool in it (`[~]` means partly enabled); Left/Right folds or unfolds it. Use Tab to switch tabs, Up/Down to select an entry, and Space to change its checkbox. Press `?` to show or hide help and loaded-context totals. Enter saves and reloads extensions; Escape cancels. R asks for confirmation before it restores the original tool states and enables skill discovery.
+
+Default permissions allow other tools, but their schemas remain deferred. Goal, todo, and ask-mode instructions remain independent of schema exposure.
 
 Press P for profiles: 1 selects **default** (default tool permissions and all skills), 2 selects **minimum** (`read`, `bash`, `edit`, and `write`, with no skills and Hashline file tools), 3 selects **native** (the same four tools and no skills, with native file tools), and 4 selects **default-benchmark** (default with `ask_user_question` disabled). Names are case-insensitive. Default and default-benchmark use native read/edit/write. Fresh settings and older settings without `nativeFiles` also use native tools. An explicit `nativeFiles: false` keeps Hashline. Enter saves and reloads; Escape cancels. The minimum and native profiles block newly added tools and skills unless explicitly enabled. Default and default-benchmark remove that restriction. Settings and recovery commands remain available.
 

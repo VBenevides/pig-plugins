@@ -68,6 +68,7 @@ func Extension() *sdk.Extension {
 	})
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:        "goal_finish",
+		Exposure:    sdk.ToolExposureDeferred,
 		Label:       "Goal finish",
 		Description: "End the active /goal. Use outcome \"reached\" when the objective is complete and verified, or \"blocked\" when everything left needs something you cannot supply. Fails when no goal is active.",
 		Parameters: sdk.Schema{

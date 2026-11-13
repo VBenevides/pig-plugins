@@ -11,9 +11,10 @@ Permission and exposure are separate states. A permission allows execution throu
 | Conditional | Included only while its condition is true | Must not bypass the condition | Check the condition again |
 | Backend | Omitted from direct use | Prefer wrapper-only access | Normal hooks through the wrapper |
 
-The approved direct core is `read`, `edit`, `write`, `bash`, and `tool_search`. Audit exceptions before rollout.
-Discovered tools should remain active through the current user request. Release them at a safe boundary.
-If discovery is unavailable, preserve compatible behavior and show a warning. Do not expose the entire catalog silently.
+The initial direct core is `read`, `edit`, `write`, `bash`, and `tool_search`, subject to saved permissions.
+The default uses native file tools. Hashline remains an explicit setting. Minimum and native still restrict permissions.
+Before each user request, tool-settings removes non-core activations. Discovered tools remain active through the request and are released at agent_settled.
+If discovery is unavailable or disabled, only the four core tools remain exposed. Show a warning; do not activate the other tools automatically.
 
 ## Source inventory
 
@@ -23,17 +24,16 @@ This inventory describes the pinned PiG 0.5.1 SDK and local registrations. It do
 |---|---|---|---|
 | Host | `read`, `edit`, `write`, `bash` | Direct | Permissions and file implementation |
 | Host and tool-search extension | `tool_search` | Model-only | Built-in discovery must be installed and active |
-| Goal extension | `goal_finish` | Direct with a loadout guard | Working goal and permission |
-| Web-search extension | `web_search` | Deferred | Discovery, or existing direct fallback without discovery |
-| Web-search extension | `url_context` | Direct | Compatible conversation model |
+| Goal extension | `goal_finish` | Deferred with a loadout guard | Working goal and permission; execution checks the condition again |
+| Web-search extension | `web_search`, `url_context` | Deferred | Model support and permissions |
 | Web-search MCP registration | Parallel and Exa tools | Deferred MCP | Wrapper fallback and permissions |
-| LSP extension | `lsp_*` | Deferred | Language server availability |
+| LSP extension | `lsp_*`, `code_search`, `code_overview` | Deferred | Language server availability |
 | AST search extension | `ast_search` | Deferred | Parser support |
-| Pi curator extension | Memory tools | Deferred | Memory service configuration |
-| Browser extension | Browser tools | Registration-dependent | Browser configuration and activation |
-| Todo extension | `todo` | Deferred | Direct fallback with a warning when discovery is inactive |
-| Ask-user-question extension | `ask_user_question` | Model-only | Interactive input support |
-| Host or other providers | Repository and recovery tools | Inspect runtime metadata | Do not infer ownership or dependencies from tool names |
+| Pi curator source, not bundled | Memory tools | Deferred | Explicit external loading only |
+| Browser extension | Browser tools | Deferred when enabled, hidden when off | Browser configuration and mode |
+| Todo extension | `todo` | Deferred | Instructions remain independent of schema exposure |
+| Ask-user-question extension | `ask_user_question` | Deferred | Interactive input support |
+| Context-prune extension | `context_recover` | Deferred | Use discovery before reading saved output |
 
 `ToolInfo.Exposure` reports registration metadata. `GetActiveTools` reports activation, not permission.
 `HiddenTools` alone does not establish the exact provider request or the reason a declaration is absent.
@@ -44,7 +44,7 @@ Runtime MCP inventories can change. Use actual registry metadata and captured re
 The pinned host implements discovery in `coding/extension/builtin/toolsearch/tool.go`.
 It searches only `deferred` and `codemode` registrations that are not active.
 It activates matches through `SetActiveTools`. Results contain names and descriptions, not complete schemas.
-Direct tools such as `goal_finish` are not discovery candidates.
+Direct tools are not discovery candidates. All bundled non-core tools register as deferred, or hidden while disabled.
 The native search loop does not consult this project's saved permission file or a general lifecycle predicate.
 The tool-search extension filters denied activations before the next declaration. It redirects verified search dependencies to web_search.
 It releases only its reported discoveries at agent_settled. Pre-existing and codemode-owned activations are not removed.
@@ -55,7 +55,7 @@ The SDK provides `PrepareLoadout` and `HiddenDeclarations`. A tool can hide its 
 The SDK does not provide a general registration-time lifecycle predicate or a backend-only exposure value.
 Do not edit generated SDK copies to add those contracts. Use maintained host patches if required.
 
-## Goal request evidence
+## Earlier goal request evidence
 
 `extensions/goal/exposure_test.go` captures mock-provider requests.
 Before the change, `goal_finish` appeared without a goal and remained after completion. Both regression tests failed.
@@ -75,7 +75,10 @@ The help pane separates discoverable schemas from current schema estimates and l
 Loaded bodies from user-only skills are still counted. Old messages are not removed.
 Schema estimates exclude provider wrappers and shared instructions. They are not exact provider token counts.
 
-Audited direct exceptions: url_context keeps its existing model-dependent visibility. ask_user_question keeps model-only exposure to preserve interactive input and nested-call restrictions.
+## Five-tool request checks
+
+`extensions/tool-settings/discovery_test.go` captures initial, post-discovery, and next-request schemas with local mock providers. It covers todo, user questions, recovery, URL context, conditional goal completion, and enabled browser tools. Separate execution fixtures explicitly activate deferred tools; those fixtures are not used for discovery checks.
+Tool instructions can still add context independently. Goal, todo, and ask-mode instructions remain enabled. Schema deferral does not remove old messages or tool results.
 
 ## Rollout gates
 

@@ -81,7 +81,7 @@ func Extension() *sdk.Extension {
 		}
 		return nil, nil
 	})
-	e.RegisterCommand(Name, sdk.CommandOptions{Description: "Choose tools, skills, and prompt style (S switches default/legacy)", Handler: func(ctx sdk.Context, _ string) error {
+	e.RegisterCommand(Name, sdk.CommandOptions{Description: "Choose global tools and skills", Handler: func(ctx sdk.Context, _ string) error {
 		mu.Lock()
 		snapshot := maps.Clone(loaded)
 		mu.Unlock()
@@ -103,14 +103,20 @@ func apply(ctx sdk.Context) error {
 	if err != nil {
 		return err
 	}
+	// Start each user request with only the core declarations. Permissions remain broad;
+	// deferred tools become active only after discovery and remain active for that request.
 	for _, tool := range tools {
-		deferred := tool.Exposure == sdk.ToolExposureDeferred || tool.Exposure == sdk.ToolExposureCodemode
-		if !deferred && (cfg.EnabledTools[tool.Name] || cfg.ToolAllowlist != nil && cfg.ToolEnabled(tool.Name)) && !slices.Contains(active, tool.Name) {
+		if coreTool(tool.Name) && tool.Name != "tool_search" && cfg.ToolEnabled(tool.Name) && !slices.Contains(active, tool.Name) {
 			active = append(active, tool.Name)
 		}
 	}
-	enabled := slices.DeleteFunc(slices.Clone(active), func(name string) bool { return !cfg.ToolEnabled(name) })
+	enabled := slices.DeleteFunc(slices.Clone(active), func(name string) bool {
+		return !cfg.ToolEnabled(name) || !coreTool(name)
+	})
 	ctx.SetActiveTools(enabled)
+	if !slices.Contains(enabled, "tool_search") {
+		ctx.Notify("Tool discovery is unavailable. Only read, write, edit, and bash remain exposed.", "warning")
+	}
 	return nil
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
@@ -26,16 +25,6 @@ func Extension() *sdk.Extension {
 			"path":    map[string]any{"type": "string", "description": "Source file or directory; default working directory"},
 			"limit":   map[string]any{"type": "integer", "minimum": 1, "maximum": astsearch.MaxResults, "description": "Maximum matches (default 50)"},
 		}}, Execute: execute,
-	})
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
-		tools, err := ctx.GetActiveTools()
-		if err != nil {
-			return nil, err
-		}
-		if !slices.Contains(tools, "tool_search") && !slices.Contains(tools, "codemode") && !slices.Contains(tools, "ast_search") {
-			ctx.SetActiveTools(append(tools, "ast_search"))
-		}
-		return nil, nil
 	})
 	return e
 }

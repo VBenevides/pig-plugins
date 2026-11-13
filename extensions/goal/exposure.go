@@ -22,14 +22,11 @@ func (x *extension) syncFinishExposure(ctx sdk.Context) error {
 	if err != nil {
 		return fmt.Errorf("goal: read active tools: %w", err)
 	}
-	if slices.Contains(active, "goal_finish") == want {
+	// A working goal permits discovery, not automatic declaration.
+	if want || !slices.Contains(active, "goal_finish") {
 		return nil
 	}
-	if want {
-		active = append(active, "goal_finish")
-	} else {
-		active = slices.DeleteFunc(active, func(name string) bool { return name == "goal_finish" })
-	}
+	active = slices.DeleteFunc(active, func(name string) bool { return name == "goal_finish" })
 	ctx.SetActiveTools(active)
 	return nil
 }

@@ -42,7 +42,7 @@ func TestProviderRecoversSavedOutputWithoutRerunningTheRead(t *testing.T) {
 	replies = append(replies, recoverReply, recoverReply, pigtest.Text("done"))
 	mock := pigtest.NewMockLLM(replies...)
 	defer mock.Close()
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionDir(t)}, Prompts: []string{"one long task"}})
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{extensionDir(t), pigtest.ActivateDeferredForTest(t)}, Prompts: []string{"one long task"}})
 	requests := mock.Requests()
 	if len(requests) != 19 {
 		t.Fatalf("want 19 requests, got %d; notices=%q stderr=%s", len(requests), result.Notices(), result.Stderr)

@@ -19,7 +19,17 @@ func Extension() *sdk.Extension {
 	e.OnEvent(sdk.EventToolResult, state.result)
 	e.OnEvent(sdk.EventAgentSettled, state.settle)
 	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
-		return nil, setEnabled(ctx, true)
+		tools, err := ctx.GetAllTools()
+		if err != nil {
+			return nil, err
+		}
+		for _, tool := range tools {
+			if tool.Name == toolName {
+				return nil, setEnabled(ctx, true)
+			}
+		}
+		ctx.Notify("Tool discovery is unavailable. Only the four core tools remain exposed.", "warning")
+		return nil, nil
 	})
 	e.RegisterCommand(Name, sdk.CommandOptions{
 		Description: "Enable or disable tool discovery (/tool-search on|off; no argument shows status)",

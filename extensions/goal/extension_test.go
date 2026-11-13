@@ -25,7 +25,8 @@ func run(t *testing.T, script []pigtest.Reply, setup func(home *pigtest.Home), p
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{path}, Prompts: prompts})
+	// Explicit activation isolates goal execution from discovery, which has separate request tests.
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{path, pigtest.ActivateDeferredForTest(t)}, Prompts: prompts})
 	for _, event := range result.Events {
 		if event["type"] == "extension_error" || event["notifyType"] == "error" {
 			t.Fatalf("extension failed: %v", event)
@@ -188,7 +189,7 @@ func TestGoalFinishWithoutGoalFails(t *testing.T) {
 		pigtest.Text("ok"),
 	}, nil, "plain prompt")
 	results := pigtest.ToolResults(mock)
-	if len(results) != 1 || !strings.Contains(results[0], "Tool goal_finish not found") {
+	if len(results) != 1 || !strings.Contains(results[0], "goal_finish: no goal is active") {
 		t.Fatalf("tool results = %q", results)
 	}
 }

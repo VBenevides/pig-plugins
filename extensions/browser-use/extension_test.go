@@ -17,7 +17,8 @@ func extensionPaths(t *testing.T) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return []string{path}
+	// These tests cover browser execution and mode changes, not discovery.
+	return []string{path, pigtest.ActivateDeferredForTest(t)}
 }
 
 func TestModeVisibilityAndInvalidArguments(t *testing.T) {

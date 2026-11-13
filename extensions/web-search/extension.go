@@ -7,7 +7,6 @@ import (
 	"fmt"
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/sdkctx"
-	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 	"github.com/VBenevides/pig-plugins/internal/websearch"
 	"os"
 	"slices"
@@ -29,10 +28,7 @@ func Extension() *sdk.Extension {
 	registerSearchServers(e)
 	for _, name := range []string{"web_search", "url_context"} {
 		urlOnly := name == "url_context"
-		exposure := sdk.ToolExposureDirect
-		if !urlOnly {
-			exposure = sdk.ToolExposureDeferred
-		}
+		exposure := sdk.ToolExposureDeferred
 		urls := map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 20}
 		required := []string{"query"}
 		if urlOnly {
@@ -43,20 +39,6 @@ func Extension() *sdk.Extension {
 	}
 	for _, event := range []string{sdk.EventSessionStart, sdk.EventSessionTree, sdk.EventModelSelect} {
 		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
-			if event == sdk.EventSessionStart {
-				active, err := ctx.GetActiveTools()
-				if err != nil {
-					return nil, err
-				}
-				cfg, err := toolsettings.LoadEffective(toolsettings.Path())
-				if err != nil {
-					return nil, fmt.Errorf("web-search: read fallback permissions: %w", err)
-				}
-				if cfg.ToolEnabled("web_search") && !slices.Contains(active, "web_search") && !slices.Contains(active, "tool_search") && !slices.Contains(active, "codemode") {
-					ctx.SetActiveTools(append(active, "web_search"))
-					ctx.Notify("web_search remains directly available because tool discovery is inactive.", "warn")
-				}
-			}
 			return nil, x.sync(ctx)
 		})
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/VBenevides/pig-plugins/internal/hashline"
 	"github.com/VBenevides/pig-plugins/internal/pigtest"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
 func TestArgumentValidation(t *testing.T) {
@@ -47,6 +48,9 @@ func TestSearchReadEditInNativeHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := pigtest.NewHome(t)
+	if err := toolsettings.Save(filepath.Join(home.AgentDir(), toolsettings.FileName), toolsettings.Config{NativeFiles: false}); err != nil {
+		t.Fatal(err)
+	}
 	source := "package example\nfunc Example() { println(1) }\n"
 	path := filepath.Join(home.Work, "example.go")
 	if err := os.WriteFile(path, []byte(source), 0600); err != nil {
@@ -59,7 +63,7 @@ func TestSearchReadEditInNativeHost(t *testing.T) {
 		pigtest.Calls(pigtest.Call("read", map[string]any{"path": "example.go", "offset": 2, "limit": 1})),
 		pigtest.Calls(pigtest.Call("edit", edit)), pigtest.Text("done"))
 	defer mock.Close()
-	result := home.Run(t, mock, pigtest.RunOptions{Extensions: []string{extension, hashlineExt}, Env: map[string]string{"PATH": filepath.Dir(binary) + string(os.PathListSeparator) + os.Getenv("PATH")}})
+	result := home.Run(t, mock, pigtest.RunOptions{Extensions: []string{extension, hashlineExt, pigtest.ActivateDeferredForTest(t)}, Env: map[string]string{"PATH": filepath.Dir(binary) + string(os.PathListSeparator) + os.Getenv("PATH")}})
 	if result.ExitCode != 0 {
 		t.Fatalf("%d\n%s\n%s", result.ExitCode, result.Stdout, result.Stderr)
 	}

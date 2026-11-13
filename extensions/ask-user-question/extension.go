@@ -23,7 +23,7 @@ func Extension() *sdk.Extension {
 	if config.Warning != "" {
 		log.Print(config.Warning)
 	}
-	e.RegisterTool(sdk.ToolDefinition{Name: "ask_user_question", Label: "Ask User Question", Exposure: sdk.ToolExposureModelOnly, Description: config.Guidance.Description, PromptSnippet: config.Guidance.Snippet, PromptGuidelines: config.Guidance.Guidelines, Parameters: ask.Schema(), Execute: execute})
+	e.RegisterTool(sdk.ToolDefinition{Name: "ask_user_question", Label: "Ask User Question", Exposure: sdk.ToolExposureDeferred, Description: config.Guidance.Description, PromptSnippet: config.Guidance.Snippet, PromptGuidelines: config.Guidance.Guidelines, Parameters: ask.Schema(), Execute: execute})
 	return e
 }
 
