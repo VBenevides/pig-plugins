@@ -1,4 +1,6 @@
-.PHONY: gowork fmt-check vet test validate check install
+.PHONY: gowork fmt-check vet test validate check install verify-static
+
+BINARY ?= build/pig-plugins
 
 # Plain `go` commands need the ignored go.work that points at PiG's staged SDK.
 gowork:
@@ -26,3 +28,7 @@ check: fmt-check vet test validate
 # Copy the repository, prompts/agent prompts and a CGO-free fused binary into ~/.pig.
 install:
 	CGO_ENABLED=0 ./scripts/install.sh
+
+# Verify the final ELF artifact; CGO-free builds can still require shared libraries.
+verify-static:
+	python3 ./scripts/verify_static.py "$(BINARY)"
