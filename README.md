@@ -352,7 +352,7 @@ Tests that start `pig` skip when it is not on `PATH`.
 ```
 
 Copies (no symlinks) the tracked repository, including every extension and `prompts/`, to `~/.pig/pig-plugins`.
-Writes no prompt files: the binary embeds both prompt styles (see `prompt-style`). The installer removes only copies of `SYSTEM.md`, `APPEND_SYSTEM.md` and `AGENTS.md` that an earlier release installed (known checksums) so the built-in prompt applies again. Any other file in `~/.pig/agent/` stays and is reported.
+Writes no prompt files: the binary embeds the default instructions (see `default-prompt`). The installer removes only copies of `SYSTEM.md`, `APPEND_SYSTEM.md` and `AGENTS.md` that an earlier release installed (known checksums) so the built-in prompt applies again. Any other file in `~/.pig/agent/` stays and is reported.
 Copies `config/agent/keybindings.json` to `~/.pig/agent/keybindings.json` only when that file is absent (it maps `ctrl+z` to undo and frees it from suspend, and binds `ctrl+a` to select all in the prompt editor with `home` left as line start); an existing file is never overwritten, and the installer prints a notice when it differs. PiG has no redo action, so `ctrl+r` still renames sessions.
 Select all comes from `patches/pig/0003-editor-images-host.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
@@ -872,16 +872,16 @@ isolation and successful-mutation-only custom entries. A 120-column TUI smoke ex
 progression, `/todos` 3/3 status, Escape closure and clean exit.
 Do not enable another todo extension at the same time.
 
-## prompt-style
+## default-prompt
 
-Each prompt style is one built-in `SYSTEM.md` in the binary: `prompts/agent/default/SYSTEM.md` and `prompts/agent/legacy/SYSTEM.md`. Each file holds the former `SYSTEM.md`, `APPEND_SYSTEM.md` and `AGENTS.md` text joined in that order. The `prompt-style` extension puts the saved style into the request on `before_agent_start`.
-To override the built-in prompt, create `~/.pig/agent/SYSTEM.md` (or a project `SYSTEM.md`, or use `--system-prompt`). A non-empty custom prompt of this kind is never replaced, and it applies to both styles. A user `APPEND_SYSTEM.md` and `AGENTS.md` still add to the prompt. Delete the override file to return to the built-in prompt.
-`prompt-style` must stay first in `piglet.yaml`. Later extensions append to the prompt that exists when they run, so a later `prompt-style` could not swap the base text.
+The binary embeds only `prompts/agent/default/SYSTEM.md`. The `default-prompt` extension initializes these instructions before other prompt handlers. Legacy selection is removed; old `promptStyle` settings are ignored.
+To override the built-in prompt, create `~/.pig/agent/SYSTEM.md` (or a project `SYSTEM.md`, or use `--system-prompt`). A non-empty custom prompt is never replaced. User `APPEND_SYSTEM.md` and `AGENTS.md` files still add instructions.
+`default-prompt` must stay first in `piglet.yaml`, before extensions that append to the system prompt.
 
 ## project-prompt
 
 The bundled native extension loads project-specific instructions on `before_agent_start` and preserves the entire host prompt.
-The global prompt is built into the binary (`prompt-style`), not installed as files.
+The global prompt is built into the binary (`default-prompt`), not installed as files.
 For trusted projects, it also loads the literal `.local/APPEND_SYSTEM.md` and
 `local/AGENTS.md` paths from the current working directory on each request.
 Missing files are optional; content already loaded by the host is not repeated.
@@ -966,11 +966,11 @@ Run `/tool-settings` to choose global tool and skill settings. The compact table
 
 Press P for profiles: 1 selects **default** (original default tools and all skills), 2 selects **minimum** (`read`, `bash`, `edit`, and `write`, with no skills), 3 selects **native** (the same four tools and no skills, but native file tools), and 4 selects **default-benchmark** (default with `ask_user_question` disabled). Profile names are case-insensitive. The default, minimum, and default-benchmark profiles use Hashline read/edit/write. The native profile skips Hashline registration, leaving the host's native implementations under the same names. These implementations are exclusive, not additional tools. Enter saves and reloads; Escape cancels. You can change individual checkboxes before saving. The minimum and native profiles block newly added tools and skills unless explicitly enabled. The default and default-benchmark profiles remove that restriction. Settings and recovery commands remain available. Previously saved Files only choices remain unchanged; select minimum to add Bash.
 
-Press **S** to switch **Prompt style** between `default` (reduced instructions) and `legacy` (the full original instructions), then Enter to save and reload. Missing configuration uses `default`. This setting is independent of tool profiles and permissions. It persists across restarts and installs; benchmarks never change it automatically. The selected style is the built-in prompt; it never rewrites files. Prompt reduction has offline contract checks, not benchmark-quality qualification.
+The binary uses only the reduced default instructions. Prompt reduction has offline contract checks, not benchmark-quality qualification.
 
 The Tools tab lists both Hashline and native variants of read/edit/write. Press Space on an inactive variant to select that implementation for all three file tools together, preserving their enabled states. This keeps Hashline edit paired with its required read authority. Only the selected implementation is saved under each shared tool name. Alternative schema counts are unknown until save and reload; they are not shown as zero.
 
-For a launch-only override, run `pig-plugins --profile default`, `pig-plugins --profile minimum`, `pig-plugins --profile native`, or `pig-plugins --profile default-benchmark`. Profile names are case-insensitive, and the `--profile=default-benchmark` form also works. The choice persists through extension reloads in that process but does not change saved global settings. During an override, `/tool-settings` locks tool and skill choices but still lets you save prompt style. Restart without the flag to edit saved tool and skill choices.
+For a launch-only override, run `pig-plugins --profile default`, `pig-plugins --profile minimum`, `pig-plugins --profile native`, or `pig-plugins --profile default-benchmark`. Profile names are case-insensitive, and the `--profile=default-benchmark` form also works. The choice persists through extension reloads in that process but does not change saved global settings. During an override, `/tool-settings` locks tool and skill choices. Restart without the flag to edit saved choices.
 
 Choices are saved in the agent directory as `tool-settings.json` and apply across projects and restarts. Open sessions in other terminals need `/reload` to rebuild skill discovery. Disabled tools are removed from declarations and blocked at invocation. Disabled skills are excluded from the `user-resources` catalog, including their slash-command expansion. This works with the fused pig-plugins discovery configuration. Plain pig can load ambient skills through a separate path; these choices do not control that independent catalog.
 

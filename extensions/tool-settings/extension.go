@@ -164,7 +164,7 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 		}
 	}
 	sort.Slice(cfg.Skills, func(i, j int) bool { return cfg.Skills[i].Name < cfg.Skills[j].Name })
-	menu := &toolsettings.Menu{LoadedKnown: loaded != nil, RestrictTools: cfg.ToolAllowlist != nil, RestrictSkills: cfg.SkillAllowlist != nil, NativeFiles: cfg.NativeFiles, PromptStyle: cfg.Style(), ProfileOverride: profile}
+	menu := &toolsettings.Menu{LoadedKnown: loaded != nil, RestrictTools: cfg.ToolAllowlist != nil, RestrictSkills: cfg.SkillAllowlist != nil, NativeFiles: cfg.NativeFiles, ProfileOverride: profile}
 	registered := map[string]bool{}
 	for _, tool := range tools {
 		registered[tool.Name] = true

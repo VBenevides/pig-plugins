@@ -66,7 +66,7 @@ done
 [ -d "$root/.git" ] || [ -f "$root/.git" ] || { echo "install: run from a git checkout of pig-plugins" >&2; exit 1; }
 command -v go >/dev/null 2>&1 || { echo "install: Go is required on PATH" >&2; exit 1; }
 compatible_version=$(cd "$root" && GOWORK=off go run ./cmd/compatibility "$root/COMPATIBILITY.json")
-for f in default/SYSTEM.md legacy/SYSTEM.md; do
+for f in default/SYSTEM.md; do
     [ -f "$root/prompts/agent/$f" ] || { echo "install: missing prompts/agent/$f" >&2; exit 1; }
 done
 

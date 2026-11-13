@@ -36,7 +36,6 @@ type Config struct {
 	ToolAllowlist  []string `json:"toolAllowlist"`
 	SkillAllowlist []string `json:"skillAllowlist"`
 	NativeFiles    bool     `json:"nativeFiles,omitempty"`
-	PromptStyle    string   `json:"promptStyle,omitempty"`
 }
 
 func Path() string { return filepath.Join(agentdir.Dir(os.Getenv), FileName) }
@@ -51,10 +50,6 @@ func Load(path string) (Config, error) {
 		return c, fmt.Errorf("read tool settings: %w", err)
 	}
 	if err = json.Unmarshal(data, &c); err != nil {
-		return c, fmt.Errorf("parse tool settings: %w", err)
-	}
-	c.PromptStyle, err = normalizePromptStyle(c.PromptStyle)
-	if err != nil {
 		return c, fmt.Errorf("parse tool settings: %w", err)
 	}
 	if c.DisabledTools == nil {
@@ -73,11 +68,6 @@ func Load(path string) (Config, error) {
 }
 
 func Save(path string, c Config) error {
-	style, err := normalizePromptStyle(c.PromptStyle)
-	if err != nil {
-		return err
-	}
-	c.PromptStyle = style
 	return fsutil.WriteJSONFileAtomic(path, c, 0o600)
 }
 

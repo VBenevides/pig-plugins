@@ -1,4 +1,4 @@
-package promptstyle
+package defaultprompt
 
 import (
 	"encoding/json"
@@ -11,8 +11,8 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
-// The probe appends to the system prompt like todo, project-prompt and ask-mode do. It loads after prompt-style.
-func TestBuiltInPromptStylesReachMockProvider(t *testing.T) {
+// The probe appends instructions after the built-in default.
+func TestDefaultPromptAndOldSettingsReachMockProvider(t *testing.T) {
 	pigtest.RequirePig(t)
 	extension, err := filepath.Abs(".")
 	if err != nil {
@@ -35,7 +35,7 @@ func TestBuiltInPromptStylesReachMockProvider(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if err := toolsettings.Save(filepath.Join(home.AgentDir(), toolsettings.FileName), toolsettings.Config{PromptStyle: selected}); err != nil {
+				if err := os.WriteFile(filepath.Join(home.AgentDir(), toolsettings.FileName), []byte(`{"promptStyle":"`+selected+`"}`), 0600); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.WriteFile(filepath.Join(home.Work, "AGENTS.md"), []byte("PROJECT_STYLE_SENTINEL"), 0600); err != nil {
@@ -69,19 +69,11 @@ func TestBuiltInPromptStylesReachMockProvider(t *testing.T) {
 						}
 						continue
 					}
-					other := "legacy"
-					if selected == "legacy" {
-						other = "default"
+					if !strings.Contains(string(raw), builtIn["default"]) || strings.Contains(string(raw), builtIn["legacy"]) {
+						t.Fatalf("default instructions absent: %s", raw)
 					}
-					if !strings.Contains(string(raw), builtIn[selected]) || strings.Contains(string(raw), builtIn[other]) {
-						t.Fatalf("wrong rendered style for %s: %s", selected, raw)
-					}
-					rules := "## Project conventions"
-					if selected == "legacy" {
-						rules = "## Naming and structure"
-					}
-					if !strings.Contains(string(raw), rules) {
-						t.Fatalf("%s project rules absent", selected)
+					if !strings.Contains(string(raw), "## Project conventions") {
+						t.Fatal("project rules absent")
 					}
 				}
 			})

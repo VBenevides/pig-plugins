@@ -31,7 +31,7 @@ class BuildScriptsTest(unittest.TestCase):
         (self.root / "coding/extension/host/subprocess").mkdir(parents=True)
         (self.root / "go.mod").write_text("module fixture\n")
         (self.root / "piglet.yaml").write_text("fixture\n")
-        for style in ("default", "legacy"):
+        for style in ("default",):
             (self.root / "prompts/agent" / style).mkdir(parents=True)
             (self.root / "prompts/agent" / style / "SYSTEM.md").write_text("fixture\n")
         (self.root / "skills/example").mkdir(parents=True)
@@ -53,7 +53,7 @@ class BuildScriptsTest(unittest.TestCase):
         self.tool("node", "exit 0\n")
         self.tool("ast-grep", "exit 0\n")
         self.tool("git", '''case "$*" in
-    *ls-files*) printf 'go.mod\\0piglet.yaml\\0prompts/agent/default/SYSTEM.md\\0prompts/agent/legacy/SYSTEM.md\\0' ;;
+    *ls-files*) printf 'go.mod\\0piglet.yaml\\0prompts/agent/default/SYSTEM.md\\0' ;;
     *) exit 0 ;;
 esac
 ''')
