@@ -22,6 +22,7 @@ func TestCoordinatedWriteReplacesBuiltinAndPreservesGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := pigtest.NewHome(t)
+	selectHashline(t, home)
 	edit := map[string]any{"path": "new.txt", "version": hashline.ContentVersion([]byte("created\n")), "edits": []any{
 		map[string]any{"op": "replace", "anchor": anchor(1, "created"), "lines": []any{"edited"}},
 	}}

@@ -22,6 +22,7 @@ func TestReadAndEditReplaceTheBuiltIns(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := pigtest.NewHome(t)
+	selectHashline(t, home)
 	notes := filepath.Join(home.Work, "notes.txt")
 	if err := os.WriteFile(notes, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
 		t.Fatal(err)

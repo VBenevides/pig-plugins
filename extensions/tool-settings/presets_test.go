@@ -32,6 +32,7 @@ func TestMinimumPresetUsesBashAndHashlineEdit(t *testing.T) {
 	}
 	c.ToolAllowlist = []string{"read", "bash", "edit", "write"}
 	c.SkillAllowlist = []string{}
+	c.NativeFiles = false
 	if err := toolsettings.Save(filepath.Join(home.AgentDir(), toolsettings.FileName), c); err != nil {
 		t.Fatal(err)
 	}

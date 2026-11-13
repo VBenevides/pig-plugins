@@ -7,7 +7,7 @@ import (
 )
 
 func TestPresetsAreStagedAndEditable(t *testing.T) {
-	m := &Menu{Tabs: [2][]Row{
+	m := &Menu{NativeFiles: true, Tabs: [2][]Row{
 		{{ID: "read", Enabled: true, DefaultEnabled: true}, {ID: "edit", Enabled: true, DefaultEnabled: true}, {ID: "write", Enabled: true, DefaultEnabled: true}, {ID: "bash", Enabled: true, DefaultEnabled: true}, {ID: "extra", DefaultEnabled: false}},
 		{{ID: "skill-a", Enabled: true}, {ID: "skill-b", Enabled: true}},
 	}}

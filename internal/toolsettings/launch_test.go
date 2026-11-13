@@ -72,7 +72,7 @@ func TestLaunchProfileDoesNotChangeSavedChoices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ToolEnabled("ask_user_question") || !c.ToolEnabled("read") || !c.ToolEnabled("extra") || !c.SkillEnabled("/skill/SKILL.md") || c.NativeFiles {
+	if c.ToolEnabled("ask_user_question") || !c.ToolEnabled("read") || !c.ToolEnabled("extra") || !c.SkillEnabled("/skill/SKILL.md") || !c.NativeFiles {
 		t.Fatal("benchmark did not apply default permissions without questions")
 	}
 	after, err := os.ReadFile(path)

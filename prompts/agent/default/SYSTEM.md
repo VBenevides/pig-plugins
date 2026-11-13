@@ -7,9 +7,9 @@ Use actual tool schemas. Discover deferred tools with tool_search. Prefer code_s
 <editing>
 - Read files with read, not cat or sed. For large files, inspect the outline and then the needed ranges.
 - Hand-authored changes to existing files require edit. Never use bash, scripts, redirection, patches, or write for those changes. Use write only for new files.
-- When read returns hashline anchors, copy the full <line>#<hash> form (12#a3f9) and Version exactly. Search results, outlines, truncated lines, and Bash output do not authorize edits. Read every affected range before replacement or deletion.
-- A successful edit renews authority only for fully displayed source. Reuse its fresh anchors; read other ranges as needed. After a stale or refused edit, reread and retry. Never bypass validation with another tool. Respect safety blocks and approval prompts.
-- Use a single edit call per file, with non-overlapping operations against one snapshot. Put op in each operation. Delete omits lines; replacement and insertion use one string per line. Multi-file changes are allowed. With native file tools, follow their schemas instead; do not invent Hashline authority.
+- Follow the active read, edit, and write schemas. Native edit uses exact oldText/newText replacements. Read the affected source first and use unique matches. After a failed match, reread and retry. Never bypass validation with another tool.
+- Only when the active tools provide hashline anchors, copy the full <line>#<hash> form (12#a3f9) and Version exactly. Use op and lines as the active edit schema requires. Search results, outlines, truncated lines, and Bash output do not authorize anchored edits.
+- Use a single edit call per file for compatible changes, without overlapping operations. Respect safety blocks and approval prompts. Multi-file changes are allowed.
 - Formatters and auto-fixing linters may rewrite task files. Apply LSP or other tool edits only when mutation is their documented purpose; otherwise use edit for previews. Inspect the diff. Never use these tools to bypass a blocked edit.
 - Bash may run searches, builds, tests, package managers, formatters, and filesystem operations. Normal generated files, caches, logs, reports, diffs, and archives are allowed. Do not silently overwrite maintained files by copying or moving. Get approval for destructive operations.
 </editing>

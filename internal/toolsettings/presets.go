@@ -21,7 +21,7 @@ func (m *Menu) ApplyPreset(preset string) {
 	}
 	m.ApplyAll = true
 	restricted := preset == MinimumPreset || preset == NativePreset
-	m.NativeFiles = preset == NativePreset
+	m.NativeFiles = preset != MinimumPreset
 	m.RestrictTools, m.RestrictSkills = restricted, restricted
 	for i := range m.Tabs[0] {
 		row := &m.Tabs[0][i]
@@ -41,7 +41,7 @@ func (m *Menu) ApplyPreset(preset string) {
 
 func (m *Menu) presetLabel() string {
 	full, files := !m.RestrictTools && !m.RestrictSkills, m.RestrictTools && m.RestrictSkills
-	benchmark := !m.RestrictTools && !m.RestrictSkills && !m.NativeFiles
+	benchmark := !m.RestrictTools && !m.RestrictSkills && m.NativeFiles
 	for _, r := range m.Tabs[0] {
 		if !m.SelectedVariant(r) {
 			continue
@@ -56,7 +56,7 @@ func (m *Menu) presetLabel() string {
 		full = full && r.Enabled
 		files = files && !r.Enabled
 	}
-	full = full && !m.NativeFiles
+	full = full && m.NativeFiles
 	if full {
 		return DefaultPreset
 	}

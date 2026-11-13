@@ -8,7 +8,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
-func TestNativeProfileUsesExclusiveNativeSchemas(t *testing.T) {
+func TestDefaultUsesExclusiveNativeSchemas(t *testing.T) {
 	fused := pigtest.UseFusedBinary(t)
 	pigtest.RequirePig(t)
 	home := pigtest.NewHome(t)
@@ -16,7 +16,9 @@ func TestNativeProfileUsesExclusiveNativeSchemas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.NativeFiles = true
+	if !cfg.NativeFiles {
+		t.Fatal("fresh settings did not select native files")
+	}
 	cfg.ToolAllowlist = []string{"read", "bash", "edit", "write"}
 	cfg.SkillAllowlist = []string{}
 	if err := toolsettings.Save(filepath.Join(home.AgentDir(), toolsettings.FileName), cfg); err != nil {

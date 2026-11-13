@@ -35,13 +35,13 @@ type Config struct {
 	// Nil preserves normal defaults; an empty non-nil list permits no entries.
 	ToolAllowlist  []string `json:"toolAllowlist"`
 	SkillAllowlist []string `json:"skillAllowlist"`
-	NativeFiles    bool     `json:"nativeFiles,omitempty"`
+	NativeFiles    bool     `json:"nativeFiles"`
 }
 
 func Path() string { return filepath.Join(agentdir.Dir(os.Getenv), FileName) }
 
 func Load(path string) (Config, error) {
-	c := Config{DisabledTools: map[string]bool{}, DisabledSkills: map[string]bool{}, EnabledTools: map[string]bool{}, Defaults: map[string]bool{}}
+	c := Config{NativeFiles: true, DisabledTools: map[string]bool{}, DisabledSkills: map[string]bool{}, EnabledTools: map[string]bool{}, Defaults: map[string]bool{}}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return c, nil
@@ -73,7 +73,7 @@ func Save(path string, c Config) error {
 
 // Reset restores each tool's initial active state and restores skill discovery.
 func (c *Config) Reset() {
-	c.NativeFiles = false
+	c.NativeFiles = true
 	c.EnabledTools = map[string]bool{}
 	c.DisabledTools = map[string]bool{}
 	c.DisabledSkills = map[string]bool{}

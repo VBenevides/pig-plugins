@@ -19,10 +19,10 @@ func TestBenchmarkPresetDisablesQuestionsAndKeepsDefaults(t *testing.T) {
 		t.Fatal("benchmark profile missing from chooser")
 	}
 	m.Handle("4")
-	if m.PresetPending || m.NativeFiles || m.RestrictTools || m.RestrictSkills || m.presetLabel() != BenchmarkPreset {
+	if m.PresetPending || !m.NativeFiles || m.RestrictTools || m.RestrictSkills || m.presetLabel() != BenchmarkPreset {
 		t.Fatalf("profile state: %+v", m)
 	}
-	for i, want := range []bool{true, false, true, false, false} {
+	for i, want := range []bool{false, true, true, false, false} {
 		if m.Tabs[0][i].Enabled != want {
 			t.Fatalf("tool %d enabled=%v want=%v", i, m.Tabs[0][i].Enabled, want)
 		}

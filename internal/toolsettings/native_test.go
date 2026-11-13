@@ -17,8 +17,8 @@ func TestNativeProfileIsExclusiveAndLaunchOnly(t *testing.T) {
 		t.Fatal("minimum retained native tools")
 	}
 	m.ApplyPreset(DefaultPreset)
-	if m.NativeFiles {
-		t.Fatal("default retained native tools")
+	if !m.NativeFiles {
+		t.Fatal("default did not select native tools")
 	}
 	args, profile, err := ParseProfile([]string{"--profile", "native", "hello"})
 	if err != nil || profile != "native" || len(args) != 1 || args[0] != "hello" {
