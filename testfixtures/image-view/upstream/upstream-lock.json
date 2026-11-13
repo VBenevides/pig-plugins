@@ -20,7 +20,10 @@
       "Restore numbering from user and toolResult session messages",
       "Use explicit host event and widget types and combine adjacent content inserts"
     ],
-    "*.ts": ["Normalize vendored TypeScript formatting with Prettier"],
+    "*.ts": [
+      "Normalize vendored TypeScript formatting with Prettier",
+      "Format src/blob-store.ts with Prettier after the agent-directory change"
+    ],
     "index.ts": ["Retain host interface types instead of untyped assertions"],
     "src/gallery-presenter.ts": [
       "Type the host theme and use a constant timer binding"
@@ -33,6 +36,12 @@
     ],
     "package-lock.json": [
       "Lock fixture dependencies for repeatable dependency auditing"
+    ],
+    "package.json": [
+      "Add ESLint, typescript-eslint and TypeScript as devDependencies so the lint gate checks the TypeScript sources"
+    ],
+    "eslint.config.js": [
+      "Add the recommended ESLint and typescript-eslint rules; the upstream package has no lint configuration"
     ]
   }
 }

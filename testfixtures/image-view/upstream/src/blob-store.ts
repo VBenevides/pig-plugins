@@ -37,12 +37,14 @@ export async function putImageBlob(
   try {
     await writeFile(displayPath, bytes, { flag: "wx" });
   } catch (error) {
-    if (!(
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "EEXIST"
-    ))
+    if (
+      !(
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "EEXIST"
+      )
+    )
       throw error;
   }
   return { reference: `image-view://sha256/${name}`, displayPath, name };
