@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/VBenevides/pig-plugins/internal/compactlimit"
 	"github.com/VBenevides/pig-plugins/internal/pigtest"
@@ -302,6 +303,9 @@ func TestIdleInputRetriesACompactionThatFailedAtTheSameSize(t *testing.T) {
 	result := home.RunRPC(t, mock, pigtest.RPCOptions{
 		Extensions: []string{extensionDir(t)},
 		Prompts:    []string{"/compact-settings limit absolute 50k", "first prompt " + strings.Repeat("history ", 200), "unique-next-question"},
+		// The failed compact must come from the settle hook. Without the pause the next prompt's input hook can make
+		// that first attempt itself, and a prompt does not retry its own failed attempt.
+		SettleWait: 300 * time.Millisecond,
 	})
 	requests := mock.Requests()
 	if len(requests) != 4 {

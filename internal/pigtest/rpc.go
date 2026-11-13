@@ -26,6 +26,10 @@ type RPCOptions struct {
 	// Prompts are sent in order, one at a time. A slash command is answered at once; any other prompt runs the
 	// agent loop until the agent settles.
 	Prompts []string
+	// SettleWait pauses after a prompt's agent_settled event before the next prompt. The host sends that event to
+	// the client while extension agent_settled hooks still run on their own goroutines, so a test that needs a hook
+	// to finish first (for example a compact that starts when the run settles) sets it.
+	SettleWait time.Duration
 	// Confirm answers confirm dialogs; nil declines them.
 	Confirm func(request map[string]any) bool
 	// Dialog answers select, input and editor dialogs with the response fields (for example {"value": "x"} or
@@ -176,6 +180,7 @@ func (h *Home) RunRPC(t testing.TB, mock *MockLLM, opts RPCOptions) RPCResult {
 				time.Sleep(200 * time.Millisecond)
 			}
 		}
+		time.Sleep(opts.SettleWait)
 	}
 	// A state round trip guarantees that every earlier event has arrived.
 	send(map[string]any{"type": "get_state"})
