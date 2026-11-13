@@ -38,7 +38,7 @@ func Extension() *sdk.Extension {
 	// Hidden exposure excludes both provider declarations and tool discovery.
 	// DefaultActive alone would still allow tool_search to find disabled tools.
 	register(e, s, false)
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	e.OnSessionStart(sdkctx.IgnoreStale(func(ctx sdk.Context, _ map[string]any) (any, error) {
 		if err := s.setMode(e, ctx, browseruse.Off); err != nil {
 			return nil, err
 		}
@@ -49,7 +49,7 @@ func Extension() *sdk.Extension {
 		}
 		s.mu.Unlock()
 		return nil, nil
-	})
+	}))
 	e.OnEvent(sdk.EventSessionShutdown, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		s.changeMu.Lock()
 		defer s.changeMu.Unlock()
