@@ -33,6 +33,8 @@ type Menu struct {
 	PresetPending                 bool
 	RestrictTools, RestrictSkills bool
 	NativeFiles                   bool
+	PromptStyle                   string
+	ProfileOverride               string
 	// Collapsed holds the folded categories of the Tools tab.
 	Collapsed map[string]bool
 	// KeepSkills lists enabled skills omitted from the dialog; a restricted skill allowlist still includes them.
@@ -71,6 +73,9 @@ func (m *Menu) Handle(key string) (done, save bool) {
 		}
 		return false, false
 	}
+	if m.ProfileOverride != "" && (key == " " || key == "space" || key == "p" || key == "P" || key == "r" || key == "R") {
+		return false, false
+	}
 	switch key {
 	case "escape":
 		return true, false
@@ -106,6 +111,12 @@ func (m *Menu) Handle(key string) (done, save bool) {
 		}
 	case "?":
 		m.ShowHelp = !m.ShowHelp
+	case "s", "S":
+		if m.PromptStyle == "legacy" {
+			m.PromptStyle = "default"
+		} else {
+			m.PromptStyle = "legacy"
+		}
 	case "p", "P":
 		m.PresetPending = true
 	case "r", "R":
@@ -145,7 +156,15 @@ func (m *Menu) Render(width int) []string {
 	if m.Tab == 1 {
 		tabs = fmt.Sprintf("Tools %d/%d   [ Skills %d/%d ]", counts[0], len(m.Tabs[0]), counts[1], len(m.Tabs[1]))
 	}
-	lines := []string{rule("╭", "╮"), line("TOOL SETTINGS  ·  " + m.presetLabel() + "  ·  global"), line(tabs), line("")}
+	style := m.PromptStyle
+	if style == "" {
+		style = "default"
+	}
+	label := m.presetLabel()
+	if m.ProfileOverride != "" {
+		label = m.ProfileOverride + " (tools locked)"
+	}
+	lines := []string{rule("╭", "╮"), line("TOOL SETTINGS  ·  " + label + "  ·  global"), line("Prompt style: " + style + "  ·  Enter saves + reloads"), line(tabs), line("")}
 	const pageSize = 8
 	es := m.entries()
 	cursor := min(max(0, m.Cursor), max(0, len(es)-1))
@@ -240,7 +259,7 @@ func (m *Menu) Render(width int) []string {
 	} else if m.PresetPending {
 		lines = append(lines, line("1 default  · default tools + all skills; Hashline"), line("2 minimum  · read/bash/edit/write; no skills; Hashline"), line("3 native   · read/bash/edit/write; no skills; native files"), line("4 default-benchmark · default without ask_user_question"), line("Choose 1, 2, 3, or 4  ·  Esc back  ·  Enter saves afterward"))
 	} else {
-		lines = append(lines, line("Space toggle  ·  ←/→ fold  ·  Tab switch  ·  P profiles"), line("Enter save  ·  Esc cancel  ·  ? help  ·  R reset"))
+		lines = append(lines, line("Space toggle  ·  ←/→ fold  ·  Tab switch  ·  P profiles"), line("S prompt style  ·  Enter save  ·  Esc cancel  ·  ? help  ·  R reset"))
 	}
 	return append(lines, rule("╰", "╯"))
 }

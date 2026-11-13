@@ -206,6 +206,7 @@ chmod +x "$2"
         preserved = {
             "keybindings.json": '{"custom":["ctrl+x"]}',
             "settings.json": '{"reduceCommandOutput":true}',
+            "tool-settings.json": '{"promptStyle":"legacy","disabledTools":{"custom":true}}',
             "auth.json": '{"fixture":{"selectedAccountId":"kept"}}',
             "skills/private/SKILL.md": "user skill",
         }

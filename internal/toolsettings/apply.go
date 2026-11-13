@@ -12,6 +12,12 @@ func (m *Menu) MarkInitial() {
 // ApplyTo saves permission choices without changing exposure. Untouched rows keep their saved state.
 // Explicit presets apply every listed choice, even when its checkbox did not change.
 func (m *Menu) ApplyTo(cfg *Config) {
+	if m.PromptStyle != "" {
+		cfg.PromptStyle = m.PromptStyle
+	}
+	if m.ProfileOverride != "" {
+		return
+	}
 	if m.Reset {
 		cfg.Reset()
 		return

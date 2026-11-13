@@ -70,6 +70,7 @@ func Extension() *sdk.Extension {
 		return nil, apply(ctx)
 	})
 	e.OnEvent(sdk.EventBeforeAgentStart, func(ctx sdk.Context, _ map[string]any) (any, error) { return nil, apply(ctx) })
+	e.OnEvent(sdk.EventBeforeAgentStart, selectPromptStyle)
 	e.OnEvent(sdk.EventToolCall, func(_ sdk.Context, data map[string]any) (any, error) {
 		cfg, err := toolsettings.LoadEffective(toolsettings.Path())
 		if err != nil {
@@ -81,7 +82,7 @@ func Extension() *sdk.Extension {
 		}
 		return nil, nil
 	})
-	e.RegisterCommand(Name, sdk.CommandOptions{Description: "Choose global tool and skill visibility (Space toggles; R resets)", Handler: func(ctx sdk.Context, _ string) error {
+	e.RegisterCommand(Name, sdk.CommandOptions{Description: "Choose tools, skills, and prompt style (S switches default/legacy)", Handler: func(ctx sdk.Context, _ string) error {
 		mu.Lock()
 		snapshot := maps.Clone(loaded)
 		mu.Unlock()
@@ -115,10 +116,7 @@ func apply(ctx sdk.Context) error {
 }
 
 func configure(ctx sdk.Context, loaded map[string]int) error {
-	if profile := os.Getenv(toolsettings.ProfileEnv); profile != "" {
-		ctx.Notify("Launch profile: "+profile+". Global settings are unchanged. Restart without --profile to edit saved settings.", "info")
-		return nil
-	}
+	profile := os.Getenv(toolsettings.ProfileEnv)
 	if !ctx.HasUI() {
 		return fmt.Errorf("tool-settings requires an interactive UI")
 	}
@@ -131,6 +129,12 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 	previous.DisabledSkills = maps.Clone(cfg.DisabledSkills)
 	previous.EnabledTools = maps.Clone(cfg.EnabledTools)
 	previous.Defaults = maps.Clone(cfg.Defaults)
+	if profile != "" {
+		cfg, err = toolsettings.LoadEffective(toolsettings.Path())
+		if err != nil {
+			return err
+		}
+	}
 	tools, err := ctx.GetAllTools()
 	if err != nil {
 		return err
@@ -161,7 +165,7 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 		}
 	}
 	sort.Slice(cfg.Skills, func(i, j int) bool { return cfg.Skills[i].Name < cfg.Skills[j].Name })
-	menu := &toolsettings.Menu{LoadedKnown: loaded != nil, RestrictTools: cfg.ToolAllowlist != nil, RestrictSkills: cfg.SkillAllowlist != nil, NativeFiles: cfg.NativeFiles}
+	menu := &toolsettings.Menu{LoadedKnown: loaded != nil, RestrictTools: cfg.ToolAllowlist != nil, RestrictSkills: cfg.SkillAllowlist != nil, NativeFiles: cfg.NativeFiles, PromptStyle: cfg.Style(), ProfileOverride: profile}
 	registered := map[string]bool{}
 	for _, tool := range tools {
 		registered[tool.Name] = true
@@ -190,7 +194,7 @@ func configure(ctx sdk.Context, loaded map[string]int) error {
 	if !save {
 		return nil
 	}
-	menu.ApplyTo(&cfg)
+	cfg = settingsToSave(menu, previous, cfg)
 	if err := toolsettings.SaveIfUnchanged(toolsettings.Path(), previous, cfg); err != nil {
 		return err
 	}
