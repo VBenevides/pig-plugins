@@ -103,7 +103,7 @@ Upstream authors, repositories and licences for the ported extensions are in [TH
 
 ## Port status
 
-Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
+Implemented: `hashline-edit`, `smart-approve-lancet`, `lsp`,
 `web-search`, `ask-user-question`, `todo`, `auto-models`, `better-footer`, `goal`,
 `command-output`, and `ast-search`.
 Use `pig -e ./extensions/<name>` to load a port for one session.
@@ -638,6 +638,9 @@ Differences from the TypeScript original:
 Do not enable another smart-approve extension at the same time.
 
 ## pi-curator
+
+No longer bundled in new binaries. The source remains available for explicit external loading.
+Upgrades preserve curator settings, stored memory, and external installations. The built-in prompt no longer requests memory tools.
 
 The native Go extension captures visible conversation text and tool traffic in consented repositories.
 It calls `PI_CURATOR_BIN`, or `curator` on PATH. The curator packages are internal to another Go module.

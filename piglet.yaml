@@ -16,8 +16,6 @@ extensions:
     origins: [local:./extensions/ast-search]
   - name: smart-approve-lancet
     origins: [local:./extensions/smart-approve-lancet]
-  - name: pi-curator
-    origins: [local:./extensions/pi-curator]
   - name: lsp
     origins: [local:./extensions/lsp]
   - name: web-search
