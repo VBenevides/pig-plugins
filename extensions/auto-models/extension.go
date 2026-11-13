@@ -20,6 +20,7 @@ import (
 	quota "github.com/VBenevides/pig-plugins/internal/automodels"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/notice"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 const Name = "auto-models"
@@ -67,7 +68,7 @@ func Extension() *sdk.Extension {
 	e.OnEvent(sdk.EventInput, func(ctx sdk.Context, data map[string]any) (any, error) {
 		return x.taskInput(data, ctx.IsIdle)
 	})
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		ctx.SetWorkingVisible(true)
 		if x.loadErr != nil {
 			x.report(ctx, x.loadErr)

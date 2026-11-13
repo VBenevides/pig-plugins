@@ -12,6 +12,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/askmode"
 	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 // Name is the extension identity and the footer status key.
@@ -29,7 +30,7 @@ func Extension() *sdk.Extension {
 		footerstatus.Set(ctx, Name, text)
 	}
 
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		on.Store(false)
 		announce(ctx)
 		return nil, nil

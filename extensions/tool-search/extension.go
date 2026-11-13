@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
@@ -18,7 +19,7 @@ func Extension() *sdk.Extension {
 	e.OnEvent(sdk.EventToolCall, boundSearch)
 	e.OnEvent(sdk.EventToolResult, state.result)
 	e.OnEvent(sdk.EventAgentSettled, state.settle)
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		tools, err := ctx.GetAllTools()
 		if err != nil {
 			return nil, err

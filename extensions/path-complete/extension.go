@@ -12,6 +12,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/pathcomplete"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 // Name is the extension identity.
@@ -24,7 +25,7 @@ func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	var registered atomic.Bool
 
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		// The host keeps the provider for the life of the connection, so one registration is enough.
 		if !registered.CompareAndSwap(false, true) {
 			return nil, nil

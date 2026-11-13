@@ -8,6 +8,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/requesttimer"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 const Name = "request-timer"
@@ -56,13 +57,17 @@ func Extension() *sdk.Extension {
 		return nil, ctx.SendMessage(Name, text, true, sdk.SendMessageOptions{TriggerTurn: &trigger})
 	})
 	for _, event := range []string{sdk.EventSessionShutdown, sdk.EventSessionStart} {
-		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		handler := func(ctx sdk.Context, _ map[string]any) (any, error) {
 			timer.Stop(update(ctx))
 			mu.Lock()
 			pending = ""
 			mu.Unlock()
 			return nil, nil
-		})
+		}
+		if event == sdk.EventSessionStart {
+			handler = sdkctx.IgnoreStale(handler)
+		}
+		e.OnEvent(event, handler)
 	}
 	return e
 }

@@ -38,7 +38,7 @@ func Extension() *sdk.Extension {
 
 	announce := func(ctx sdk.Context) { footerstatus.Set(ctx, Name, controller.Chip()) }
 
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		note, err := controller.RefreshShared(nil)
 		if err != nil {
 			note = "Cannot load guard mode: " + err.Error()

@@ -19,6 +19,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/goal"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 // Name is the extension identity and the footer status key.
@@ -42,7 +43,7 @@ type extension struct {
 func Extension() *sdk.Extension {
 	x := &extension{}
 	e := sdk.New(Name)
-	e.OnEvent(sdk.EventSessionStart, x.restore)
+	sdkctx.OnSessionStart(e, x.restore)
 	e.OnEvent(sdk.EventSessionTree, x.restore)
 	e.OnEvent(sdk.EventBeforeAgentStart, x.appendPrompt)
 	e.OnEvent(sdk.EventToolExecutionEnd, func(sdk.Context, map[string]any) (any, error) {

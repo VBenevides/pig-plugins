@@ -53,3 +53,8 @@ func isStale(recovered any) bool {
 	}
 	return false
 }
+
+// OnSessionStart registers a session_start handler that ends quietly when its context goes stale.
+func OnSessionStart(e *sdk.Extension, handler func(sdk.Context, map[string]any) (any, error)) {
+	e.OnSessionStart(IgnoreStale(handler))
+}

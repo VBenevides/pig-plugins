@@ -38,9 +38,13 @@ func Extension() *sdk.Extension {
 		e.RegisterTool(sdk.ToolDefinition{Name: name, Exposure: exposure, PrepareLoadout: x.prepareLoadout, Label: map[bool]string{true: "URL Context", false: "Web Search"}[urlOnly], Description: map[bool]string{true: "Analyze up to 20 public URLs using Gemini URL Context, including web pages, documents, images and YouTube videos.", false: "Search with Parallel MCP, falling back to the current model's native web search, then Exa MCP. Optionally analyze URLs."}[urlOnly], Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}, "urls": urls}, "required": required}, Execute: func(ctx sdk.Context, p map[string]any) (any, error) { return execute(ctx, p, urlOnly) }})
 	}
 	for _, event := range []string{sdk.EventSessionStart, sdk.EventSessionTree, sdk.EventModelSelect} {
-		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		handler := func(ctx sdk.Context, _ map[string]any) (any, error) {
 			return nil, x.sync(ctx)
-		})
+		}
+		if event == sdk.EventSessionStart {
+			handler = sdkctx.IgnoreStale(handler)
+		}
+		e.OnEvent(event, handler)
 	}
 	return e
 }

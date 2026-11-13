@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 	"github.com/VBenevides/pig-plugins/internal/tui"
 )
@@ -63,7 +64,7 @@ func Extension() *sdk.Extension {
 		mu.Unlock()
 		return nil, nil
 	})
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		mu.Lock()
 		loaded = nil
 		mu.Unlock()

@@ -11,6 +11,7 @@ import (
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 	"github.com/VBenevides/pig-plugins/internal/sessionresume"
 )
 
@@ -23,7 +24,7 @@ const Notice = "Session auto resumed, if you want a new session use /new"
 // Extension returns the extension.
 func Extension() *sdk.Extension {
 	e := sdk.New(Name)
-	e.OnSessionStart(func(ctx sdk.Context, data map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, data map[string]any) (any, error) {
 		reason, _ := data["reason"].(string)
 		if reason == "resume" {
 			return nil, announce(ctx)
