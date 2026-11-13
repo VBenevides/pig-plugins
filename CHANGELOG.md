@@ -2,6 +2,52 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.4.0] - 2026-11-13
+
+### Features
+
+- Add `/tool-settings` for global tool and skill permissions, native or Hashline file tools, and estimated context sizes. Enter saves and reloads.
+- Add collapsible categories that start closed. Group deferred tools together and show `VISIBLE` or `HIDDEN` based on the discovery setting.
+- Add `default`, `minimum`, `native`, and `default-benchmark` profiles through the menu and `--profile`. Launch profiles leave saved settings unchanged.
+- Use native `read`, `edit`, and `write` by default. Keep Hashline as an explicit option in `/tool-settings`.
+- Allow all non-browser tools in the default profile. Initially declare only `read`, `write`, `edit`, `bash`, and permitted `tool_search`.
+- Load other permitted tools through discovery for the current request. Release discovered tools at settlement and limit discovery to 20 activations per request.
+- Keep browser tools disabled by default. When explicitly enabled and a browser mode is selected, load them through discovery.
+- Embed one reduced default system prompt in the binary. Preserve user prompt overrides and require reference code and documentation checks before implementation.
+- Load project `SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`, and `RULES.md` from `.local/`, `local/`, `.pig/`, and `pig/` in trusted workspaces.
+- Add filesystem path completion and `/fs` folder browsing. Support quoted paths and filenames with spaces.
+- Resume the latest workspace session on an empty interactive startup. Preserve explicit session choices and use `/new` to start fresh.
+- Show live request elapsed time and a final elapsed-time message after settlement, including requests with tool follow-up calls.
+- Suggest an existing trimmed path when a `read` or `edit` path fails because of surrounding whitespace. Never retry automatically or change `write` paths.
+- Make explicit `/skill:format-commit` invocation create the requested commit. Message-only requests and workflow loading do not authorize extra commits.
+
+### Bugfixes
+
+- Separate tool permissions from schema activation. Preserve unchanged and omitted settings instead of saving temporary activation states as permission changes.
+- Reject conflicting settings saves from another session. Keep launch-profile permissions separate from saved global choices.
+- Preserve user-only skill permissions while excluding their metadata from automatic discovery. Count loaded skill bodies separately from schema estimates.
+- Hide `goal_finish` outside a working goal and check goal state again during execution.
+- Keep Parallel and Exa search backends behind `web_search`. Preserve permission checks and ownership when discovery activates a wrapper dependency.
+- Remove automatic direct-tool fallbacks when discovery is disabled or unavailable. Keep only permitted core tools and show a warning.
+- Initialize the built-in prompt before other extensions append instructions. Preserve project trust, file validation, and workspace confinement.
+
+### Other
+
+- Add offline trace inventory with `cmd/prompt-audit` and saved evidence for prompt size, edit failures, and AST search failures.
+- Add request-level regression tests for tool discovery, permissions, activation expiry, profile persistence, native schemas, and project instruction paths.
+- Add Cursor regression tests for medium and saved thinking levels, plus timer lifecycle and terminal checks.
+- Build with `CGO_ENABLED=0` through `make install`. Add `make verify-static` to inspect ELF dependencies without executing the binary.
+- Document that CGO-free output still requires shared libraries through the ONNX/purego path. Full static linking is not established.
+- Stop installing prompt files into the agent directory. Remove only known copies from earlier releases and preserve user-modified files.
+
+### Breaking Changes
+
+- Remove `/tool-search on|off|status`. Use the `tool_search` checkbox in `/tool-settings`, then press Enter to save and reload.
+- Stop bundling `pi-curator` and remove memory-tool guidance from the default prompt. User memory data and external installations remain intact.
+- Remove legacy prompt selection. Old `promptStyle` settings are ignored. Use a custom `SYSTEM.md` to override the built-in default.
+- Native file tools replace Hashline as the default. Select Hashline in `/tool-settings` if your workflow requires anchors and version checks.
+- Non-core tools no longer appear automatically when discovery is unavailable. Enable `tool_search` in `/tool-settings` to use deferred tools.
+
 ## [0.3.3] - 2026-11-09
 
 ### Features
