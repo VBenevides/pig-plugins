@@ -135,7 +135,7 @@ func (s *ToolServer) Answer(results []ToolResult) error {
 	case s.violation != nil:
 		return s.violation
 	case s.lost:
-		return errors.New("Cursor dropped a pending tool callback")
+		return errors.New("cursor dropped a pending tool callback")
 	case len(s.calls) == 0 || len(results) != len(s.calls):
 		return fmt.Errorf("tool results do not match the %d pending Cursor calls", len(s.calls))
 	}
@@ -219,7 +219,7 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	case s.active <- struct{}{}:
 		defer func() { <-s.active }()
 	default:
-		s.Fail(errors.New("Cursor exceeded the pending tool callback limit"))
+		s.Fail(errors.New("cursor exceeded the pending tool callback limit"))
 		deny(w, http.StatusTooManyRequests, "resource_exhausted")
 		return
 	}
@@ -230,7 +230,7 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxCallbackBody+1))
 	_ = control.SetReadDeadline(time.Time{})
 	if err != nil || len(body) > maxCallbackBody {
-		s.Fail(errors.New("Cursor sent an unreadable or oversized tool callback"))
+		s.Fail(errors.New("cursor sent an unreadable or oversized tool callback"))
 		deny(w, http.StatusBadRequest, "invalid_argument")
 		return
 	}
@@ -241,7 +241,7 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 		AgentID    string          `json:"agentId"`
 	}
 	if json.Unmarshal(body, &call) != nil {
-		s.Fail(errors.New("Cursor sent a malformed tool callback"))
+		s.Fail(errors.New("cursor sent a malformed tool callback"))
 		deny(w, http.StatusBadRequest, "invalid_argument")
 		return
 	}
@@ -256,7 +256,7 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.allowed[call.ToolName] {
 		s.mu.Unlock()
-		s.Fail(errors.New("Cursor requested a tool that PiG did not offer"))
+		s.Fail(errors.New("cursor requested a tool that PiG did not offer"))
 		deny(w, http.StatusForbidden, "permission_denied")
 		return
 	}
@@ -267,7 +267,7 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	proposal := Proposal{ID: call.ToolCallID, Name: call.ToolName, Args: append(json.RawMessage(nil), args...)}
 	if proposal.ID != "" && s.answered[proposal.ID] {
 		s.mu.Unlock()
-		s.Fail(errors.New("Cursor reused the identifier of an answered tool call"))
+		s.Fail(errors.New("cursor reused the identifier of an answered tool call"))
 		deny(w, http.StatusForbidden, "permission_denied")
 		return
 	}
@@ -276,7 +276,7 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 		if proposal.ID != "" && existing.proposal.ID == proposal.ID {
 			if existing.proposal.Name != proposal.Name || !bytes.Equal(existing.proposal.Args, proposal.Args) {
 				s.mu.Unlock()
-				s.Fail(errors.New("Cursor reused a tool call identifier with different content"))
+				s.Fail(errors.New("cursor reused a tool call identifier with different content"))
 				deny(w, http.StatusForbidden, "permission_denied")
 				return
 			}
@@ -289,7 +289,7 @@ func (s *ToolServer) serve(w http.ResponseWriter, r *http.Request) {
 	if fresh {
 		if len(s.calls) >= maxProposals {
 			s.mu.Unlock()
-			s.Fail(errors.New("Cursor proposed too many tool calls in one turn"))
+			s.Fail(errors.New("cursor proposed too many tool calls in one turn"))
 			deny(w, http.StatusForbidden, "resource_exhausted")
 			return
 		}

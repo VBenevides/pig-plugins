@@ -36,7 +36,7 @@ type Client struct {
 func NewClient(endpoint, token string) (*Client, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u == nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return nil, errors.New("Cursor bridge requires a loopback HTTP endpoint")
+		return nil, errors.New("cursor bridge requires a loopback HTTP endpoint")
 	}
 	ip := net.ParseIP(u.Hostname())
 	if ip == nil || !ip.IsLoopback() || u.Port() == "" || token == "" || strings.ContainsAny(token, "\r\n") {
@@ -128,7 +128,7 @@ func (c *Client) request(ctx context.Context, method string, input any, stream b
 		return nil, fmt.Errorf("encode Cursor %s: %w", method, err)
 	}
 	if len(body) > maxMessage {
-		return nil, errors.New("Cursor request exceeds the bridge message limit")
+		return nil, errors.New("cursor request exceeds the bridge message limit")
 	}
 	contentType := "application/json"
 	if stream {
@@ -150,12 +150,12 @@ func (c *Client) request(ctx context.Context, method string, input any, stream b
 		return nil, fmt.Errorf("call Cursor %s: %w", method, err)
 	}
 	if response.StatusCode != http.StatusOK {
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		data, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 		return nil, decodeError(data, response.StatusCode)
 	}
 	if !strings.HasPrefix(response.Header.Get("Content-Type"), contentType) {
-		response.Body.Close()
+		_ = response.Body.Close()
 		return nil, errors.New("unexpected Cursor bridge response type")
 	}
 	return response, nil
@@ -168,13 +168,13 @@ func (c *Client) Unary(ctx context.Context, method string, input, output any) er
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxMessage+1))
 	if err != nil {
 		return fmt.Errorf("read Cursor %s: %w", method, err)
 	}
 	if len(data) > maxMessage {
-		return errors.New("Cursor response exceeds the bridge message limit")
+		return errors.New("cursor response exceeds the bridge message limit")
 	}
 	if err = json.Unmarshal(data, output); err != nil {
 		return fmt.Errorf("decode Cursor %s: %w", method, err)
@@ -203,11 +203,11 @@ func (c *Client) Check(ctx context.Context) error {
 	// archive reports 1.0.0), so the wire protocol and the capabilities PiG uses
 	// are the contract. A bridge without them fails closed.
 	if version.ProtocolVersion != "sdk.v1" {
-		return errors.New("Cursor bridge does not speak the pinned sdk.v1 protocol")
+		return errors.New("cursor bridge does not speak the pinned sdk.v1 protocol")
 	}
 	for _, need := range requiredCapabilities {
 		if !slices.Contains(version.Capabilities, need) {
-			return fmt.Errorf("Cursor bridge lacks the %s capability", need)
+			return fmt.Errorf("cursor bridge lacks the %s capability", need)
 		}
 	}
 	c.mu.Lock()
@@ -223,7 +223,7 @@ func (c *Client) Require(capability string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if !slices.Contains(c.capabilities, capability) {
-		return fmt.Errorf("Cursor bridge does not advertise the %s capability", capability)
+		return fmt.Errorf("cursor bridge does not advertise the %s capability", capability)
 	}
 	return nil
 }
@@ -237,7 +237,7 @@ func (c *Client) Stream(ctx context.Context, method string, input any, consume f
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	for count := 0; count < 100000; count++ {
 		var header [5]byte
 		if _, err = io.ReadFull(response.Body, header[:]); err != nil {
@@ -245,7 +245,7 @@ func (c *Client) Stream(ctx context.Context, method string, input any, consume f
 		}
 		size := binary.BigEndian.Uint32(header[1:])
 		if size > maxMessage {
-			return errors.New("Cursor stream frame exceeds the message limit")
+			return errors.New("cursor stream frame exceeds the message limit")
 		}
 		if header[0] != 0 && header[0] != 2 {
 			return errors.New("unsupported Cursor stream frame flags")
@@ -273,7 +273,7 @@ func (c *Client) Stream(ctx context.Context, method string, input any, consume f
 			return err
 		}
 	}
-	return errors.New("Cursor stream exceeds the event limit")
+	return errors.New("cursor stream exceeds the event limit")
 }
 
 type Parameter struct {
@@ -310,7 +310,7 @@ type User struct {
 // Me validates an API key and returns its account identity.
 func (c *Client) Me(ctx context.Context, key string) (User, error) {
 	if strings.TrimSpace(key) == "" {
-		return User{}, errors.New("Cursor API key is required")
+		return User{}, errors.New("cursor API key is required")
 	}
 	var result struct {
 		User User `json:"user"`
@@ -319,14 +319,14 @@ func (c *Client) Me(ctx context.Context, key string) (User, error) {
 		return User{}, err
 	}
 	if result.User.UserID == 0 && result.User.Email == "" {
-		return User{}, errors.New("Cursor did not identify this API key")
+		return User{}, errors.New("cursor did not identify this API key")
 	}
 	return result.User, nil
 }
 
 func (c *Client) Models(ctx context.Context, key string) ([]Model, error) {
 	if strings.TrimSpace(key) == "" {
-		return nil, errors.New("Cursor API key is required")
+		return nil, errors.New("cursor API key is required")
 	}
 	var result struct {
 		Items []Model `json:"items"`

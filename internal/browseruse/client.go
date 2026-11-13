@@ -77,7 +77,7 @@ func (c *Client) request(ctx context.Context, method, path string, input any, ou
 	if err != nil {
 		return fmt.Errorf("browser driver request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return fmt.Errorf("read browser driver response: %w", err)

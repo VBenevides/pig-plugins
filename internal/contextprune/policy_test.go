@@ -110,7 +110,7 @@ func TestPolicyComparisonOnSyntheticSession(t *testing.T) {
 	folded, _ = Apply(folded, Decide(folded, budgeted))
 	sizes := map[string]int{"none": original, "legacy pruning": viewBytes(legacyView), "budgeted pruning": viewBytes(budgetedView), "budgeted + fold": viewBytes(folded)}
 	t.Logf("message bytes: %v; fold saved %d", sizes, receipt.Saved)
-	if !(sizes["none"] >= sizes["legacy pruning"] && sizes["legacy pruning"] > sizes["budgeted pruning"] && sizes["budgeted pruning"] > sizes["budgeted + fold"]) {
+	if sizes["none"] < sizes["legacy pruning"] || sizes["legacy pruning"] <= sizes["budgeted pruning"] || sizes["budgeted pruning"] <= sizes["budgeted + fold"] {
 		t.Fatalf("policies do not reduce in order: %v", sizes)
 	}
 	for name, view := range map[string][]any{"legacy": legacyView, "budgeted": budgetedView, "folded": folded} {

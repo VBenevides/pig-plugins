@@ -59,7 +59,7 @@ func TestCallbackParksWithoutFabricatingAToolResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	server.Expect("agent")
 	done := make(chan int, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -77,7 +77,7 @@ func TestCallbackParksWithoutFabricatingAToolResult(t *testing.T) {
 			done <- 0
 			return
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		done <- response.StatusCode
 	}()
 	select {
@@ -265,7 +265,7 @@ func TestPendingCallbacksAreBoundedAndBearerPrefixIsRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer server.Close()
+	defer func() { _ = server.Close() }()
 	for i := 0; i < maxProposals; i++ {
 		server.active <- struct{}{}
 	}

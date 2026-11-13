@@ -199,11 +199,15 @@ func (h *Home) RunRPC(t testing.TB, mock *MockLLM, opts RPCOptions) RPCResult {
 	_ = stdin.Close()
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
+	var waitErr error
 	select {
-	case <-waited:
+	case waitErr = <-waited:
 	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill()
-		<-waited
+		waitErr = <-waited
+	}
+	if waitErr != nil {
+		t.Logf("pig exited with: %v", waitErr)
 	}
 	result.Stderr = stderr.String()
 	return result

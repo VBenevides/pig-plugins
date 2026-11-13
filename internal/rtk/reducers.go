@@ -95,7 +95,7 @@ func reduceJSON(raw string) (string, string, error) {
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			// Native Bash may append an exit/truncation notice after JSON output.
 			// Preserve the entire capture when it is not a complete JSON event stream.
-			return raw, "", fmt.Errorf("Go test JSON stream is incomplete or malformed; retaining host output: %w", err)
+			return raw, "", fmt.Errorf("go test JSON stream is incomplete or malformed; retaining host output: %w", err)
 		}
 		switch event.Action {
 		case "output":

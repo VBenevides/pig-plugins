@@ -62,7 +62,7 @@ func extractDriver(data []byte, release driverRelease) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer compressed.Close()
+		defer func() { _ = compressed.Close() }()
 		archive := tar.NewReader(io.LimitReader(compressed, maxDriverBinary+1))
 		for count := 0; count < 1000; count++ {
 			header, err := archive.Next()

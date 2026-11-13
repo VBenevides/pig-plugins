@@ -197,7 +197,7 @@ func Decide(messages []any, settings Settings) Decisions {
 	decideHistoricalErrors(messages, calls, toolProtectedFrom, settings, decisions)
 	decideHistoricalResults(messages, calls, toolProtectedFrom, settings, decisions)
 	decideHistoricalArguments(messages, toolProtectedFrom, settings, decisions)
-	if decisions.Saved() < settings.MinSavingChars && !(settings.Pressure && decisions.BudgetPressure()) {
+	if decisions.Saved() < settings.MinSavingChars && (!settings.Pressure || !decisions.BudgetPressure()) {
 		return Decisions{}
 	}
 	return decisions

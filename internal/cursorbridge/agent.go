@@ -41,12 +41,12 @@ type TokenUsage struct {
 // inherited. The SDK transports host callbacks through its MCP tool group.
 func (c *Client) Create(ctx context.Context, key string, model Selection, tools []ToolDef) (string, error) {
 	if key == "" || model.ID == "" {
-		return "", errors.New("Cursor account key and model are required")
+		return "", errors.New("cursor account key and model are required")
 	}
 	custom := map[string]any{}
 	for _, tool := range tools {
 		if tool.Name == "" || custom[tool.Name] != nil {
-			return "", errors.New("Cursor tool names must be nonempty and unique")
+			return "", errors.New("cursor tool names must be nonempty and unique")
 		}
 		schema := tool.Schema
 		if len(schema) == 0 {
@@ -70,7 +70,7 @@ func (c *Client) Create(ctx context.Context, key string, model Selection, tools 
 		return "", err
 	}
 	if response.AgentID == "" {
-		return "", errors.New("Cursor bridge returned an empty agent identifier")
+		return "", errors.New("cursor bridge returned an empty agent identifier")
 	}
 	return response.AgentID, nil
 }
@@ -127,11 +127,11 @@ func (c *Client) Send(ctx context.Context, agentID, prompt string, images []Imag
 			return err
 		}
 		if envelope.SDKMessage.AgentID != "" && envelope.SDKMessage.AgentID != agentID {
-			return errors.New("Cursor stream changed agent identity")
+			return errors.New("cursor stream changed agent identity")
 		}
 		if id := envelope.SDKMessage.RunID; id != "" {
 			if liveRunID != "" && liveRunID != id {
-				return errors.New("Cursor stream changed run identity")
+				return errors.New("cursor stream changed run identity")
 			}
 			liveRunID = id
 		}
@@ -150,7 +150,7 @@ func (c *Client) Send(ctx context.Context, agentID, prompt string, images []Imag
 		return RunResult{AgentID: agentID, RunID: liveRunID}, err
 	}
 	if result == nil || result.AgentID != agentID || result.RunID == "" || (liveRunID != "" && result.RunID != liveRunID) || result.Status != "RUN_LIFECYCLE_STATUS_FINISHED" {
-		return RunResult{AgentID: agentID, RunID: liveRunID}, errors.New("Cursor stream did not finish successfully")
+		return RunResult{AgentID: agentID, RunID: liveRunID}, errors.New("cursor stream did not finish successfully")
 	}
 	return *result, nil
 }

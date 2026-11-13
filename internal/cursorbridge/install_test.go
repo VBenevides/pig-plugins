@@ -34,11 +34,17 @@ func archiveFixture(t *testing.T, name string, kind byte, duplicate bool) []byte
 			t.Fatal(err)
 		}
 		if header.Size > 0 {
-			tw.Write([]byte("binary"))
+			if _, err := tw.Write([]byte("binary")); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
-	tw.Close()
-	gz.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return out.Bytes()
 }
 func installer(t *testing.T, dir string, data []byte, expected string) (string, error) {
@@ -92,7 +98,9 @@ func TestInstallFailurePreservesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Corruption must be visible, never overwritten by an automatic replacement.
-	os.WriteFile(path, []byte("changed"), 0700)
+	if err := os.WriteFile(path, []byte("changed"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = installer(t, dir, data, digest(data)); err == nil {
 		t.Fatal("corrupt install accepted")
 	}

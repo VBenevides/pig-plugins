@@ -52,7 +52,7 @@ func Collapse(models []cursorbridge.Model) ([]Entry, error) {
 	var order []string
 	add := func(entry Entry) error {
 		if _, exists := byID[entry.ID]; exists {
-			return fmt.Errorf("Cursor catalog has ambiguous model %q", entry.ID)
+			return fmt.Errorf("cursor catalog has ambiguous model %q", entry.ID)
 		}
 		copy := entry
 		byID[entry.ID] = &copy
@@ -84,7 +84,7 @@ func Collapse(models []cursorbridge.Model) ([]Entry, error) {
 			groupOrder = append(groupOrder, key)
 		}
 		if previous, duplicate := g.levels[match[2]]; duplicate {
-			return nil, fmt.Errorf("Cursor catalog has duplicate %s variants %q and %q", match[2], previous, model.ID)
+			return nil, fmt.Errorf("cursor catalog has duplicate %s variants %q and %q", match[2], previous, model.ID)
 		}
 		g.levels[match[2]] = model.ID
 	}
@@ -275,12 +275,12 @@ func Resolve(entries []Entry, id, level string) (cursorbridge.Selection, error) 
 			return selection, nil
 		}
 		if level == "" {
-			return cursorbridge.Selection{}, fmt.Errorf("Cursor model %q requires a thinking level: %s", id, strings.Join(entry.Levels(), ", "))
+			return cursorbridge.Selection{}, fmt.Errorf("cursor model %q requires a thinking level: %s", id, strings.Join(entry.Levels(), ", "))
 		}
 		if len(entry.Levels()) == 0 {
-			return cursorbridge.Selection{}, fmt.Errorf("Cursor model %q has no thinking levels; select off", id)
+			return cursorbridge.Selection{}, fmt.Errorf("cursor model %q has no thinking levels; select off", id)
 		}
-		return cursorbridge.Selection{}, fmt.Errorf("Cursor model %q does not support thinking level %q; available: %s", id, level, strings.Join(entry.Levels(), ", "))
+		return cursorbridge.Selection{}, fmt.Errorf("cursor model %q does not support thinking level %q; available: %s", id, level, strings.Join(entry.Levels(), ", "))
 	}
 	return cursorbridge.Selection{}, errors.New("Cursor model " + id + " is not in the selected account's catalog")
 }

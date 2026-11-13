@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
@@ -53,7 +54,7 @@ const hiddenLoginMessage = "Browser visibility is hidden. Never open a visible b
 
 func loginWithVisibility(request context.Context, ui loginUI, client *browseruse.Client, visibility browseruse.Visibility) (value any, err error) {
 	if visibility != browseruse.Login && visibility != browseruse.Always {
-		return nil, errors.New(hiddenLoginMessage)
+		return nil, errors.New(strings.TrimSuffix(hiddenLoginMessage, "."))
 	}
 	if visibility == browseruse.Always {
 		return manualLogin(request, ui, client)

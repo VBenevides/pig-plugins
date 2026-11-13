@@ -89,7 +89,7 @@ func update(current string) (err error) {
 		return fmt.Errorf("compare plugins versions: %w", err)
 	}
 	if !newer {
-		fmt.Fprintf(os.Stdout, "pig-plugins: no update needed (local %s, remote %s)\n", current, remote)
+		_, _ = fmt.Fprintf(os.Stdout, "pig-plugins: no update needed (local %s, remote %s)\n", current, remote)
 		return nil
 	}
 	path := filepath.Join(dir, "install.sh")

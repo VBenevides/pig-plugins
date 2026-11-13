@@ -14,15 +14,14 @@ import (
 )
 
 type mockBridge struct {
-	t         *testing.T
-	mu        sync.Mutex
-	calls     []string
-	callback  string
-	token     string
-	created   map[string]json.RawMessage
-	sendBody  string
-	onSend    func(m *mockBridge, w http.ResponseWriter, r *http.Request, agentID string)
-	cancelled bool
+	t        *testing.T
+	mu       sync.Mutex
+	calls    []string
+	callback string
+	token    string
+	created  map[string]json.RawMessage
+	sendBody string
+	onSend   func(m *mockBridge, w http.ResponseWriter, r *http.Request, agentID string)
 }
 
 func (m *mockBridge) call(name string) int {
@@ -52,7 +51,7 @@ func (m *mockBridge) post(path string, body any) (int, string) {
 		m.t.Error(err)
 		return 0, ""
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	out, _ := io.ReadAll(response.Body)
 	return response.StatusCode, string(out)
 }
@@ -70,7 +69,7 @@ func (m *mockBridge) server() *httptest.Server {
 			m.callback, m.token = in["url"], in["authToken"]
 			m.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{}`)
+			_, _ = io.WriteString(w, `{}`)
 		case strings.HasSuffix(r.URL.Path, "CreateAgent"):
 			var in struct {
 				Options map[string]json.RawMessage `json:"options"`
@@ -78,10 +77,10 @@ func (m *mockBridge) server() *httptest.Server {
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			m.created = in.Options
 			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{"agentId":"agent-1"}`)
+			_, _ = io.WriteString(w, `{"agentId":"agent-1"}`)
 		case strings.HasSuffix(r.URL.Path, "CancelRun"), strings.HasSuffix(r.URL.Path, "CloseAgent"):
 			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{}`)
+			_, _ = io.WriteString(w, `{}`)
 		case strings.HasSuffix(r.URL.Path, "SdkAgentService/Send"):
 			// Reading the body lets the server notice a client disconnect.
 			raw, _ := io.ReadAll(r.Body)
@@ -92,7 +91,7 @@ func (m *mockBridge) server() *httptest.Server {
 			m.onSend(m, w, r, "agent-1")
 		default:
 			w.Header().Set("Content-Type", "application/json")
-			io.WriteString(w, `{}`)
+			_, _ = io.WriteString(w, `{}`)
 		}
 	}))
 }
@@ -210,7 +209,7 @@ func TestDuplicateAndParallelProposals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer callback.Close()
+	defer func() { _ = callback.Close() }()
 	callback.Expect("agent")
 	m := &mockBridge{t: t, callback: callback.URL, token: callback.Token}
 	var pending sync.WaitGroup

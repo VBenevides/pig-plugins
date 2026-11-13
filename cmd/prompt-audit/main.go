@@ -44,7 +44,7 @@ func inventory(path, root string) (traceInventory, error) {
 	if err != nil {
 		return traceInventory{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	scan := bufio.NewScanner(io.TeeReader(f, h))
 	scan.Buffer(make([]byte, 65536), 16<<20)

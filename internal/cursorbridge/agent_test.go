@@ -23,19 +23,19 @@ func TestAgentContinuation(t *testing.T) {
 			if string(in.Options["apiKey"]) != `"account-key"` || string(in.Options["tools"]) != `{"names":[]}` || string(in.Options["mcpServers"]) != `{}` {
 				t.Error("unsafe agent options", in.Options)
 			}
-			io.WriteString(w, `{"agentId":"agent-one"}`)
+			_, _ = io.WriteString(w, `{"agentId":"agent-one"}`)
 			return
 		}
 		w.Header().Set("Content-Type", "application/connect+json")
 		var header [5]byte
-		io.ReadFull(r.Body, header[:])
+		_, _ = io.ReadFull(r.Body, header[:])
 		var in struct {
 			AgentID string `json:"agentId"`
 			Message struct {
 				Text string `json:"text"`
 			} `json:"message"`
 		}
-		json.NewDecoder(r.Body).Decode(&in)
+		_ = json.NewDecoder(r.Body).Decode(&in)
 		if in.AgentID != "agent-one" || in.Message.Text == "" {
 			t.Error("continuation lost")
 		}

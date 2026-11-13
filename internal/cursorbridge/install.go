@@ -41,7 +41,7 @@ func Installed(agentDir, goos string) (string, error) {
 	path := BinaryPath(agentDir, goos)
 	info, err := os.Lstat(path)
 	if err != nil {
-		return "", fmt.Errorf("Cursor bridge is not installed; run pig-plugins --install-cursor: %w", err)
+		return "", fmt.Errorf("cursor bridge is not installed; run pig-plugins --install-cursor: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > maxExecutable {
 		return "", errors.New("invalid installed Cursor bridge executable")
@@ -57,7 +57,7 @@ func Installed(agentDir, goos string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	if _, err = io.Copy(hash, io.LimitReader(file, maxExecutable+1)); err != nil {
 		return "", err
@@ -79,7 +79,7 @@ func Install(ctx context.Context, agentDir, goos, goarch string) (string, error)
 	}
 	hash, ok := artifactHashes[goos+"-"+goarch]
 	if !ok {
-		return "", fmt.Errorf("Cursor bridge does not support %s/%s", goos, goarch)
+		return "", fmt.Errorf("cursor bridge does not support %s/%s", goos, goarch)
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
@@ -100,8 +100,8 @@ func Install(ctx context.Context, agentDir, goos, goarch string) (string, error)
 			return nil, fmt.Errorf("download Cursor bridge: %w", err)
 		}
 		if response.StatusCode != 200 {
-			response.Body.Close()
-			return nil, fmt.Errorf("Cursor bridge download returned HTTP %d", response.StatusCode)
+			_ = response.Body.Close()
+			return nil, fmt.Errorf("cursor bridge download returned HTTP %d", response.StatusCode)
 		}
 		return response.Body, nil
 	})
@@ -111,7 +111,7 @@ func Install(ctx context.Context, agentDir, goos, goarch string) (string, error)
 	packagePlatform := runtimePlatform(goos, goarch)
 	runtimeHash, ok := runtimeHashes[packagePlatform]
 	if !ok {
-		return "", errors.New("Cursor SDK runtime does not support this platform")
+		return "", errors.New("cursor SDK runtime does not support this platform")
 	}
 	runtimeURL := "https://registry.npmjs.org/@cursor/sdk-" + packagePlatform + "/-/sdk-" + packagePlatform + "-" + Version + ".tgz"
 	err = installRuntime(ctx, filepath.Dir(path), packagePlatform, runtimeHash, func(ctx context.Context) (io.ReadCloser, error) {
@@ -124,8 +124,8 @@ func Install(ctx context.Context, agentDir, goos, goarch string) (string, error)
 			return nil, fmt.Errorf("download Cursor SDK runtime: %w", err)
 		}
 		if response.StatusCode != http.StatusOK {
-			response.Body.Close()
-			return nil, fmt.Errorf("Cursor SDK runtime download returned HTTP %d", response.StatusCode)
+			_ = response.Body.Close()
+			return nil, fmt.Errorf("cursor SDK runtime download returned HTTP %d", response.StatusCode)
 		}
 		return response.Body, nil
 	})
@@ -147,7 +147,7 @@ func install(ctx context.Context, agentDir, goos, expected string, fetch func(co
 	// Atomic mkdir isolates concurrent installers. Do not remove another owner's lock.
 	lock := target + ".lock"
 	if err = os.Mkdir(lock, 0700); err != nil {
-		return "", fmt.Errorf("Cursor installation is locked; remove the lock only after its owner exits: %w", err)
+		return "", fmt.Errorf("cursor installation is locked; remove the lock only after its owner exits: %w", err)
 	}
 	defer func() { err = errors.Join(err, os.Remove(lock)) }()
 	if path, checkErr := Installed(agentDir, goos); checkErr == nil {
@@ -155,7 +155,7 @@ func install(ctx context.Context, agentDir, goos, expected string, fetch func(co
 	}
 	// Never replace an occupied installation. A failed download cannot damage it.
 	if _, checkErr := os.Lstat(target); checkErr == nil {
-		return "", errors.New("Cursor bridge directory exists but failed verification; preserve it and resolve the integrity failure manually")
+		return "", errors.New("cursor bridge directory exists but failed verification; preserve it and resolve the integrity failure manually")
 	} else if !errors.Is(checkErr, os.ErrNotExist) {
 		return "", checkErr
 	}
@@ -170,7 +170,7 @@ func install(ctx context.Context, agentDir, goos, expected string, fetch func(co
 	}
 	response, err := fetch(ctx)
 	if err != nil {
-		archive.Close()
+		_ = archive.Close()
 		return "", err
 	}
 	hash := sha256.New()
@@ -180,7 +180,7 @@ func install(ctx context.Context, agentDir, goos, expected string, fetch func(co
 		return "", errors.Join(copyErr, closeErr)
 	}
 	if size > maxArchive || hex.EncodeToString(hash.Sum(nil)) != expected {
-		return "", errors.New("Cursor archive failed its pinned integrity check")
+		return "", errors.New("cursor archive failed its pinned integrity check")
 	}
 	input, err := os.Open(archive.Name())
 	if err != nil {
@@ -188,7 +188,7 @@ func install(ctx context.Context, agentDir, goos, expected string, fetch func(co
 	}
 	gz, err := gzip.NewReader(input)
 	if err != nil {
-		input.Close()
+		_ = input.Close()
 		return "", fmt.Errorf("open Cursor archive: %w", err)
 	}
 	executable := filepath.Base(BinaryPath(agentDir, goos))
@@ -238,7 +238,7 @@ func install(ctx context.Context, agentDir, goos, expected string, fetch func(co
 		return "", fmt.Errorf("extract Cursor bridge: %w", err)
 	}
 	if !found {
-		return "", errors.New("Cursor archive has no supported bridge executable")
+		return "", errors.New("cursor archive has no supported bridge executable")
 	}
 	if err = os.Remove(archive.Name()); err != nil {
 		return "", err

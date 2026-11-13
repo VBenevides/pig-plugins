@@ -55,15 +55,6 @@ func (r *parkRegistry) put(account string, e *parkedEntry) {
 	}()
 }
 
-// take removes and returns the parked run of an account.
-func (r *parkRegistry) take(account string) *parkedEntry {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	e := r.entries[account]
-	delete(r.entries, account)
-	return e
-}
-
 // peek returns the parked run of an account without removing it.
 func (r *parkRegistry) peek(account string) *parkedEntry {
 	r.mu.Lock()

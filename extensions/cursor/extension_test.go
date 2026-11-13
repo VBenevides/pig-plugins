@@ -322,7 +322,7 @@ func cursorServer(t *testing.T, approveAfter int32, access string) (*browserAuth
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]string{"accessToken": access, "refreshToken": "refresh-1"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"accessToken": access, "refreshToken": "refresh-1"})
 		case userKeyPath:
 			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+access || r.Header.Get("Connect-Protocol-Version") != "1" {
 				t.Error("invalid key exchange headers")
@@ -338,9 +338,9 @@ func cursorServer(t *testing.T, approveAfter int32, access string) (*browserAuth
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]string{"apiKey": "minted-user-key"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"apiKey": "minted-user-key"})
 		case "/oauth/token":
-			json.NewEncoder(w).Encode(map[string]any{"access_token": fakeJWT(time.Now().Add(2 * time.Hour)), "refresh_token": "refresh-2"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": fakeJWT(time.Now().Add(2 * time.Hour)), "refresh_token": "refresh-2"})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -477,7 +477,7 @@ func TestProviderAuthShape(t *testing.T) {
 
 func TestEndedSessionAsksForNewLogin(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "", "shouldLogout": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "", "shouldLogout": true})
 	}))
 	defer server.Close()
 	auth := &browserAuth{http: server.Client(), apiBaseURL: server.URL}

@@ -43,7 +43,7 @@ func Start(ctx context.Context, binary, key string) (*Process, error) {
 
 func start(ctx context.Context, binary, key string, timeout time.Duration) (*Process, error) {
 	if binary == "" {
-		return nil, errors.New("Cursor bridge is missing; run pig-plugins --install-cursor")
+		return nil, errors.New("cursor bridge is missing; run pig-plugins --install-cursor")
 	}
 	root, err := os.MkdirTemp("", "pig-cursor-bridge-*")
 	if err != nil {
@@ -61,12 +61,12 @@ func start(ctx context.Context, binary, key string, timeout time.Duration) (*Pro
 	cmd.Env = append(cmd.Env, "CURSOR_API_KEY="+key, "CURSOR_SDK_CLIENT_LANGUAGE=go")
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		os.RemoveAll(root)
+		_ = os.RemoveAll(root)
 		return nil, fmt.Errorf("open Cursor handshake pipe: %w", err)
 	}
 	if err = cmd.Start(); err != nil {
-		stderr.Close()
-		os.RemoveAll(root)
+		_ = stderr.Close()
+		_ = os.RemoveAll(root)
 		return nil, fmt.Errorf("start Cursor bridge: %w", err)
 	}
 	p := &Process{cmd: cmd, done: make(chan struct{}), root: root}
@@ -103,7 +103,7 @@ func start(ctx context.Context, binary, key string, timeout time.Duration) (*Pro
 		}
 		info, err := os.Lstat(message.AuthTokenFile)
 		if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 || info.Mode().Perm()&0077 != 0 {
-			return fail(errors.New("Cursor bridge token file is missing or not private"))
+			return fail(errors.New("cursor bridge token file is missing or not private"))
 		}
 		data, err := os.ReadFile(message.AuthTokenFile)
 		if err != nil {
@@ -122,9 +122,9 @@ func start(ctx context.Context, binary, key string, timeout time.Duration) (*Pro
 	case <-ctx.Done():
 		return fail(ctx.Err())
 	case <-timer.C:
-		return fail(errors.New("Cursor bridge startup timed out"))
+		return fail(errors.New("cursor bridge startup timed out"))
 	case <-p.done:
-		return fail(errors.New("Cursor bridge exited before its handshake"))
+		return fail(errors.New("cursor bridge exited before its handshake"))
 	}
 }
 

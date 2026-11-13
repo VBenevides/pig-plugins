@@ -92,7 +92,7 @@ func HasMessage(path string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("open session %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	r := bufio.NewReaderSize(f, 64<<10)
 	read := 0
 	for read < scanLimit {

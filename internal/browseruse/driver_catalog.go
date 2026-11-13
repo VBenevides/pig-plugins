@@ -63,7 +63,7 @@ func fetchDriverData(ctx context.Context, client *http.Client, rawURL string, li
 	if err != nil {
 		return nil, driverFetchError{cause: err}
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("driver resource returned HTTP %d", response.StatusCode)
 	}
@@ -92,7 +92,7 @@ func latestDriver(ctx context.Context, client *http.Client, mode Mode, browserVe
 		}
 		parts := strings.Split(browserVersion, ".")
 		if len(parts) < 3 {
-			return driverRelease{}, fmt.Errorf("Chrome version must include its build number")
+			return driverRelease{}, fmt.Errorf("chrome version must include its build number")
 		}
 		data, err := fetchDriverData(ctx, client, "https://googlechromelabs.github.io/chrome-for-testing/latest-patch-versions-per-build-with-downloads.json", 8<<20)
 		if err != nil {

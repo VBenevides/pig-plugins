@@ -23,7 +23,8 @@ func TestReducerSettingsLiveThroughSDK(t *testing.T) {
 	t.Cleanup(func() {
 		_ = host.Close()
 		select {
-		case <-done:
+		case err := <-done:
+			t.Logf("SDK stopped: %v", err)
 		case <-time.After(3 * time.Second):
 			t.Error("SDK did not stop")
 		}

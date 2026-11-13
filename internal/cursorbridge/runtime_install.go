@@ -58,7 +58,7 @@ func checkRuntime(target, expected string) error {
 		return err
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("Cursor runtime directory is not a regular directory")
+		return errors.New("cursor runtime directory is not a regular directory")
 	}
 	recordPath := filepath.Join(target, runtimeRecord)
 	recordInfo, err := os.Lstat(recordPath)
@@ -94,7 +94,7 @@ func checkRuntime(target, expected string) error {
 				return err
 			}
 			if info.Mode()&os.ModeSymlink != 0 {
-				return errors.New("Cursor runtime contains a symbolic link")
+				return errors.New("cursor runtime contains a symbolic link")
 			}
 		}
 		if !info.Mode().IsRegular() || info.Size() > maxRuntimeContent-total {
@@ -102,7 +102,7 @@ func checkRuntime(target, expected string) error {
 		}
 		total += info.Size()
 		if runtime.GOOS != "windows" && strings.HasPrefix(name, "bin/") && info.Mode().Perm()&0111 == 0 {
-			return errors.New("Cursor runtime binary is not executable")
+			return errors.New("cursor runtime binary is not executable")
 		}
 		file, err := os.Open(filePath)
 		if err != nil {
@@ -115,7 +115,7 @@ func checkRuntime(target, expected string) error {
 			return errors.Join(copyErr, closeErr)
 		}
 		if hex.EncodeToString(hash.Sum(nil)) != digest {
-			return errors.New("Cursor runtime file failed its integrity check")
+			return errors.New("cursor runtime file failed its integrity check")
 		}
 	}
 	return nil
@@ -136,7 +136,7 @@ func installRuntime(ctx context.Context, bridgeDir, platform, expected string, f
 			return statErr
 		}
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("Cursor runtime parent is not a regular directory")
+			return errors.New("cursor runtime parent is not a regular directory")
 		}
 	}
 	target := filepath.Join(parent, "sdk-"+platform)
@@ -145,14 +145,14 @@ func installRuntime(ctx context.Context, bridgeDir, platform, expected string, f
 	}
 	lock := target + ".lock"
 	if err = os.Mkdir(lock, 0700); err != nil {
-		return fmt.Errorf("Cursor runtime installation is locked: %w", err)
+		return fmt.Errorf("cursor runtime installation is locked: %w", err)
 	}
 	defer func() { err = errors.Join(err, os.Remove(lock)) }()
 	if err = checkRuntime(target, expected); err == nil {
 		return nil
 	}
 	if _, statErr := os.Lstat(target); statErr == nil {
-		return errors.New("Cursor runtime directory exists but failed verification; preserve it and resolve the integrity failure manually")
+		return errors.New("cursor runtime directory exists but failed verification; preserve it and resolve the integrity failure manually")
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
@@ -176,7 +176,7 @@ func installRuntime(ctx context.Context, bridgeDir, platform, expected string, f
 		return errors.Join(copyErr, closeErr)
 	}
 	if n > maxRuntimeArchive || base64.StdEncoding.EncodeToString(hash.Sum(nil)) != expected {
-		return errors.New("Cursor runtime archive failed its pinned integrity check")
+		return errors.New("cursor runtime archive failed its pinned integrity check")
 	}
 	root := filepath.Join(stage, "package")
 	if err = os.Mkdir(root, 0700); err != nil {
@@ -192,7 +192,7 @@ func installRuntime(ctx context.Context, bridgeDir, platform, expected string, f
 	}
 	for _, name := range required {
 		if files[name] == "" {
-			return fmt.Errorf("Cursor runtime archive lacks %s", name)
+			return fmt.Errorf("cursor runtime archive lacks %s", name)
 		}
 	}
 	record, err := json.Marshal(runtimeIntegrity{Archive: expected, Files: files})
@@ -213,12 +213,12 @@ func extractRuntime(archive, root string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	gz, err := gzip.NewReader(file)
 	if err != nil {
 		return nil, err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	reader := tar.NewReader(io.LimitReader(gz, maxRuntimeContent+(1<<20)))
 	files := map[string]string{}
 	var total int64
@@ -238,7 +238,7 @@ func extractRuntime(archive, root string) (map[string]string, error) {
 			return nil, errors.New("unsafe Cursor runtime archive entry")
 		}
 		if header.Size < 0 || header.Size > maxRuntimeContent-total {
-			return nil, errors.New("Cursor runtime archive is too large")
+			return nil, errors.New("cursor runtime archive is too large")
 		}
 		total += header.Size
 		target := filepath.Join(root, filepath.FromSlash(name))
@@ -264,5 +264,5 @@ func extractRuntime(archive, root string) (map[string]string, error) {
 		}
 		files[name] = hex.EncodeToString(hash.Sum(nil))
 	}
-	return nil, errors.New("Cursor runtime archive has too many entries")
+	return nil, errors.New("cursor runtime archive has too many entries")
 }
