@@ -9,30 +9,22 @@ import (
 	"testing"
 )
 
+// The legacy file is the former SYSTEM.md, APPEND_SYSTEM.md and AGENTS.md joined by blank lines.
 func TestLegacyInstructionsRemainExact(t *testing.T) {
-	hashes := map[string]string{
-		"SYSTEM.md":        "ebf45e8909fa597a681479700c09325d4a1569c458f3511df4d2fb217040210f",
-		"APPEND_SYSTEM.md": "74e5731d6c87de290cf5e13cafdec0ed24491d35d9b9e159c3b5881c6f64ee28",
-		"AGENTS.md":        "2ef62a6146185a28a3acb2e3ba55f0d50fe4b60636813af4c2909c3e5e851d70",
+	const want = "4ce3e1c96486aa687189125cb4be56be583ee37f471e8da7e431ee8a59e2e175"
+	data, err := os.ReadFile(filepath.Join("..", "..", "prompts", "agent", "legacy", "SYSTEM.md"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	legacy, current := 0, 0
-	for name, want := range hashes {
-		data, err := os.ReadFile(filepath.Join("..", "..", "prompts", "agent", "legacy", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != want {
-			t.Fatalf("legacy %s changed: %s", name, got)
-		}
-		legacy += len(data)
-		data, err = os.ReadFile(files[name])
-		if err != nil {
-			t.Fatal(err)
-		}
-		current += len(data)
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != want {
+		t.Fatalf("legacy SYSTEM.md changed: %s", got)
 	}
-	if current*2 >= legacy {
-		t.Fatalf("default bytes=%d legacy=%d; require at least 50%% source reduction", current, legacy)
+	current, err := os.ReadFile(files["SYSTEM.md"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current)*2 >= len(data) {
+		t.Fatalf("default bytes=%d legacy=%d; require at least 50%% source reduction", len(current), len(data))
 	}
 }
 

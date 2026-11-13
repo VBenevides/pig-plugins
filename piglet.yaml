@@ -1,6 +1,9 @@
 name: pig-plugins-dev
 description: Development binary with the implemented pig-plugins extensions.
 extensions:
+  # prompt-style must stay first: later extensions append to the prompt it selects.
+  - name: prompt-style
+    origins: [local:./extensions/prompt-style]
   - name: check-update
     origins: [local:./extensions/check-update]
   - name: tool-search

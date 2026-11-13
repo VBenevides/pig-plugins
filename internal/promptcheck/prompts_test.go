@@ -1,5 +1,5 @@
 // Package promptcheck tests the always-loaded prompt files: they must stay small, keep every essential rule, and
-// state each rule once. It has no code; the files it checks are prompts/agent/*.md and the task-management guidance.
+// state each rule once. It has no code; the files it checks are prompts/agent/*/SYSTEM.md and the task-management guidance.
 package promptcheck
 
 import (
@@ -18,10 +18,8 @@ const (
 )
 
 var files = map[string]string{
-	"SYSTEM.md":        filepath.Join("..", "..", "prompts", "agent", "SYSTEM.md"),
-	"APPEND_SYSTEM.md": filepath.Join("..", "..", "prompts", "agent", "APPEND_SYSTEM.md"),
-	"AGENTS.md":        filepath.Join("..", "..", "prompts", "agent", "AGENTS.md"),
-	"guidance.md":      filepath.Join("..", "..", "extensions", "todo", "guidance.md"),
+	"SYSTEM.md":   filepath.Join("..", "..", "prompts", "agent", "default", "SYSTEM.md"),
+	"guidance.md": filepath.Join("..", "..", "extensions", "todo", "guidance.md"),
 }
 
 func load(t *testing.T) map[string]string {
@@ -51,10 +49,10 @@ func TestPromptsStaySmall(t *testing.T) {
 	}
 }
 
-// Every essential rule is present, and is present exactly once across all four files.
+// Every essential rule is present, and is present exactly once across the built-in prompt and the todo guidance.
 func TestEssentialRulesAppearExactlyOnce(t *testing.T) {
 	texts := load(t)
-	all := strings.Join([]string{texts["SYSTEM.md"], texts["APPEND_SYSTEM.md"], texts["AGENTS.md"], texts["guidance.md"]}, "\n")
+	all := strings.Join([]string{texts["SYSTEM.md"], texts["guidance.md"]}, "\n")
 	rules := map[string]string{
 		"hashline anchor format":        "12#a3f9",
 		"stale anchor recovery":         "reread and retry",

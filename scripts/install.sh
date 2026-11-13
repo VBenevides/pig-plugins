@@ -5,8 +5,8 @@
 #
 #   <home>/pig-plugins/            tracked repository files, including every extension and prompts/
 #   <home>/bin/pig-plugins         fused PiG executable with distribution update support
-#   <agent>/{SYSTEM,APPEND_SYSTEM,AGENTS}.md   copied from prompts/agent/; a differing existing file is
-#                                              kept as <file>.pig-plugins-backup-<timestamp>
+#   <agent>/{SYSTEM,APPEND_SYSTEM,AGENTS}.md   not written: the binary embeds the prompts. A file here overrides the
+#                                              built-in prompt; a copy that an earlier release installed is removed
 #   <agent>/keybindings.json                   copied from config/agent/ only when absent; never overwritten
 #   <agent>/skills/<name>/         copied from skills/ (every directory holding a SKILL.md); a differing
 #                                  existing skill moves to <agent>/skills-backup/<timestamp>/<name>
@@ -66,7 +66,7 @@ done
 [ -d "$root/.git" ] || [ -f "$root/.git" ] || { echo "install: run from a git checkout of pig-plugins" >&2; exit 1; }
 command -v go >/dev/null 2>&1 || { echo "install: Go is required on PATH" >&2; exit 1; }
 compatible_version=$(cd "$root" && GOWORK=off go run ./cmd/compatibility "$root/COMPATIBILITY.json")
-for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
+for f in default/SYSTEM.md legacy/SYSTEM.md; do
     [ -f "$root/prompts/agent/$f" ] || { echo "install: missing prompts/agent/$f" >&2; exit 1; }
 done
 
@@ -134,16 +134,23 @@ mv -- "$stage" "$dest"
 rm -rf -- "$dest.old"
 chmod 755 "$dest"
 
-# 5. Copy the prompts into the agent directory.
-echo "install: [5/7] installing agent prompts" >&2
+# 5. The binary embeds the prompts. Remove only copies that earlier releases installed (known checksums), so the
+# built-in prompt applies again. Any other file is the user's override and stays.
+echo "install: [5/7] retiring installed agent prompts" >&2
 stamp=$(date +%s)
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
 for f in SYSTEM.md APPEND_SYSTEM.md AGENTS.md; do
     target="$agent_dir/$f"
-    if [ -e "$target" ] && ! cmp -s "$dest/prompts/agent/$f" "$target"; then
-        cp -- "$target" "$target.pig-plugins-backup-$stamp"
-    fi
-    cp -- "$dest/prompts/agent/$f" "$target.tmp.$$"
-    mv -- "$target.tmp.$$" "$target"
+    [ -f "$target" ] || continue
+    case "$(sha256_of "$target")" in
+        c5348b6307935cce1f72b730d9db4d10e02157225fc2b3bc9f5cf472dd24c8ce|c66a4d38b37d40182ecc8dc27bab72f7007f2336881adbd160caade744a8c502|568bfc7cf402967bb6a7929a06b3e25a8014b9403fd09203be85721555dafe39|ebf45e8909fa597a681479700c09325d4a1569c458f3511df4d2fb217040210f|74e5731d6c87de290cf5e13cafdec0ed24491d35d9b9e159c3b5881c6f64ee28|2ef62a6146185a28a3acb2e3ba55f0d50fe4b60636813af4c2909c3e5e851d70)
+            rm -- "$target"
+            echo "install: removed installed $f; the built-in prompt applies" >&2
+            ;;
+        *) echo "install: keeping $target; it overrides the built-in prompt" >&2 ;;
+    esac
 done
 
 # Default keybindings (ctrl+z undoes instead of suspending). keybindings.json is user-owned, so an

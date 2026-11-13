@@ -70,7 +70,6 @@ func Extension() *sdk.Extension {
 		return nil, apply(ctx)
 	})
 	e.OnEvent(sdk.EventBeforeAgentStart, func(ctx sdk.Context, _ map[string]any) (any, error) { return nil, apply(ctx) })
-	e.OnEvent(sdk.EventBeforeAgentStart, selectPromptStyle)
 	e.OnEvent(sdk.EventToolCall, func(_ sdk.Context, data map[string]any) (any, error) {
 		cfg, err := toolsettings.LoadEffective(toolsettings.Path())
 		if err != nil {

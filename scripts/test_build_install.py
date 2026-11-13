@@ -31,9 +31,9 @@ class BuildScriptsTest(unittest.TestCase):
         (self.root / "coding/extension/host/subprocess").mkdir(parents=True)
         (self.root / "go.mod").write_text("module fixture\n")
         (self.root / "piglet.yaml").write_text("fixture\n")
-        (self.root / "prompts/agent").mkdir(parents=True)
-        for name in ("SYSTEM.md", "APPEND_SYSTEM.md", "AGENTS.md"):
-            (self.root / "prompts/agent" / name).write_text("fixture\n")
+        for style in ("default", "legacy"):
+            (self.root / "prompts/agent" / style).mkdir(parents=True)
+            (self.root / "prompts/agent" / style / "SYSTEM.md").write_text("fixture\n")
         (self.root / "skills/example").mkdir(parents=True)
         (self.root / "skills/example/SKILL.md").write_text("fixture\n")
         self.sdk = Path(self.tmp.name) / "sdk"
@@ -53,7 +53,7 @@ class BuildScriptsTest(unittest.TestCase):
         self.tool("node", "exit 0\n")
         self.tool("ast-grep", "exit 0\n")
         self.tool("git", '''case "$*" in
-    *ls-files*) printf 'go.mod\\0piglet.yaml\\0prompts/agent/SYSTEM.md\\0prompts/agent/APPEND_SYSTEM.md\\0prompts/agent/AGENTS.md\\0' ;;
+    *ls-files*) printf 'go.mod\\0piglet.yaml\\0prompts/agent/default/SYSTEM.md\\0prompts/agent/legacy/SYSTEM.md\\0' ;;
     *) exit 0 ;;
 esac
 ''')
@@ -222,14 +222,29 @@ chmod +x "$2"
         self.assertEqual(result.returncode, 0, result.stderr)
         for name, text in preserved.items():
             self.assertEqual((agent / name).read_text(), text)
-        backups = list(agent.glob("SYSTEM.md.pig-plugins-backup-*"))
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(backups[0].read_text(), "previous user prompt")
+        self.assertEqual((agent / "SYSTEM.md").read_text(), "previous user prompt")
+        self.assertEqual(list(agent.glob("*.pig-plugins-backup-*")), [])
+        self.assertIn("keeping", result.stderr)
         skill_backups = list((agent / "skills-backup").glob("*/example/SKILL.md"))
         self.assertEqual(len(skill_backups), 1)
         self.assertEqual(skill_backups[0].read_text(), "previous user skill")
-        self.assertEqual((agent / "SYSTEM.md").read_text(), "fixture\n")
         self.assertEqual(skill.read_text(), "fixture\n")
+
+    def test_install_removes_only_prompts_that_earlier_releases_shipped(self):
+        agent = Path(self.env["PIG_HOME"]) / "agent"
+        agent.mkdir(parents=True)
+        repo = Path(__file__).resolve().parent.parent
+        shipped = {"SYSTEM.md": "prompts/agent/SYSTEM.md", "APPEND_SYSTEM.md": "prompts/agent/legacy/APPEND_SYSTEM.md",
+                   "AGENTS.md": "prompts/agent/AGENTS.md"}
+        for name, path in shipped.items():
+            content = subprocess.run(["git", "show", f"8250e51:{path}"], cwd=repo, check=True, capture_output=True).stdout
+            (agent / name).write_bytes(content)
+        (agent / "AGENTS.md").write_text("edited by the user\n")
+        result = self.run_script("install.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((agent / "SYSTEM.md").exists())
+        self.assertFalse((agent / "APPEND_SYSTEM.md").exists())
+        self.assertEqual((agent / "AGENTS.md").read_text(), "edited by the user\n")
 
     def test_staging_progress_and_default_limits(self):
         out = self.root / "build/result"
@@ -251,7 +266,7 @@ for name in .git .agent-work build node_modules .ouro go.work go.work.sum; do
     [ ! -e "$module/$name" ] || { echo "unexpected lock input: $name" >&2; exit 42; }
 done
 [ -f "$module/go.mod" ]
-[ -f "$module/prompts/agent/SYSTEM.md" ]
+[ -f "$module/prompts/agent/default/SYSTEM.md" ]
 [ -f "$module/skills/example/SKILL.md" ]
 while [ "$1" != --out ]; do shift; done
 printf '#!/bin/sh\\nexit 0\\n' > "$2"
