@@ -4,9 +4,10 @@ package toolsearch
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
 const Name = "tool-search"
@@ -14,46 +15,26 @@ const toolName = "tool_search"
 
 func Extension() *sdk.Extension {
 	e := sdk.New(Name)
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
-		return nil, setEnabled(ctx, true)
-	})
-	e.RegisterCommand(Name, sdk.CommandOptions{
-		Description: "Enable or disable tool discovery (/tool-search on|off; no argument shows status)",
-		GetArgumentCompletions: func(prefix string) ([]sdk.AutocompleteItem, error) {
-			var items []sdk.AutocompleteItem
-			for _, value := range []string{"on", "off"} {
-				if strings.HasPrefix(value, prefix) {
-					items = append(items, sdk.AutocompleteItem{Value: value, Label: value})
-				}
+	state := &discoveries{}
+	e.OnEvent(sdk.EventToolCall, boundSearch)
+	e.OnEvent(sdk.EventToolResult, state.result)
+	e.OnEvent(sdk.EventAgentSettled, state.settle)
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
+		tools, err := ctx.GetAllTools()
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := toolsettings.LoadEffective(toolsettings.Path())
+		if err != nil {
+			return nil, err
+		}
+		for _, tool := range tools {
+			if tool.Name == toolName {
+				return nil, setEnabled(ctx, cfg.ToolEnabled(toolName))
 			}
-			return items, nil
-		},
-		Handler: func(ctx sdk.Context, args string) error {
-			switch strings.ToLower(strings.TrimSpace(args)) {
-			case "on":
-				if err := setEnabled(ctx, true); err != nil {
-					return err
-				}
-			case "off":
-				if err := setEnabled(ctx, false); err != nil {
-					return err
-				}
-			case "":
-			default:
-				ctx.Notify("usage: /tool-search [on|off]", "warning")
-				return nil
-			}
-			active, err := ctx.GetActiveTools()
-			if err != nil {
-				return fmt.Errorf("tool-search: read active tools: %w", err)
-			}
-			state := "off"
-			if slices.Contains(active, toolName) {
-				state = "on"
-			}
-			ctx.Notify("Tool search: "+state, "info")
-			return nil
-		},
+		}
+		ctx.Notify("Tool discovery is unavailable. Only the four core tools remain exposed.", "warning")
+		return nil, nil
 	})
 	return e
 }

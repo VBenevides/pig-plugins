@@ -1,7 +1,6 @@
 package toolsearch
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,29 +8,51 @@ import (
 	"testing"
 
 	"github.com/VBenevides/pig-plugins/internal/pigtest"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 )
 
-func TestDefaultAndCommand(t *testing.T) {
+func TestDiscoveryUsesSavedSettings(t *testing.T) {
 	pigtest.RequirePig(t)
-	home := pigtest.NewHome(t)
-	mock := pigtest.NewMockLLM(pigtest.Text("unused"))
-	defer mock.Close()
 	path, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{
-		Extensions: []string{path},
-		Prompts:    []string{"/tool-search", "/tool-search off", "/tool-search off", "/tool-search", "/tool-search ON", "/tool-search invalid", "/tool-search"},
-	})
-	want := []string{"Tool search: on", "Tool search: off", "Tool search: off", "Tool search: off", "Tool search: on", "usage: /tool-search [on|off]", "Tool search: on"}
-	if got := result.Notices(); !slices.Equal(got, want) {
-		t.Fatalf("notices = %q, want %q; stderr: %s", got, want, result.Stderr)
-	}
-	for _, event := range result.Events {
-		if event["type"] == "extension_error" || event["notifyType"] == "error" {
-			t.Fatalf("extension failed: %v", event)
-		}
+	home := pigtest.NewHome(t)
+	for _, enabled := range []bool{true, false, true} {
+		t.Run(map[bool]string{true: "enabled", false: "disabled"}[enabled], func(t *testing.T) {
+			settings := filepath.Join(home.AgentDir(), toolsettings.FileName)
+			cfg, err := toolsettings.Load(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.DisabledTools[toolName] = !enabled
+			if err := toolsettings.Save(settings, cfg); err != nil {
+				t.Fatal(err)
+			}
+			for restart := 0; restart < 2; restart++ {
+				mock := pigtest.NewMockLLM(pigtest.Text("ready"), pigtest.Text("next request"))
+				defer mock.Close()
+				result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{path}, Prompts: []string{"hello", "hello again"}})
+				for _, event := range result.Events {
+					if event["type"] == "extension_error" {
+						t.Fatalf("extension failed: %v", event)
+					}
+				}
+				requests := mock.Requests()
+				if len(requests) != 2 {
+					t.Fatalf("requests=%d", len(requests))
+				}
+				for _, request := range requests {
+					var names []string
+					for _, raw := range request["tools"].([]any) {
+						names = append(names, raw.(map[string]any)["function"].(map[string]any)["name"].(string))
+					}
+					if slices.Contains(names, toolName) != enabled {
+						t.Fatalf("enabled=%v tools=%v", enabled, names)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -50,9 +71,9 @@ func TestDisabledBuiltinReportsRemedy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{path}, Prompts: []string{"/tool-search on"}})
-	for _, event := range result.Events {
-		if strings.Contains(fmt.Sprint(event), "tool_search is unavailable; enable the built-in tool-search extension") {
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{path}, Prompts: []string{"hello"}})
+	for _, notice := range result.Notices() {
+		if strings.Contains(notice, "Tool discovery is unavailable") {
 			return
 		}
 	}

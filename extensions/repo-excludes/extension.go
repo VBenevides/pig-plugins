@@ -7,12 +7,13 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 
 	"github.com/VBenevides/pig-plugins/internal/repoexcludes"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 // Extension updates only Git's private exclude file, once per session start.
 func Extension() *sdk.Extension {
 	e := sdk.New("repo-excludes")
-	e.OnEvent(sdk.EventSessionStart, onSessionStart)
+	sdkctx.OnSessionStart(e, onSessionStart)
 	return e
 }
 

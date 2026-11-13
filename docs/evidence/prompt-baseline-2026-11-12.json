@@ -1,0 +1,1073 @@
+[
+  {
+    "path": "workers/pig-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-1-run1/instance_NodeBB__NodeBB-4327a09d__HACwLRo/agent/stdout.jsonl",
+    "sha256": "2f536660ed804e03b88083c811d6b5674a7c6911cb704be8a17cbbfaffa53c0b",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-2-run1/instance_NodeBB__NodeBB-4327a09d__CMpwDWg/agent/stdout.jsonl",
+    "sha256": "f08c9a836f8cd66731b8a0f2881c4e0245e9ed5c84979abbd3ee5b703f3dcaff",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-3-run1/instance_NodeBB__NodeBB-4327a09d__p6HZHrt/agent/stdout.jsonl",
+    "sha256": "8561e7d45c56fc32197dc01727d21e929cc4b78d74151bc7f850db7c53bc8b59",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-1-run1/instance_ansible__ansible-622a49__v7X2dgb/agent/stdout.jsonl",
+    "sha256": "93e4b95b17ad0deb650eec6eaf2abf819151def91a8961ad9176c85f0ce8942c",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-2-run1/instance_ansible__ansible-622a49__vXiehJk/agent/stdout.jsonl",
+    "sha256": "7167f7e7ef525676b3bff92642c0403660faac8ca4201865dd99e3dbcb706442",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-3-run1/instance_ansible__ansible-622a49__92woMZ8/agent/stdout.jsonl",
+    "sha256": "94d78a3d10c10a3acf14debe284045ba79095e57ba209943865058d3441a672b",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-1-run1/instance_NodeBB__NodeBB-0e07f3c9__W278NSH/agent/stdout.jsonl",
+    "sha256": "4bd0dbbd20972dd146e04104b2f6040add8faa3e7d8f48c35afd416f7333d8a1",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-2-run1/instance_NodeBB__NodeBB-0e07f3c9__MQW9YEb/agent/stdout.jsonl",
+    "sha256": "d7376dce4a019315a6dc6bfe32c4e7aff848999bf70263cd13e4b699de0ca2ed",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-3-run1/instance_NodeBB__NodeBB-0e07f3c9__kBfGrp5/agent/stdout.jsonl",
+    "sha256": "7833b955e9f2101de3e8d52a8f99ec15eba2be4d688592623ff6ce6fa039d468",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-1-run1/instance_element-hq__element-web__tG68yPT/agent/stdout.jsonl",
+    "sha256": "c31dafe8050954482559812a20a36af30c611af048ff0e5b4db7c952eb58fe77",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-2-run1/instance_element-hq__element-web__9Cn6U2W/agent/stdout.jsonl",
+    "sha256": "c1cd70f1d86d02421858004b8d0c41a3838da156468b4d8ebde80a6077a188fe",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-3-run1/instance_element-hq__element-web__6dDbHmX/agent/stdout.jsonl",
+    "sha256": "2abdf1f5b20b908025be38eba757103e6b960f316d5b64ce2c3e43491f4f7e58",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-1-run1/instance_ansible__ansible-ea04e0__ed8niSD/agent/stdout.jsonl",
+    "sha256": "273e3db448e84c7df8cad62754064dfc584e64030b119df54522fc9d3c51deac",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-2-run1/instance_ansible__ansible-ea04e0__ufTmKgM/agent/stdout.jsonl",
+    "sha256": "663fb9535978c49523b7a17282ba9994e42e86ad7243f834447acc487ec82f5d",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-3-run1/instance_ansible__ansible-ea04e0__HeAQerx/agent/stdout.jsonl",
+    "sha256": "e59c6d7759161543bfb1b564b122f43c7de0da8b16ea98425eef65e78d4bd581",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 2655,
+        "canonical_sections_sha256": "bd05cb92107e360e0c65496da090589a3614a5bcdd247d1f03dc0358d6f6044d",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "fbe1c06bdde29a37ee8ffc5d6fd41bfe6a1b5f647c2764da7121ad97886bf3bc"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-1-run1/instance_NodeBB__NodeBB-4327a09d__aMXBT3A/agent/stdout.jsonl",
+    "sha256": "c63663b60af3fa4e1f21804b7f66ce993f2ec4fbf99404f3da80fe5b0d54063d",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-2-run1/instance_NodeBB__NodeBB-4327a09d__HEFPJ45/agent/stdout.jsonl",
+    "sha256": "2139da8cb6b362e080ec7c40e7d7c655885d51d64c1478fbdccb3ce4b9071248",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (default-benchmark)-3-run1/instance_NodeBB__NodeBB-4327a09d__HQkkRzg/agent/stdout.jsonl",
+    "sha256": "70144b29b5bccd2dde0274c41eaf00d119dd9e31a45e07d62b79f0559ef7284d",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-plugins (default-benchmark)-1-run1/instance_ansible__ansible-622a49__geFbxzz/agent/stdout.jsonl",
+    "sha256": "55af73b976fae9cdb870261ec6f236ed3f44ef85bc75a25119eac72d59631ca0",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      },
+      {
+        "line": 30,
+        "section_characters": 0,
+        "canonical_sections_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "todo",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "f39c7b43088810ed1f0c1931f640855c15990444e9ff89fd9fbec9e9a9b99df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-plugins (default-benchmark)-2-run1/instance_ansible__ansible-622a49__xk93r2J/agent/stdout.jsonl",
+    "sha256": "44499e128fc09d9ecf4eb061b03e1344c7ad8428af89048f239468ed64bd3da7",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      },
+      {
+        "line": 30,
+        "section_characters": 0,
+        "canonical_sections_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "todo",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "f39c7b43088810ed1f0c1931f640855c15990444e9ff89fd9fbec9e9a9b99df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-plugins (default-benchmark)-3-run1/instance_ansible__ansible-622a49__4BxBHqi/agent/stdout.jsonl",
+    "sha256": "ae267cc246b04efa07705089566bacc9ee90bbdf1c40e0026a2067bb89b9c52d",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (default-benchmark)-1-run1/instance_NodeBB__NodeBB-0e07f3c9__XVrtKsh/agent/stdout.jsonl",
+    "sha256": "c601eab917255fded0a1c2e9b960fce63dda55a106ad8c04bdf44f13d36c63b0",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (default-benchmark)-2-run1/instance_NodeBB__NodeBB-0e07f3c9__jUEPcpi/agent/stdout.jsonl",
+    "sha256": "132a391c9d472520f2d8e23868bb03d9eb15b7baf9782fcc5fa48c93a5b4c8c2",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      },
+      {
+        "line": 32,
+        "section_characters": 0,
+        "canonical_sections_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "todo",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "f39c7b43088810ed1f0c1931f640855c15990444e9ff89fd9fbec9e9a9b99df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (default-benchmark)-3-run1/instance_NodeBB__NodeBB-0e07f3c9__rCo4VXM/agent/stdout.jsonl",
+    "sha256": "2b90f678b72371934e263b0ab7eade35bd785f54dcd8b29b53db718a4b0e62b1",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (default-benchmark)-1-run1/instance_element-hq__element-web__nPPTdap/agent/stdout.jsonl",
+    "sha256": "d28719ee6056c7dcff87c3391601b04d4d2d5ce9ad3e4c78d0c6fd8ef6f91153",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (default-benchmark)-2-run1/instance_element-hq__element-web__bhKFvJo/agent/stdout.jsonl",
+    "sha256": "760eaac2ba4fa50eca5673fcaec6e284ae226b600e34a363acdb29274f8dc9ee",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      },
+      {
+        "line": 29,
+        "section_characters": 0,
+        "canonical_sections_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "todo",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "f39c7b43088810ed1f0c1931f640855c15990444e9ff89fd9fbec9e9a9b99df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (default-benchmark)-3-run1/instance_element-hq__element-web__bZfS9j4/agent/stdout.jsonl",
+    "sha256": "d5bfd54a4129756748dd35c6f18fce3039b5f3ce8a4e3cd0d71dd208426e51f7",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (default-benchmark)-1-run1/instance_ansible__ansible-ea04e0__GsxxQba/agent/stdout.jsonl",
+    "sha256": "9bb64fffc6f881c18f86b2ba7a3a9f04d8754ad0878bdb3d6e5c0fdcee756ae4",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (default-benchmark)-2-run1/instance_ansible__ansible-ea04e0__qkmsfMZ/agent/stdout.jsonl",
+    "sha256": "0a84fa82d858da7c9147bc811d2b956c1fd7bdc64b0594c2447f649ba52eee33",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (default-benchmark)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (default-benchmark)-3-run1/instance_ansible__ansible-ea04e0__gmBC3cA/agent/stdout.jsonl",
+    "sha256": "07eb1623bfca4ceb7a947bec518aeefa525cfe12997cd9c6eba65caa34f2665b",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 12773,
+        "canonical_sections_sha256": "068df5ce087b6491925728a3c1d96def518238851b426ccc3e4e163bb3b69053",
+        "active_tools": [
+          "ast_search",
+          "bash",
+          "code_overview",
+          "code_search",
+          "context_recover",
+          "edit",
+          "lsp_definition",
+          "lsp_diagnostics",
+          "lsp_hover",
+          "lsp_references",
+          "lsp_rename_preview",
+          "lsp_symbols",
+          "read",
+          "tool_search",
+          "write"
+        ],
+        "canonical_schemas_sha256": "bfb71c4e38d40181943568d762c5e858f9a1076a958ce67980af8ca77ea81df9"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-4327a09d__KKbWytC/agent/stdout.jsonl",
+    "sha256": "962e08d607617a771861c0764f735ec42193177a8b7771398dd873c53c11a05d",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-2-run1/instance_NodeBB__NodeBB-4327a09d__oH9uTEo/agent/stdout.jsonl",
+    "sha256": "99580ab5769dc805c9bfd3e93028b5c4f3484ee634bed773430017179c5d7b34",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-1/jobs/instance_NodeBB__NodeBB-4327a09d76f10a79109da9d91c22120428d3bdb9-vnan-pig-plugins (minimum)-3-run1/instance_NodeBB__NodeBB-4327a09d__tLboPBr/agent/stdout.jsonl",
+    "sha256": "8b691c6b8b6ddab586fc7721c80547f8853c2462b0c78fe753bcbf1e8cbbdbbe",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-plugins (minimum)-1-run1/instance_ansible__ansible-622a49__vxJ7Swi/agent/stdout.jsonl",
+    "sha256": "90b5e9e497a4a7f205f402c955c05f3153d029cec45634184500969dc1bd40f3",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-plugins (minimum)-2-run1/instance_ansible__ansible-622a49__LasfzVM/agent/stdout.jsonl",
+    "sha256": "80a2345d91785fb72ba2a4816915249bf3694abe4fb08c843ce42163f5ea0205",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-1/jobs/instance_ansible__ansible-622a493ae03bd5e5cf517d336fc426e9d12208c7-v906c969b551b346ef54a2c0b41e04f632b7b73c2-pig-plugins (minimum)-3-run1/instance_ansible__ansible-622a49__LdMArEr/agent/stdout.jsonl",
+    "sha256": "5488158a4bb9d5a4c5f552a58bc0b5b01c3540b44a01f17b22872f1c552ce097",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-1-run1/instance_NodeBB__NodeBB-0e07f3c9__QxqZxs4/agent/stdout.jsonl",
+    "sha256": "55424d6f39e26f04df39d92e944e1126182ecf65992fb552c14114b6c800c931",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-2-run1/instance_NodeBB__NodeBB-0e07f3c9__MCbCfbV/agent/stdout.jsonl",
+    "sha256": "6ca0360d475f20e18a8f863eaa2e0e1f11289beb96d342f0223664ec8ffefc49",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-2/jobs/instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e-pig-plugins (minimum)-3-run1/instance_NodeBB__NodeBB-0e07f3c9__S4mZWpy/agent/stdout.jsonl",
+    "sha256": "371a475af7e8eb43300084539d1c7dffb4e6326d6c9586b9655704b66e2d2350",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-1-run1/instance_element-hq__element-web__onHA8Mi/agent/stdout.jsonl",
+    "sha256": "088edaf4c84a34aaa4b42da2e445667425480338c3e4a6f5e8e679d405cbf5e6",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-2-run1/instance_element-hq__element-web__X2g4uks/agent/stdout.jsonl",
+    "sha256": "b281b8fc8d2ca0c0a85d9e68c66f31ba04f403ebf65f6642ace94a76932c15be",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-2/jobs/instance_element-hq__element-web-d405160080bbe804f7e9294067d004a7d4dad9d6-vnan-pig-plugins (minimum)-3-run1/instance_element-hq__element-web__Fewf42n/agent/stdout.jsonl",
+    "sha256": "af100d2e9d719d7f53c6d37c322622eca6d968b22c2c33785cf2f0520086dbe8",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (minimum)-1-run1/instance_ansible__ansible-ea04e0__GmvaES4/agent/stdout.jsonl",
+    "sha256": "d937b954c0080034a66eaf2626fb5b3f236b8f02dd185923b1b7a45fa2ebc772",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (minimum)-2-run1/instance_ansible__ansible-ea04e0__iowJQe2/agent/stdout.jsonl",
+    "sha256": "ef2a08e1946e84dce147e3e20088b11784d8731056c2b9ca0b70a39c8e5675db",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  },
+  {
+    "path": "workers/pig-plugins (minimum)-3/jobs/instance_ansible__ansible-ea04e0048dbb3b63f876aad7020e1de8eee9f362-v1055803c3a812189a1133297f7f5468579283f86-pig-plugins (minimum)-3-run1/instance_ansible__ansible-ea04e0__X7F83AC/agent/stdout.jsonl",
+    "sha256": "c682bcc3a8a5dcd0a6061516749505051ca09bb83e25c90b090e502853532f25",
+    "systems": [
+      {
+        "line": 5,
+        "section_characters": 11435,
+        "canonical_sections_sha256": "879324302218e105ea4aafc75db0e9d3258363a6713f2ca2bd6fc7bec138acc8",
+        "active_tools": [
+          "bash",
+          "edit",
+          "read",
+          "write"
+        ],
+        "canonical_schemas_sha256": "15f0b923d301c1e27fddcd946b655f38afad88802ae9bd8aa16d1a9989e3c29d"
+      }
+    ]
+  }
+]

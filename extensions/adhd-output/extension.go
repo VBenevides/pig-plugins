@@ -9,6 +9,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	mode "github.com/VBenevides/pig-plugins/internal/adhdoutput"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 //go:embed rules.md
@@ -24,7 +25,7 @@ func Extension() *sdk.Extension {
 		return controller.Command(host{ctx}, args)
 	})
 	restore := func(ctx sdk.Context, _ map[string]any) (any, error) { return nil, controller.Restore(host{ctx}) }
-	ext.OnSessionStart(restore)
+	sdkctx.OnSessionStart(ext, restore)
 	ext.OnEvent(sdk.EventSessionTree, restore)
 	ext.OnEvent(sdk.EventSessionCompact, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		return nil, controller.Sync(host{ctx})

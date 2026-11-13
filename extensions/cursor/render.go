@@ -77,10 +77,10 @@ func render(request map[string]any, nonce string) (string, []cursorbridge.Image,
 	}
 	messages, ok := request["messages"].([]any)
 	if !ok {
-		return "", nil, errors.New("Cursor transcript messages must be an array")
+		return "", nil, errors.New("cursor transcript messages must be an array")
 	}
 	if len(messages) == 0 {
-		return "", nil, errors.New("Cursor transcript has no messages")
+		return "", nil, errors.New("cursor transcript has no messages")
 	}
 	lastUser := -1
 	for i, item := range messages {
@@ -92,14 +92,14 @@ func render(request map[string]any, nonce string) (string, []cursorbridge.Image,
 	for i, item := range messages {
 		message, ok := item.(map[string]any)
 		if !ok {
-			return "", nil, fmt.Errorf("Cursor transcript message %d is invalid", i)
+			return "", nil, fmt.Errorf("cursor transcript message %d is invalid", i)
 		}
 		role, _ := message["role"].(string)
 		switch role {
 		case "system":
 			text, err := contentText(message["content"], nil)
 			if err != nil {
-				return "", nil, fmt.Errorf("Cursor transcript message %d: %w", i, err)
+				return "", nil, fmt.Errorf("cursor transcript message %d: %w", i, err)
 			}
 			out.WriteString(mark("system") + "\n" + text + "\n")
 		case "user":
@@ -109,17 +109,17 @@ func render(request map[string]any, nonce string) (string, []cursorbridge.Image,
 			}
 			text, err := contentText(message["content"], sink)
 			if err != nil {
-				return "", nil, fmt.Errorf("Cursor transcript message %d: %w", i, err)
+				return "", nil, fmt.Errorf("cursor transcript message %d: %w", i, err)
 			}
 			out.WriteString(mark("user") + "\n" + text + "\n")
 		case "assistant":
 			if err := assistant(&out, mark, message); err != nil {
-				return "", nil, fmt.Errorf("Cursor transcript message %d: %w", i, err)
+				return "", nil, fmt.Errorf("cursor transcript message %d: %w", i, err)
 			}
 		case "toolResult":
 			text, err := contentText(message["content"], nil)
 			if err != nil {
-				return "", nil, fmt.Errorf("Cursor transcript message %d: %w", i, err)
+				return "", nil, fmt.Errorf("cursor transcript message %d: %w", i, err)
 			}
 			id, _ := message["toolCallId"].(string)
 			name, _ := message["toolName"].(string)
@@ -127,7 +127,7 @@ func render(request map[string]any, nonce string) (string, []cursorbridge.Image,
 			header, _ := json.Marshal(map[string]any{"id": id, "name": name, "error": failed})
 			out.WriteString(mark("tool-result") + " " + string(header) + "\n" + text + "\n")
 		default:
-			return "", nil, fmt.Errorf("Cursor transcript message %d has unsupported role %q", i, role)
+			return "", nil, fmt.Errorf("cursor transcript message %d has unsupported role %q", i, role)
 		}
 	}
 	out.WriteString(mark("end") + "\n")
@@ -151,7 +151,7 @@ func systemPrompts(value any) ([]string, error) {
 		for _, item := range v {
 			text, ok := item.(string)
 			if !ok {
-				return nil, errors.New("Cursor system prompt entries must be text")
+				return nil, errors.New("cursor system prompt entries must be text")
 			}
 			if text != "" {
 				out = append(out, text)
@@ -159,7 +159,7 @@ func systemPrompts(value any) ([]string, error) {
 		}
 		return out, nil
 	}
-	return nil, errors.New("Cursor system prompt has an unsupported type")
+	return nil, errors.New("cursor system prompt has an unsupported type")
 }
 
 // contentText flattens message content. Image parts are appended to images when
@@ -206,7 +206,7 @@ func contentText(value any, images *[]cursorbridge.Image) (string, error) {
 					return "", fmt.Errorf("images in one message are limited to %d bytes in total", maxImageTotalSize)
 				}
 				if len(*images) >= maxImages {
-					return "", fmt.Errorf("Cursor accepts at most %d images per message", maxImages)
+					return "", fmt.Errorf("cursor accepts at most %d images per message", maxImages)
 				}
 				*images = append(*images, cursorbridge.Image{Data: data, MimeType: mime})
 			default:

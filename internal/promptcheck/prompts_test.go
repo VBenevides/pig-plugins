@@ -1,5 +1,5 @@
 // Package promptcheck tests the always-loaded prompt files: they must stay small, keep every essential rule, and
-// state each rule once. It has no code; the files it checks are prompts/agent/*.md and the task-management guidance.
+// state each rule once. It has no code; the files it checks are prompts/agent/*/SYSTEM.md and the task-management guidance.
 package promptcheck
 
 import (
@@ -11,17 +11,15 @@ import (
 )
 
 const (
-	// Before the refactor the four files held 18,185 bytes and SYSTEM.md 62 lines.
-	maxTotalBytes   = 12_000
+	// Default instructions plus task guidance stay below the former 11,240-byte baseline.
+	maxTotalBytes   = 6_000
 	maxSystemLines  = 50
 	minSentenceSize = 60
 )
 
 var files = map[string]string{
-	"SYSTEM.md":        filepath.Join("..", "..", "prompts", "agent", "SYSTEM.md"),
-	"APPEND_SYSTEM.md": filepath.Join("..", "..", "prompts", "agent", "APPEND_SYSTEM.md"),
-	"AGENTS.md":        filepath.Join("..", "..", "prompts", "agent", "AGENTS.md"),
-	"guidance.md":      filepath.Join("..", "..", "extensions", "todo", "guidance.md"),
+	"SYSTEM.md":   filepath.Join("..", "..", "prompts", "agent", "default", "SYSTEM.md"),
+	"guidance.md": filepath.Join("..", "..", "extensions", "todo", "guidance.md"),
 }
 
 func load(t *testing.T) map[string]string {
@@ -51,28 +49,28 @@ func TestPromptsStaySmall(t *testing.T) {
 	}
 }
 
-// Every essential rule is present, and is present exactly once across all four files.
+// Every essential rule is present, and is present exactly once across the built-in prompt and the todo guidance.
 func TestEssentialRulesAppearExactlyOnce(t *testing.T) {
 	texts := load(t)
-	all := strings.Join([]string{texts["SYSTEM.md"], texts["APPEND_SYSTEM.md"], texts["AGENTS.md"], texts["guidance.md"]}, "\n")
+	all := strings.Join([]string{texts["SYSTEM.md"], texts["guidance.md"]}, "\n")
 	rules := map[string]string{
 		"hashline anchor format":        "12#a3f9",
-		"stale anchor recovery":         "read again and retry",
-		"no validation bypass":          "never bypass the validation",
+		"stale anchor recovery":         "reread and retry",
+		"no validation bypass":          "Never bypass validation",
 		"single edit call per file":     "single edit call",
-		"no overwrite with write":       "never overwrite with write",
-		"no hand edits through bash":    "Do not make them with bash, sed, scripts, redirection, or patches",
+		"no overwrite with write":       "Use write only for new files",
+		"no hand edits through bash":    "Never use bash, scripts, redirection, patches, or write for those changes",
 		"multi-file, formatter and LSP": "Multi-file changes are allowed",
-		"no mutation-tool bypass":       "get around a refused or blocked edit",
+		"no mutation-tool bypass":       "Never use these tools to bypass a blocked edit",
 		"safety blocks respected":       "Respect safety blocks and approval prompts",
-		"no unverified claims":          "Never claim verification you did not perform",
-		"smallest change":               "Make the smallest change that fully solves the task",
+		"no unverified claims":          "never claim unperformed verification",
+		"smallest change":               "Make the smallest complete change",
 		"todo only for substantial":     "Use `todo` only for substantial multi-step work",
 		"untrusted content":             "untrusted data",
-		"preserve the working tree":     "never reset, discard, stage, or commit user changes",
+		"preserve the working tree":     "Do not reset, discard, stage, commit",
 		"no weakened checks":            "weaken checks",
-		"authorization for destruction": "authorization before destructive operations",
-		"handled errors observable":     "Handled errors must remain observable",
+		"authorization for destruction": "Get approval for destructive operations",
+		"handled errors observable":     "Keep errors observable",
 		"no hardcoded secrets":          "Never hardcode credentials or secrets",
 		"tool discovery":                "tool_search",
 	}

@@ -40,7 +40,7 @@ func TestFusedGoalResume(t *testing.T) {
 	}
 	mock := pigtest.NewMockLLM(pigtest.HTTPError(400, "fixture stopped"), pigtest.Text("checkpoint"), pigtest.Calls(pigtest.Call("goal_finish", map[string]any{"outcome": "reached", "summary": "resumed existing work"})), pigtest.Text("done"))
 	defer mock.Close()
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Prompts: []string{"/goal resume", "/goal set finish existing work", "checkpoint", "/goal resume"}})
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{pigtest.ActivateDeferredForTest(t)}, Prompts: []string{"/goal resume", "/goal set finish existing work", "checkpoint", "/goal resume"}})
 	notices := strings.Join(result.Notices(), "\n")
 	for _, want := range []string{"No unfinished goal to resume", "Goal resumed.", "resumed existing work"} {
 		if !strings.Contains(notices, want) {

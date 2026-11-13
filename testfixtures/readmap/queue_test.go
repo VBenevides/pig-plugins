@@ -58,10 +58,10 @@ func TestBundledRPCSteerAndQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		in.Close()
+		_ = in.Close()
 		if cmd.ProcessState == nil {
-			cmd.Process.Kill()
-			cmd.Wait()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
 		}
 	}()
 	events := make(chan map[string]any, 256)
@@ -119,7 +119,7 @@ settled:
 			t.Fatalf("request %d lacks %q: %s", i, want, data)
 		}
 	}
-	in.Close()
+	_ = in.Close()
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("RPC exit: %v: %s", err, stderr.String())
 	}

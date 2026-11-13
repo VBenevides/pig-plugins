@@ -171,7 +171,7 @@ func TestFusedBrowserModeVisibility(t *testing.T) {
 	}
 	mock := pigtest.NewMockLLM()
 	defer mock.Close()
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{probePath(t)}, Prompts: []string{"off", "/browser-use mode firefox", "enabled", "/browser-test-new", "new off"}})
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{probePath(t), pigtest.ActivateDeferredForTest(t)}, Prompts: []string{"off", "/browser-use mode firefox", "enabled", "/browser-test-new", "new off"}})
 	requests := mock.Requests()
 	if len(requests) != 3 {
 		t.Fatalf("requests %d notices %q stderr %s", len(requests), result.Notices(), result.Stderr)

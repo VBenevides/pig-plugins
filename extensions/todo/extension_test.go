@@ -51,14 +51,14 @@ func TestPiGResume(t *testing.T) {
 	}
 	first := pigtest.NewMockLLM(pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "init", "items": []string{"first"}})), pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "append", "phase": "Tasks", "items": []string{"second"}})), pigtest.Text("done"))
 	defer first.Close()
-	result := home.Run(t, first, pigtest.RunOptions{Extensions: []string{ext}})
+	result := home.Run(t, first, pigtest.RunOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}})
 	if result.ExitCode != 0 {
 		t.Fatalf("initial: %s %s", result.Stdout, result.Stderr)
 	}
 	second := pigtest.NewMockLLM(pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "view"})), pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "done", "task": "first"})), pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "rm"})), pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "init", "items": []string{"reset"}})), pigtest.Text("done"))
 	defer second.Close()
 	home.WriteModels(t, map[string]pigtest.ProviderModels{"mock": {Mock: second, Models: []string{"mock-model"}}})
-	result = home.RunPig(t, pigtest.RunOptions{Extensions: []string{ext}}, "-p", "--mode", "json", "--continue", "--provider", "mock", "--model", "mock-model")
+	result = home.RunPig(t, pigtest.RunOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}}, "-p", "--mode", "json", "--continue", "--provider", "mock", "--model", "mock-model")
 	if result.ExitCode != 0 {
 		t.Fatalf("resume: %s %s", result.Stdout, result.Stderr)
 	}
@@ -89,7 +89,7 @@ func TestPiGBranchAndSessionReplacement(t *testing.T) {
 		pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "view"})), pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "append", "phase": "Tasks", "items": []string{"branch"}})), pigtest.Text("done"),
 		pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "view"})), pigtest.Text("done"))
 	defer mock.Close()
-	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext, nav}, Prompts: []string{"Add initial tasks", "/todo-test-branch", "List and add a branch task", "/todo-test-new", "List new session tasks"}})
+	result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext, nav, pigtest.ActivateDeferredForTest(t)}, Prompts: []string{"Add initial tasks", "/todo-test-branch", "List and add a branch task", "/todo-test-new", "List new session tasks"}})
 	details := finished(t, result.Events)
 	want := []tasks.PhasedDetails{
 		{Op: "init", Phases: []tasks.Phase{{Name: "Tasks", Tasks: []tasks.Task{{Content: "first", Status: "in_progress"}}}}, Storage: "session"},
@@ -117,7 +117,7 @@ func TestPiGOnlySuccessfulMutationsPersist(t *testing.T) {
 		pigtest.Calls(pigtest.Call("todo", map[string]any{"op": "start", "task": "keep"})),
 		pigtest.Text("done"))
 	defer mock.Close()
-	result := home.Run(t, mock, pigtest.RunOptions{Extensions: []string{ext}})
+	result := home.Run(t, mock, pigtest.RunOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}})
 	if result.ExitCode != 0 {
 		t.Fatal(result)
 	}

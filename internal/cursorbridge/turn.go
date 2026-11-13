@@ -82,7 +82,7 @@ func classify(data json.RawMessage, allowed map[string]bool) ([]Event, error) {
 			continue
 		}
 		if !offered(item.payload(), allowed) {
-			return nil, errors.New("Cursor reported native tool activity; refusing to continue")
+			return nil, errors.New("cursor reported native tool activity; refusing to continue")
 		}
 	}
 	if update := envelope.InteractionUpdate; update != nil && (update.Type == "text-delta" || update.Type == "thinking-delta") {
@@ -97,7 +97,7 @@ func classify(data json.RawMessage, allowed map[string]bool) ([]Event, error) {
 	switch {
 	case strings.Contains(kind, "tool"):
 		if !offered(payload, allowed) {
-			return nil, errors.New("Cursor reported native tool activity; refusing to continue")
+			return nil, errors.New("cursor reported native tool activity; refusing to continue")
 		}
 		return nil, nil
 	case kind == "assistant" || kind == "thinking":
@@ -212,17 +212,17 @@ func checkContentTools(payload json.RawMessage, allowed map[string]bool) error {
 		} `json:"message"`
 	}
 	if json.Unmarshal(payload, &message) != nil {
-		return errors.New("Cursor sent malformed assistant content")
+		return errors.New("cursor sent malformed assistant content")
 	}
 	for _, block := range append(message.Content, message.Message.Content...) {
 		var kind struct {
 			Type string `json:"type"`
 		}
 		if json.Unmarshal(block, &kind) != nil {
-			return errors.New("Cursor sent malformed assistant content")
+			return errors.New("cursor sent malformed assistant content")
 		}
 		if kind.Type == "tool_use" && !offered(block, allowed) {
-			return errors.New("Cursor reported native tool activity; refusing to continue")
+			return errors.New("cursor reported native tool activity; refusing to continue")
 		}
 	}
 	return nil

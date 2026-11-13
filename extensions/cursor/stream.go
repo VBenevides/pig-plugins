@@ -17,7 +17,7 @@ import (
 func (s *service) stream(model, request map[string]any, options sdk.ProviderStreamOptions) (*sdk.ModelEventStream, error) {
 	key, _ := options.Values["apiKey"].(string)
 	if key == "" {
-		return nil, errors.New("Cursor API key is missing; run /login and select a Cursor account")
+		return nil, errors.New("cursor API key is missing; run /login and select a Cursor account")
 	}
 	modelID, _ := model["id"].(string)
 	level, _ := options.Values["reasoning"].(string)
@@ -149,14 +149,14 @@ func requestTools(request map[string]any) ([]cursorbridge.ToolDef, error) {
 		for _, item := range list {
 			tool, ok := item.(map[string]any)
 			if !ok {
-				return errors.New("Cursor tool definition is invalid")
+				return errors.New("cursor tool definition is invalid")
 			}
 			name, _ := tool["name"].(string)
 			if name == "" {
-				return errors.New("Cursor tool name is missing or duplicated")
+				return errors.New("cursor tool name is missing or duplicated")
 			}
 			if inList[name] {
-				return errors.New("Cursor tool name is missing or duplicated")
+				return errors.New("cursor tool name is missing or duplicated")
 			}
 			inList[name] = true
 			if _, exists := byName[name]; !exists {
@@ -209,11 +209,11 @@ func toolDefs(value any) ([]cursorbridge.ToolDef, error) {
 	for _, item := range items {
 		tool, ok := item.(map[string]any)
 		if !ok {
-			return nil, errors.New("Cursor tool definition is invalid")
+			return nil, errors.New("cursor tool definition is invalid")
 		}
 		name, _ := tool["name"].(string)
 		if name == "" || seen[name] {
-			return nil, errors.New("Cursor tool name is missing or duplicated")
+			return nil, errors.New("cursor tool name is missing or duplicated")
 		}
 		seen[name] = true
 		description, _ := tool["description"].(string)
@@ -309,10 +309,10 @@ func (w *turnWriter) finishBlock() error {
 func (w *turnWriter) toolCall(ordinal int, proposal cursorbridge.Proposal) error {
 	var arguments any
 	if err := json.Unmarshal(proposal.Args, &arguments); err != nil {
-		return fmt.Errorf("Cursor sent invalid arguments for tool %q: %w", proposal.Name, err)
+		return fmt.Errorf("cursor sent invalid arguments for tool %q: %w", proposal.Name, err)
 	}
 	if _, ok := arguments.(map[string]any); !ok {
-		return fmt.Errorf("Cursor sent non-object arguments for tool %q", proposal.Name)
+		return fmt.Errorf("cursor sent non-object arguments for tool %q", proposal.Name)
 	}
 	id := proposal.ID
 	if id == "" {

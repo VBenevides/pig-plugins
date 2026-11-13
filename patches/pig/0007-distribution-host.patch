@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..5814844
 --- /dev/null
 +++ b/coding/cli/plugins_distribution.go
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,47 @@
 +//go:build !pig_strip_self_update
 +
 +package cli
@@ -14,6 +14,12 @@ index 0000000..5814844
 +
 +	"github.com/VBenevides/pig-plugins/distribution"
 +)
++
++func pluginsVersion() string { return distribution.PluginsVersion() }
++
++func distributionVersion(host string) string {
++	return host + " | pig-plugins " + pluginsVersion()
++}
 +
 +func init() {
 +	if handled, err := distribution.InstallCursor(os.Args[1:]); err != nil {
@@ -45,6 +51,20 @@ index 0000000..5814844
 +	}
 +	return 0
 +}
+diff --git a/coding/cli/main.go b/coding/cli/main.go
+--- a/coding/cli/main.go
++++ b/coding/cli/main.go
+@@ -131,2 +131,2 @@ func cliVersionString() string {
+-	return Version
++	return distributionVersion(Version)
+ }
+@@ -141,4 +141,4 @@ func versionString() string {
+ func detailedVersionString() string {
+-	return fmt.Sprintf("pig: %s\nupstream pi: %s\ngo: %s\nplatform: %s/%s\nbuild: %s",
+-		PigVersion, UpstreamVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH, buildIdentity())
++	return fmt.Sprintf("pig: %s\npig-plugins: %s\nupstream pi: %s\ngo: %s\nplatform: %s/%s\nbuild: %s",
++		PigVersion, pluginsVersion(), UpstreamVersion, runtime.Version(), runtime.GOOS, runtime.GOARCH, buildIdentity())
+ }
 diff --git a/coding/cli/self_update.go b/coding/cli/self_update.go
 index 6fa1cb8..e43148d 100644
 --- a/coding/cli/self_update.go

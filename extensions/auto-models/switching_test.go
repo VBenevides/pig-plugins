@@ -53,6 +53,9 @@ func TestRotateSameProviderAccount(t *testing.T) {
 		{"weekly low", `{"rate_limit":{"allowed":true,"primary_window":{"used_percent":30},"secondary_window":{"used_percent":96}}}`, "", false},
 		{"short low", `{"rate_limit":{"allowed":true,"primary_window":{"used_percent":96}}}`, "", false},
 		{"exactly five", `{"rate_limit":{"allowed":true,"primary_window":{"used_percent":95}}}`, "", true},
+		{"exhausted", `{"rate_limit":{"allowed":true,"primary_window":{"used_percent":100}}}`, "", false},
+		{"blocked", `{"rate_limit":{"allowed":false,"primary_window":{"used_percent":90}}}`, "", false},
+		{"fractional reserve", `{"rate_limit":{"allowed":true,"primary_window":{"used_percent":99.9}}}`, "", false},
 		{"unknown", `{}`, "", false},
 		{"credential failure", `{}`, "local-first", false},
 	} {
@@ -78,6 +81,15 @@ func TestRotateSameProviderAccount(t *testing.T) {
 			}
 			if strings.Join(source.reads, ",") != "local-first" {
 				t.Fatalf("queried active or cross-provider account: %v", source.reads)
+			}
+			// The same candidate is eligible after provider failure only if
+			// quota is known and positive, even below the proactive reserve.
+			source = &fakeSwitcher{fakeAccounts: twoAccounts()}
+			source.fail = test.failure
+			emergencyWant := test.want || test.name == "weekly low" || test.name == "short low" || test.name == "fractional reserve"
+			switched, err = x.rotateAccountWithPolicy(source, source.accounts[1], false)
+			if err != nil || switched != emergencyWant {
+				t.Fatalf("emergency switched=%v want=%v err=%v", switched, emergencyWant, err)
 			}
 			if strings.Contains(strings.Join(source.notices, "\n"), "SECRET") {
 				t.Fatal("credential leaked")

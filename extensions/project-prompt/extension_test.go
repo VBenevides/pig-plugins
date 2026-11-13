@@ -63,9 +63,14 @@ func TestEffectivePrompt(t *testing.T) {
 		}
 	}
 	baseNames := toolNames(t, baseline[0])
-	for _, name := range []string{"read", "edit", "write", "bash", "todo", "ask_user_question", "web_search"} {
+	for _, name := range []string{"read", "edit", "write", "bash"} {
 		if !slices.Contains(baseNames, name) {
 			t.Fatalf("baseline lacks tool %q: %v", name, baseNames)
+		}
+	}
+	for _, name := range []string{"todo", "ask_user_question", "web_search"} {
+		if slices.Contains(baseNames, name) {
+			t.Fatalf("deferred tool declared before discovery: %s", name)
 		}
 	}
 	loaded = append(loaded, filepath.Join(extensions, "project-prompt"))
@@ -153,7 +158,7 @@ func TestLocalDefaultsAtProviderBoundary(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			write("local/APPEND_SYSTEM.md", "WRONG_SPELLING_MUST_NOT_LOAD")
+			write("local/APPEND_SYSTEM.md", "LOCAL_APPEND_SENTINEL")
 			appendContent, agentsContent := "LITERAL_APPEND_SENTINEL\n", "LOCAL_AGENTS_SENTINEL\n"
 			if tc.present {
 				write(".local/APPEND_SYSTEM.md", appendContent)
@@ -195,8 +200,12 @@ func TestLocalDefaultsAtProviderBoundary(t *testing.T) {
 				if !strings.HasPrefix(got, base) {
 					t.Fatal("host base changed")
 				}
-				if strings.Contains(got, "WRONG_SPELLING_MUST_NOT_LOAD") {
-					t.Fatal("silently substituted local for .local")
+				wantLocal := 0
+				if tc.trusted {
+					wantLocal = 1
+				}
+				if strings.Count(got, "LOCAL_APPEND_SENTINEL") != wantLocal {
+					t.Fatal("local/APPEND_SYSTEM.md did not follow project trust")
 				}
 				for _, content := range []string{appendContent, agentsContent} {
 					want := 0
@@ -226,7 +235,7 @@ func TestChangedDefaultsReachNextRequest(t *testing.T) {
 	pigtest.RequirePig(t)
 	_, file, _, _ := runtime.Caller(0)
 	home := pigtest.NewHome(t)
-	for _, path := range []string{".local/APPEND_SYSTEM.md", "local/AGENTS.md"} {
+	for _, path := range instructionPaths() {
 		full := filepath.Join(home.Work, path)
 		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 			t.Fatal(err)
@@ -255,7 +264,7 @@ func TestChangedDefaultsReachNextRequest(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
-			for _, path := range []string{".local/APPEND_SYSTEM.md", "local/AGENTS.md"} {
+			for _, path := range instructionPaths() {
 				if err := os.WriteFile(filepath.Join(home.Work, path), []byte("CHANGED_"+path+"\n"), 0o600); err != nil {
 					t.Errorf("change instructions: %v", err)
 					http.Error(w, "cannot change instructions", http.StatusInternalServerError)
@@ -278,8 +287,14 @@ func TestChangedDefaultsReachNextRequest(t *testing.T) {
 		if i == 1 {
 			prefix, absent = absent, prefix
 		}
-		for _, path := range []string{".local/APPEND_SYSTEM.md", "local/AGENTS.md"} {
-			if strings.Count(got, prefix+path+"\n") != 1 || strings.Contains(got, absent+path+"\n") {
+		// The host can cache .pig/SYSTEM.md and other root resources as its own base.
+		// This extension preserves that base but must not append stale instructions.
+		additions := got
+		if start := strings.Index(got, "# Trusted project instructions:"); start >= 0 {
+			additions = got[start:]
+		}
+		for _, path := range instructionPaths() {
+			if strings.Count(got, prefix+path+"\n") != 1 || strings.Contains(additions, absent+path+"\n") {
 				t.Fatalf("request %d did not consume the current %s exactly once", i+1, path)
 			}
 		}

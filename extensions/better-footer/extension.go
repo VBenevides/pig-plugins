@@ -22,6 +22,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/compactlimit"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/notice"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 const Name = "better-footer"
@@ -87,7 +88,7 @@ func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	e.Flag("no-recent-model", sdk.FlagOptions{Description: "Neither restore nor record the recent model and thinking level for this run", Type: sdk.FlagBoolean})
 	e.RegisterCommand("better-footer", sdk.CommandOptions{Description: "Configure model/thinking persistence and skipping exhausted scoped models", Handler: x.configure})
-	e.OnSessionStart(x.start)
+	e.OnSessionStart(sdkctx.IgnoreStale(x.start))
 	e.OnSessionShutdown(x.shutdown)
 	e.OnEvent("model_select", x.modelSelect)
 	e.OnEvent("thinking_level_select", func(ctx sdk.Context, data map[string]any) (any, error) {
@@ -193,6 +194,10 @@ func (x *extension) report(ctx interface {
 			return
 		}
 		message := bf.SanitizePlain(err.Error())
+		if errors.Is(err, bf.ErrGitFailed) {
+			slog.Debug("better-footer: git count skipped", "error", message)
+			return
+		}
 		if !ctx.HasUI() || !notice.Show(ctx, "better-footer: "+message, "warning") {
 			log.Printf("better-footer: %s", message)
 		}

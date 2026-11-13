@@ -13,6 +13,7 @@ import (
 
 	"github.com/VBenevides/pig-plugins/internal/compactlimit"
 	prune "github.com/VBenevides/pig-plugins/internal/contextprune"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 // Name is the extension identity.
@@ -93,7 +94,7 @@ func Extension() *sdk.Extension {
 	}
 	// A session, a branch or a compaction replaces the history, so earlier decisions no longer apply.
 	e.OnEvent(sdk.EventAgentStart, reset)
-	e.OnEvent(sdk.EventSessionStart, reset)
+	sdkctx.OnSessionStart(e, reset)
 	e.OnEvent(sdk.EventSessionTree, reset)
 	e.OnEvent(sdk.EventSessionCompact, reset)
 	e.OnEvent(compactlimit.RequestObserved, func(ctx sdk.Context, data map[string]any) (any, error) {

@@ -13,7 +13,7 @@ func BranchRecoveryReferences(session, leaf string) (map[string]RecoveryRef, err
 	if err != nil {
 		return nil, fmt.Errorf("open recovery branch: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	type event struct {
 		parent string
 		ref    RecoveryRef

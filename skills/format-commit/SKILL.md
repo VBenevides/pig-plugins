@@ -1,9 +1,33 @@
 ---
 name: format-commit
-description: "Format implementation and TODO evidence commit messages with the project type(scope) style. Use it to create or review messages. Do not manage history."
+description: "Format commit messages with the project type(scope) style. Explicit invocation also creates the requested commit unless the user requests message-only output."
 ---
 
 # Format Commit
+
+## Invocation and commit authorization
+
+Explicit user invocation of `/skill:format-commit` authorizes a commit for the requested changes.
+If the user requests message-only output or review, do not commit.
+Loading this skill from another workflow does not authorize an additional commit.
+Follow that workflow's commit scope and checkpoints instead.
+
+## Commit procedure
+
+1. Inspect the repository instructions, branch, and `git status --short`.
+2. Inspect `git diff` and `git diff --cached`.
+3. Identify the requested changes. If their scope is unclear, ask the user before staging.
+4. Preserve unrelated changes and existing staged work. Do not include them in the commit.
+5. Run relevant checks. Report failures and unavailable checks. Do not claim checks that did not run.
+6. Stage only the requested paths or hunks. If unrelated staged work prevents isolation, stop and ask the user.
+7. Review the staged diff for scope, secrets, and accidental files.
+8. Format the message with the rules below. Create the commit with the prescribed transport.
+9. Verify the message with `git log -1 --format=%B`. Check `git status --short`.
+10. Report the commit hash, verification results, and remaining changes.
+
+Do not create empty commits. If no requested changes remain, report that result.
+Do not amend commits, rewrite history, push, or bypass hooks without separate user authorization.
+If a check or commit fails, report the cause. Do not conceal the failure.
 
 ## Required output writing
 

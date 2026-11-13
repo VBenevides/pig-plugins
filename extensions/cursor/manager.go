@@ -75,7 +75,7 @@ func (m *manager) acquire(ctx context.Context, key string) (runner, func(), erro
 		m.mu.Lock()
 		if m.closed {
 			m.mu.Unlock()
-			return nil, nil, errors.New("Cursor bridge manager is closed")
+			return nil, nil, errors.New("cursor bridge manager is closed")
 		}
 		e := m.entries[id]
 		creator := e == nil

@@ -19,6 +19,7 @@ import (
 	"github.com/VBenevides/pig-plugins/internal/eventprompt"
 	"github.com/VBenevides/pig-plugins/internal/footerstatus"
 	"github.com/VBenevides/pig-plugins/internal/goal"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 // Name is the extension identity and the footer status key.
@@ -42,7 +43,7 @@ type extension struct {
 func Extension() *sdk.Extension {
 	x := &extension{}
 	e := sdk.New(Name)
-	e.OnEvent(sdk.EventSessionStart, x.restore)
+	sdkctx.OnSessionStart(e, x.restore)
 	e.OnEvent(sdk.EventSessionTree, x.restore)
 	e.OnEvent(sdk.EventBeforeAgentStart, x.appendPrompt)
 	e.OnEvent(sdk.EventToolExecutionEnd, func(sdk.Context, map[string]any) (any, error) {
@@ -68,6 +69,7 @@ func Extension() *sdk.Extension {
 	})
 	e.RegisterTool(sdk.ToolDefinition{
 		Name:        "goal_finish",
+		Exposure:    sdk.ToolExposureDeferred,
 		Label:       "Goal finish",
 		Description: "End the active /goal. Use outcome \"reached\" when the objective is complete and verified, or \"blocked\" when everything left needs something you cannot supply. Fails when no goal is active.",
 		Parameters: sdk.Schema{
@@ -81,6 +83,14 @@ func Extension() *sdk.Extension {
 		},
 		ExecutionMode: "sequential",
 		Execute:       x.finishTool,
+		PrepareLoadout: func(_ sdk.ToolLoadout) *sdk.ToolLoadoutChanges {
+			x.mu.Lock()
+			defer x.mu.Unlock()
+			if x.state != nil && x.state.Status == goal.Working {
+				return nil
+			}
+			return &sdk.ToolLoadoutChanges{HiddenDeclarations: []string{"goal_finish"}}
+		},
 	})
 	return e
 }
@@ -110,7 +120,10 @@ func announce(ctx footerstatus.Context, state *goal.State) {
 	footerstatus.Set(ctx, Name, text)
 }
 
-func (x *extension) appendPrompt(_ sdk.Context, data map[string]any) (any, error) {
+func (x *extension) appendPrompt(ctx sdk.Context, data map[string]any) (any, error) {
+	if err := x.syncFinishExposure(ctx); err != nil {
+		return nil, err
+	}
 	x.mu.Lock()
 	state := x.state
 	x.resumePending = false
@@ -299,6 +312,9 @@ func (x *extension) clear(ctx sdk.Context) error {
 	x.state = nil
 	x.mu.Unlock()
 	announce(ctx, nil)
+	if err := x.syncFinishExposure(ctx); err != nil {
+		return err
+	}
 	ctx.Notify("Goal cleared. A run in progress is not interrupted; press Esc to stop it.", "info")
 	return nil
 }
@@ -343,6 +359,9 @@ func (x *extension) finishTool(ctx sdk.Context, params map[string]any) (any, err
 		return nil, errors.New("goal_finish: no goal is active")
 	}
 	x.finish(ctx, goal.Outcome(outcome), summary)
+	if err := x.syncFinishExposure(ctx); err != nil {
+		return nil, err
+	}
 	return sdk.ToolResult{Content: "Goal finished (" + outcome + "). Reply with a short final note."}, nil
 }
 

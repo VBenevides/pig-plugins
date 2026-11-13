@@ -21,6 +21,7 @@ func TestPayloadAndOutputBoundariesThroughRealExtension(t *testing.T) {
 		t.Fatal(err)
 	}
 	home := pigtest.NewHome(t)
+	selectHashline(t, home)
 	var content strings.Builder
 	for i := 1; i <= 2500; i++ {
 		fmt.Fprintf(&content, "row %d\n", i)

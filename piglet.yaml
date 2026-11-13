@@ -1,20 +1,23 @@
 name: pig-plugins-dev
 description: Development binary with the implemented pig-plugins extensions.
 extensions:
+  # default-prompt must stay first: later extensions append to its instructions.
+  - name: default-prompt
+    origins: [local:./extensions/default-prompt]
   - name: check-update
     origins: [local:./extensions/check-update]
   - name: tool-search
     origins: [local:./extensions/tool-search]
   - name: hashline-edit
     origins: [local:./extensions/hashline-edit]
+  - name: path-check
+    origins: [local:./extensions/path-check]
   - name: command-output
     origins: [local:./extensions/command-output]
   - name: ast-search
     origins: [local:./extensions/ast-search]
   - name: smart-approve-lancet
     origins: [local:./extensions/smart-approve-lancet]
-  - name: pi-curator
-    origins: [local:./extensions/pi-curator]
   - name: lsp
     origins: [local:./extensions/lsp]
   - name: web-search
@@ -39,6 +42,12 @@ extensions:
     origins: [local:./extensions/cursor]
   - name: ask-mode
     origins: [local:./extensions/ask-mode]
+  - name: path-complete
+    origins: [local:./extensions/path-complete]
+  - name: session-resume
+    origins: [local:./extensions/session-resume]
+  - name: request-timer
+    origins: [local:./extensions/request-timer]
   - name: browser-use
     origins: [local:./extensions/browser-use]
   - name: goal
@@ -49,6 +58,8 @@ extensions:
     origins: [local:./extensions/context-prune]
   - name: user-resources
     origins: [local:./extensions/user-resources]
+  - name: tool-settings
+    origins: [local:./extensions/tool-settings]
 discovery:
   extensions: []
   skills: []

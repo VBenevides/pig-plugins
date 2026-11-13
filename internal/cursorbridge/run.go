@@ -93,7 +93,7 @@ func (p *Process) Run(ctx context.Context, key string, model Selection, tools []
 	p.turn.Lock()
 	defer p.turn.Unlock()
 	if p.Client == nil {
-		return out, errors.New("Cursor bridge is not running")
+		return out, errors.New("cursor bridge is not running")
 	}
 	// A turn that starts now replaces whatever was parked.
 	if stale := p.takeParked(nil); stale != nil {
@@ -267,7 +267,7 @@ func (s *Session) deliver(event Event) error {
 	}
 	if len(event.Text) > maxTurnOutputBytes-r.outputBytes {
 		s.mu.Unlock()
-		return errors.New("Cursor output exceeded the per-turn safety limit; no retry was attempted")
+		return errors.New("cursor output exceeded the per-turn safety limit; no retry was attempted")
 	}
 	r.outputBytes += len(event.Text)
 	if !event.Thinking && event.Text != "" {
@@ -343,10 +343,10 @@ func (s *Session) wait(ctx context.Context, park bool) (out Outcome, err error) 
 		return out, nil
 	}
 	if r == nil {
-		return out, errors.New("Cursor turn ended without an active round")
+		return out, errors.New("cursor turn ended without an active round")
 	}
 	if len(result.Result.Text) > maxTurnOutputBytes || (!r.streamed && len(result.Result.Text) > maxTurnOutputBytes-r.outputBytes) {
-		return out, errors.New("Cursor final output exceeded the per-turn safety limit; no retry was attempted")
+		return out, errors.New("cursor final output exceeded the per-turn safety limit; no retry was attempted")
 	}
 	out.Text = result.Result.Text
 	if result.Result.Usage != nil {

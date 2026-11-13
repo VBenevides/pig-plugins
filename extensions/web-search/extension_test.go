@@ -48,6 +48,16 @@ func TestPiGMCPFallbackSearch(t *testing.T) {
 			if result.ExitCode != 0 {
 				t.Fatalf("pig: %s %s", result.Stdout, result.Stderr)
 			}
+			for _, request := range mock.Requests() {
+				tools, _ := request["tools"].([]any)
+				for _, raw := range tools {
+					tool, _ := raw.(map[string]any)
+					fn, _ := tool["function"].(map[string]any)
+					if fn["name"] == "mcp__parallel__web_search" || fn["name"] == "mcp__exa__web_search_exa" {
+						t.Fatalf("backend schema reached provider: %v", fn["name"])
+					}
+				}
+			}
 			results := pigtest.ToolResults(mock)
 			if len(results) != 2 || !strings.Contains(results[1], "https://example.com/docs") {
 				t.Fatalf("search result: %v; stderr=%s", results, result.Stderr)

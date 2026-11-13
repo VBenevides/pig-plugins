@@ -24,7 +24,11 @@ func traceWrite(record map[string]any) {
 		traceFailure(err)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			traceFailure(err)
+		}
+	}()
 	if err := json.NewEncoder(file).Encode(record); err != nil {
 		traceFailure(err)
 	}

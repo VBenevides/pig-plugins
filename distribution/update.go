@@ -13,11 +13,22 @@ import (
 	"strings"
 
 	pigplugins "github.com/VBenevides/pig-plugins"
+	"github.com/VBenevides/pig-plugins/internal/toolsettings"
 	"github.com/VBenevides/pig-plugins/internal/updates"
 )
 
 // Prepare replaces the environment setup formerly performed by the launcher.
 func Prepare(version string) error {
+	args, profile, err := toolsettings.ParseProfile(os.Args[1:])
+	if err != nil {
+		return err
+	}
+	if profile != "" {
+		if err := os.Setenv(toolsettings.ProfileEnv, profile); err != nil {
+			return err
+		}
+	}
+	os.Args = append(os.Args[:1], args...)
 	home := os.Getenv("PIG_HOME")
 	if home == "" {
 		userHome, err := os.UserHomeDir()
@@ -78,7 +89,7 @@ func update(current string) (err error) {
 		return fmt.Errorf("compare plugins versions: %w", err)
 	}
 	if !newer {
-		fmt.Fprintf(os.Stdout, "pig-plugins: no update needed (local %s, remote %s)\n", current, remote)
+		_, _ = fmt.Fprintf(os.Stdout, "pig-plugins: no update needed (local %s, remote %s)\n", current, remote)
 		return nil
 	}
 	path := filepath.Join(dir, "install.sh")

@@ -21,7 +21,7 @@ const Name = "check-update"
 func Extension() *sdk.Extension {
 	e := sdk.New(Name)
 	preference := func() string { return agentdir.File(os.Getenv, "check-update.json") }
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	sdkctx.OnSessionStart(e, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		runCtx, cancel := sdkctx.Request(ctx)
 		defer cancel()
 		pigVersion := os.Getenv("PIG_PLUGINS_HOST_VERSION")

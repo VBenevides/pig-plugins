@@ -103,7 +103,7 @@ Upstream authors, repositories and licences for the ported extensions are in [TH
 
 ## Port status
 
-Implemented: `hashline-edit`, `smart-approve-lancet`, `pi-curator`, `lsp`,
+Implemented: `hashline-edit`, `smart-approve-lancet`, `lsp`,
 `web-search`, `ask-user-question`, `todo`, `auto-models`, `better-footer`, `goal`,
 `command-output`, and `ast-search`.
 Use `pig -e ./extensions/<name>` to load a port for one session.
@@ -140,7 +140,7 @@ An `openai` API-audience OAuth token is rejected by that endpoint (401), so it i
 Settings and caches live in the agent dir: `auto-model.json`, `claude-quota-cache.json`, `auto-model-rate-limits.json`. The patched native host stores OAuth accounts in `oauth-accounts.json` and lazily migrates existing singleton OAuth logins from `auth.json`.
 Startup model selection and 429/529 fallback run only in a fused binary (see `scripts/dev_build.sh`) and only without an explicit `--model`.
 When a saved cooldown would force startup onto fallback, supported native-account quota is checked first. Confirmed remaining quota clears the cooldown; exhausted, unknown, or failed checks retain it.
-On quota failure, auto-models first tries another native account for the same provider with at least 5% known quota remaining, retaining the model. Only if none is eligible does it try the configured fallback. Account or model recovery shares one continuation budget per interrupted task; explicit `--model` disables both. Background low-quota rotation still waits until the session is idle.
+On quota failure, auto-models first tries another native account for the same provider with at least 5% known quota remaining, retaining the model. If none is eligible, it tries same-provider accounts with any known positive quota, including less than 5%. Exhausted and unknown-quota accounts remain excluded. Only then does it try the configured fallback. Proactive rotation retains the 5% threshold. Account or model recovery shares one continuation budget per interrupted task; explicit `--model` disables both. Background low-quota rotation still waits until the session is idle.
 The recovery allowance survives successful replies and tool continuations; only fresh, explicit idle interactive/RPC input resets it. Repeated background credential warnings are coalesced with bounded history and periodic repeat counts.
 In `pig -e` mode PiG hides host CLI arguments, so switching is disabled with a warning. `/usage` and `/auto-model` still work.
 Differences from upstream: only OAuth credentials are used, quota requests have a timeout, size limit, and no redirects, and persistence errors are reported, not ignored.
@@ -352,10 +352,12 @@ Tests that start `pig` skip when it is not on `PATH`.
 ```
 
 Copies (no symlinks) the tracked repository, including every extension and `prompts/`, to `~/.pig/pig-plugins`.
-Copies `prompts/agent/SYSTEM.md`, `prompts/agent/APPEND_SYSTEM.md` and `prompts/agent/AGENTS.md` into `~/.pig/agent/`; an existing different file is first saved as `<file>.pig-plugins-backup-<timestamp>`.
+Writes no prompt files: the binary embeds the default instructions (see `default-prompt`). The installer removes only copies of `SYSTEM.md`, `APPEND_SYSTEM.md` and `AGENTS.md` that an earlier release installed (known checksums) so the built-in prompt applies again. Any other file in `~/.pig/agent/` stays and is reported.
 Copies `config/agent/keybindings.json` to `~/.pig/agent/keybindings.json` only when that file is absent (it maps `ctrl+z` to undo and frees it from suspend, and binds `ctrl+a` to select all in the prompt editor with `home` left as line start); an existing file is never overwritten, and the installer prints a notice when it differs. PiG has no redo action, so `ctrl+r` still renames sessions.
 Select all comes from `patches/pig/0003-editor-images-host.patch`, which `scripts/dev_build.sh` applies. The new action `tui.editor.selectAll` has no default key, so a host without the file entry keeps `ctrl+a` as line start. To enable it in an existing `keybindings.json`, add `"tui.editor.selectAll": ["ctrl+a"]` and `"tui.editor.cursorLineStart": ["home"]`. Select all marks the whole prompt text (drawn reversed); typing or pasting replaces it, a delete key removes it, and any other key clears the mark. Undo restores replaced text. There is no partial selection and no copy of the selection from the editor.
 Copies every `skills/<name>/` directory that holds a `SKILL.md` into `~/.pig/agent/skills/`, including untracked ones. A different existing skill moves to `~/.pig/agent/skills-backup/<timestamp>/<name>`; skills not in this repository are left alone.
+
+The `ouro-quality` skill is not stored here. The installer reads `VERSION` from the `main` branch of [Ouro](https://github.com/VBenevides/Ouro). If `ouro` is missing or `ouro version` differs, it runs Ouro's installer (needs `git` and `go`). Then it saves the output of `ouro skill` as `~/.pig/agent/skills/ouro-quality/SKILL.md`. It replaces the old skill directory and makes no backup. If any step fails, the installer prints the cause, keeps the previous skill, and finishes the rest of the install.
 Builds the fused executable at `~/.pig/bin/pig-plugins` and symlinks it as `~/.local/bin/pig-plugins` (`PIG_PLUGINS_LINK_DIR` overrides the directory; an existing non-symlink is left alone). Successful installs remove the old managed `pig-plugins-native` and `pig-plugins-raw` payloads. Run it instead of `pig`.
 `PIG_HOME` and `PIG_CODING_AGENT_DIR` override the locations. Re-running replaces the copy.
 The executable adds `~/.pig/bin` to its dependency search path after existing `PATH` entries.
@@ -554,8 +556,8 @@ It does not prevent startup or affect read/edit.
 ast_search({ pattern: "println($A)", lang: "go", path: "internal", limit: 50 })
 ```
 
-`ast_search` is deferred when tool discovery is available, and directly active
-otherwise. It is also available in ASK mode. It returns discovery-only snippets
+`ast_search` is deferred and is also available in ASK mode after discovery.
+It returns discovery-only snippets
 and 1-based source locations (exclusive end); call `read` for fresh edit anchors,
 version tokens and displayed-source authority before editing. Search never
 grants edit authority and exposes no rewrite/update flags. Existing read/edit/write
@@ -639,6 +641,9 @@ Do not enable another smart-approve extension at the same time.
 
 ## pi-curator
 
+No longer bundled in new binaries. The source remains available for explicit external loading.
+Upgrades preserve curator settings, stored memory, and external installations. The built-in prompt no longer requests memory tools.
+
 The native Go extension captures visible conversation text and tool traffic in consented repositories.
 It calls `PI_CURATOR_BIN`, or `curator` on PATH. The curator packages are internal to another Go module.
 The CLI owns redaction, locking, the journal format, search, and UTF-8 cursor pages.
@@ -689,7 +694,7 @@ Positions use zero-based `line` and UTF-16 `character`.
 It adds read-only `lsp_rename_preview`, `code_overview`, and `code_search` from the `harness-code` reference.
 Structural search uses the existing outline heuristics, not an AST parser.
 Query and body expressions use bounded ECMAScript regexes.
-All eight tools are deferred. A session without `tool_search` or `codemode` activates them directly.
+All LSP tools are deferred. Without discovery, they remain undeclared.
 
 Global configuration lives at `<agent dir>/lsp.json`.
 `PI_AGENT_DIR`, when set, selects the original upstream configuration directory.
@@ -728,7 +733,7 @@ Do not enable `harness-code`, the TypeScript twin, at the same time.
 The native Go extension ports `pi-web-search@1.6.0`.
 `web_search` tries **Parallel MCP → current-model native search → Exa MCP**, stopping at the first success.
 `web_search` is deferred. Enable `builtin:tool-search` or `codemode` to discover it.
-Sessions without either discovery tool activate it directly.
+Without discovery, web tools remain undeclared. `url_context` is also deferred.
 Enable PiG's `builtin:mcp` support. With an explicit `--tools` allowlist, include `web_search`,
 `mcp__parallel__web_search`, and `mcp__exa__web_search_exa`; deferred exposure keeps them out of the initial model declaration.
 Supported transports are Google Gemini, OpenAI Responses (including Azure, Codex and Copilot),
@@ -872,23 +877,32 @@ isolation and successful-mutation-only custom entries. A 120-column TUI smoke ex
 progression, `/todos` 3/3 status, Escape closure and clean exit.
 Do not enable another todo extension at the same time.
 
+## default-prompt
+
+The binary embeds only `prompts/agent/default/SYSTEM.md`. The `default-prompt` extension initializes these instructions before other prompt handlers. Legacy selection is removed; old `promptStyle` settings are ignored.
+To override the built-in prompt, create `~/.pig/agent/SYSTEM.md` (or a project `SYSTEM.md`, or use `--system-prompt`). A non-empty custom prompt is never replaced. User `APPEND_SYSTEM.md` and `AGENTS.md` files still add instructions.
+`default-prompt` must stay first in `piglet.yaml`, before extensions that append to the system prompt.
+
+## path-check
+
+Before `read` and `edit`, checks ordinary filesystem paths with surrounding spaces, tabs, or line breaks. If the exact path is missing but the trimmed path exists, blocks the call and reports the possible match to the model and UI. Retry with the explicit path. It never changes tool input or retries automatically. Existing exact paths and other filesystem errors keep normal tool behavior. `write` is unchanged. Special host path syntax (`~`, `@`, and URLs) stays with the host resolver.
+
 ## project-prompt
 
 The bundled native extension loads project-specific instructions on `before_agent_start` and preserves the entire host prompt.
-The global prompts (`SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`) are the ones in `prompts/agent/`; the installer copies them to the agent directory.
-For trusted projects, it also loads the literal `.local/APPEND_SYSTEM.md` and
-`local/AGENTS.md` paths from the current working directory on each request.
-Missing files are optional; content already loaded by the host is not repeated.
+The global prompt is built into the binary (`default-prompt`), not installed as files.
+For trusted projects, it reads `SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`, and `RULES.md`
+inside each of `.local/`, `local/`, `.pig/`, and `pig/`, relative to the current working directory.
+All existing files append in that directory order, then file order; none replaces the host prompt.
+Files are reread on each request. Missing files are optional; content already loaded is not repeated.
 Files must be regular UTF-8 files within the project, at most 256 KiB each.
-`local/APPEND_SYSTEM.md` is not substituted for `.local/APPEND_SYSTEM.md`.
+The host also discovers some project files itself and can cache them as its base prompt. This extension preserves that base; restart the session to refresh host-owned instructions.
 
 ## tool-search
 
-Enables the built-in `tool_search` tool at session start. `/tool-search on` and
-`/tool-search off` enable or disable discovery; `/tool-search` shows its current state.
-New sessions and `/reload` enable it again. Other active tools are preserved.
-Turning discovery off does not unload previously discovered tools or disable MCP
-servers, and tools remain reachable through `codemode` if it is active.
+Controls the built-in `tool_search` tool through `/tool-settings`. Toggle the `tool_search` row and press Enter to save and reload. There is no `/tool-search` command.
+New sessions and `/reload` respect the saved setting and launch profile. Before each user request, tool-settings exposes only `read`, `write`, `edit`, `bash`, and permitted `tool_search`. Other permitted tools load through discovery for that request. Without discovery, only the four core tools remain exposed and a warning is shown.
+Disabling discovery does not stop MCP servers. Discovered tools expire at the safe request boundary.
 Discovery searches registered session tools; it does not scan directories or install tools.
 
 ## compact-settings
@@ -949,6 +963,46 @@ Select and confirm dialogs the host draws (the Smart Approve question, the `/pi-
 The state is in memory only and resets to ACT when a session starts.
 In ASK mode, the footer shows `Mode: ASK`, the system prompt forbids changes, and `tool_call` permits only exact reviewed read-only tool names. Unknown tools remain blocked even under `lsp_`, `code_` or `memory_` prefixes. Shell calls are denied because command names and argument filtering cannot prove read-only execution; use dedicated read/search tools or switch to ACT.
 `write` and `edit` are allowed only inside `<cwd>/.agent-work/` (symlinks resolved) and only after you confirm each one.
+
+## request-timer
+
+The working indicator shows `Working - 00h 00m 00s` during a request, including tool execution and follow-up model calls. When the agent finishes, an `Elapsed - 00h 00m 00s` message is saved at the end of the interaction. The final record does not start another model request. The timer resets for the next request.
+
+## tool-settings
+
+Run `/tool-settings` to choose global tool and skill settings. The compact table shows eight entries at a time, with details for the selected entry and totals below. Tools are grouped into categories (Files, Shell, MCP servers, extensions). Space on a category header toggles every tool in it (`[~]` means partly enabled); Left/Right folds or unfolds it. Use Tab to switch tabs, Up/Down to select an entry, and Space to change its checkbox. Press `?` to show or hide help and loaded-context totals. Enter saves and reloads extensions; Escape cancels. R asks for confirmation before it restores current default permissions and enables skill discovery.
+
+Default permissions allow all non-browser tools, including MCP, Parallel, Exa, and todo. Only the five-tool core is declared initially; other schemas load through tool_search. Search backends remain behind web_search. Browser tools require explicit enablement and a browser mode. Goal, todo, and ask-mode instructions remain independent of schema exposure. To replace older saved denials, select P → 1 (default), then Enter; installing alone preserves saved choices.
+
+Press P for profiles: 1 selects **default** (all non-browser tools and all skills), 2 selects **minimal** (native `read`, `bash`, `edit`, and `write`, with no discovery or skills), and 3 selects **default-benchmark** (default with `ask_user_question` disabled). Names are case-insensitive. Default and default-benchmark use native read/edit/write. Fresh settings and older settings without `nativeFiles` also use native tools. An explicit `nativeFiles: false` keeps Hashline. Enter saves and reloads; Escape cancels. The minimal profile blocks newly added tools and skills unless explicitly enabled. The old minimum and native profile names are no longer accepted. Default and default-benchmark remove that restriction. Settings and recovery commands remain available.
+
+The binary uses only the reduced default instructions. Prompt reduction has offline contract checks, not benchmark-quality qualification.
+
+The Tools tab lists both Hashline and native variants of read/edit/write. Press Space on an inactive variant to select that implementation for all three file tools together, preserving their enabled states. This keeps Hashline edit paired with its required read authority. Only the selected implementation is saved under each shared tool name. Alternative schema counts are unknown until save and reload; they are not shown as zero.
+
+For a launch-only override, run `pig-plugins --profile default`, `pig-plugins --profile minimal`, or `pig-plugins --profile default-benchmark`. Profile names are case-insensitive, and the `--profile=default-benchmark` form also works. The choice persists through extension reloads in that process but does not change saved global settings. During an override, `/tool-settings` locks tool and skill choices. Restart without the flag to edit saved choices.
+
+Choices are saved in the agent directory as `tool-settings.json` and apply across projects and restarts. Open sessions in other terminals need `/reload` to rebuild skill discovery. Disabled tools are removed from declarations and blocked at invocation. Disabled skills are excluded from the `user-resources` catalog, including their slash-command expansion. This works with the fused pig-plugins discovery configuration. Plain pig can load ambient skills through a separate path; these choices do not control that independent catalog.
+
+This is not a filesystem sandbox. Ordinary read and shell tools can still open skill files. Existing conversation messages are not removed when a skill is disabled. Use `/new` if you need a conversation without previously loaded skill text. Settings and recovery commands remain available.
+
+Each entry shows a character count and an estimate of tokens at four characters per token. Tool estimates use their serialized schemas; skill discovery estimates use metadata, not full files. Shared prompt wrappers and provider-specific formatting are not counted. Full expanded skill blocks in the last model request have separate per-skill counts and a total. These counts are unknown until the first request after a session starts or reloads. The full text is neither saved nor logged by this feature.
+
+Concurrent dialogs cannot silently replace newer saved choices. A failed write is reported and keeps the old file. An interrupted save can leave `tool-settings.json.lock`; inspect the writer and lock before removing a stale lock.
+
+## Cursor thinking levels
+
+Cursor Grok models use PiG's default thinking level, `medium`, when no saved level applies. Existing global, per-model, and session choices keep their current values. The Cursor provider passes the selected level to the bridge without changing settings. If a model does not support the selected level, the request returns an explicit error instead of selecting a different level. This default does not indicate measured performance or release qualification.
+
+## session-resume
+
+Opening pig in the terminal UI resumes the newest earlier session of the working directory that has a conversation, then shows "Session auto resumed, if you want a new session use /new". With no earlier session, or when the current session already has messages, pig starts empty as after `/new`. `-c`, `-r`, `--session`, `--fork`, `--no-session` and `-p` skip it, since they already choose the session. A `/resume` you type yourself shows no notice.
+
+## path-complete
+
+Type `~/`, `./` or `../` at the start of a word, or a quote before a path, and a list of the matching files and folders appears. A path that starts with `/` after other words does not open the list by itself: press Tab. It reads the folder each time the list opens, so it is always current. Folders come first, matching ignores case, and dot files show only after you type a `.`. The list stops at 50 entries and the last one says how many more there are.
+Choosing a folder adds `/` and the list continues inside it. A name with spaces is wrapped in double quotes for you: `"~/My Projects/"`. You can also type the quotes yourself, or write `\ ` for a space (`~/My\ Projects`). Inside quotes, `\"` and `\\` stand for `"` and `\`.
+A `/` word with no second `/` (`/`, `/sk`, `/skill:x`) and `//` stay with the skills and commands menu and plain text; an absolute path starts listing at its second slash (`/etc/`). `/fs <path>` lists a folder and completes it with the same list; the whole rest of the line is the path, so spaces need no quotes. Choosing an entry replaces `/fs <path>` with the path itself, quoted if it has spaces, and a folder keeps completing inline. Pressing Enter on `/fs <path>` puts that path in the prompt and sends nothing. A folder whose name you typed in full keeps no trailing slash, so `~/x/reports` can be sent as typed. `/fs` and its completions resolve relative paths from the extension's working directory.
 
 ## goal
 

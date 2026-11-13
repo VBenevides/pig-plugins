@@ -91,6 +91,19 @@ func Extension() *sdk.Extension {
 		if origin, _ := data["source"].(string); origin == "extension" {
 			from = fromSettle
 		}
+		// A compact still running when the prompt arrives cannot be joined by a new one, so the prompt waits for it.
+		// If that compact failed, this prompt is the new attempt the trigger promises, so the check runs once more.
+		// A compact that this prompt started itself is not retried by the same prompt.
+		st.mu.Lock()
+		running := st.done
+		st.mu.Unlock()
+		if running != nil {
+			select {
+			case <-running:
+			case <-ctx.Done():
+				return nil, fmt.Errorf("%s: input cancelled while waiting for compaction", Name)
+			}
+		}
 		if err := st.trigger(ctx, from); err != nil {
 			return nil, err
 		}
@@ -324,6 +337,13 @@ func (st *state) trigger(ctx sdk.Context, from source) error {
 		if err := ctx.SendUserMessage(resumePrompt, "followUp"); err != nil {
 			ctx.Notify(fmt.Sprintf("compact-settings: could not resume the task after compacting: %v", err), "error")
 		}
+	}
+	if resume {
+		// The host aborts the run only when it handles the compact call, on its own goroutine. Returning from
+		// turn_end before that let the next model request leave first, so the request was sent and then aborted.
+		// Abort is answered once the host has cancelled the run, and it does not wait for idle, so it cannot
+		// deadlock the awaited hook. The compact below then finds the run already aborted.
+		ctx.Abort()
 	}
 	ctx.CompactWithOptions(sdk.CompactOptions{
 		OnComplete: func(map[string]any) {

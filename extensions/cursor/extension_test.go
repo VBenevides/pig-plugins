@@ -103,6 +103,26 @@ func opts(key, level string) sdk.ProviderStreamOptions {
 	return sdk.ProviderStreamOptions{Values: map[string]any{"apiKey": key, "reasoning": level}}
 }
 
+func TestGrokPreservesMediumAndSavedThinkingLevels(t *testing.T) {
+	for _, level := range []string{"medium", "low", "high"} {
+		t.Run(level, func(t *testing.T) {
+			r := &fakeRunner{catalog: []cursorbridge.Model{{ID: "grok-4.6-low"}, {ID: "grok-4.6-medium"}, {ID: "grok-4.6-high"}}}
+			s, _ := newService(map[string]*fakeRunner{"key": r})
+			options := opts("key", level)
+			stream, err := s.stream(map[string]any{"id": "grok-4.6"}, request("hi"), options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			collect(t, stream)
+			if len(r.selected) != 1 || r.selected[0].ID != "grok-4.6-"+level {
+				t.Fatalf("selected = %v; want %s", r.selected, level)
+			}
+			if options.Values["reasoning"] != level {
+				t.Fatal("selected thinking level changed")
+			}
+		})
+	}
+}
 func TestStreamMapsThinkingLevelAndText(t *testing.T) {
 	r := &fakeRunner{catalog: grokCatalog, events: []cursorbridge.Event{{Thinking: true, Text: "hmm"}, {Text: "hel"}, {Text: "lo"}},
 		outcome: cursorbridge.Outcome{Usage: &cursorbridge.TokenUsage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10}}}
@@ -302,7 +322,7 @@ func cursorServer(t *testing.T, approveAfter int32, access string) (*browserAuth
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]string{"accessToken": access, "refreshToken": "refresh-1"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"accessToken": access, "refreshToken": "refresh-1"})
 		case userKeyPath:
 			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+access || r.Header.Get("Connect-Protocol-Version") != "1" {
 				t.Error("invalid key exchange headers")
@@ -318,9 +338,9 @@ func cursorServer(t *testing.T, approveAfter int32, access string) (*browserAuth
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]string{"apiKey": "minted-user-key"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"apiKey": "minted-user-key"})
 		case "/oauth/token":
-			json.NewEncoder(w).Encode(map[string]any{"access_token": fakeJWT(time.Now().Add(2 * time.Hour)), "refresh_token": "refresh-2"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": fakeJWT(time.Now().Add(2 * time.Hour)), "refresh_token": "refresh-2"})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -457,7 +477,7 @@ func TestProviderAuthShape(t *testing.T) {
 
 func TestEndedSessionAsksForNewLogin(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"access_token": "", "shouldLogout": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "", "shouldLogout": true})
 	}))
 	defer server.Close()
 	auth := &browserAuth{http: server.Client(), apiBaseURL: server.URL}

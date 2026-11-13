@@ -106,17 +106,6 @@ func Extension() *sdk.Extension {
 		}
 		return nil, nil
 	})
-	e.OnEvent("session_start", func(ctx sdk.Context, _ map[string]any) (any, error) {
-		active, err := ctx.GetActiveTools()
-		if err != nil {
-			return nil, err
-		}
-		if !slices.Contains(active, "tool_search") && !slices.Contains(active, "codemode") {
-			active = append(active, "lsp_diagnostics", "lsp_hover", "lsp_definition", "lsp_references", "lsp_symbols", "lsp_rename_preview", "code_overview", "code_search")
-			ctx.SetActiveTools(active)
-		}
-		return nil, nil
-	})
 	e.OnEvent("tool_result", x.afterEdit)
 	return e
 }

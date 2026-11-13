@@ -30,6 +30,10 @@ var errGitOutputTooLarge = errors.New("git output too large")
 // ErrPassiveGitCountsUnavailable means conversion would require executable helpers.
 var ErrPassiveGitCountsUnavailable = errors.New("git: passive change counts unavailable with configured conversion filters")
 
+// ErrGitFailed means git ran and exited non-zero, as happens briefly while another git command or a repack changes
+// the repository. The footer keeps its previous counts and does not warn the user.
+var ErrGitFailed = errors.New("git: command exited with an error")
+
 type cappedBuffer struct{ bytes.Buffer }
 
 func (b *cappedBuffer) Write(p []byte) (int, error) {
@@ -63,7 +67,7 @@ func gitWithInput(ctx context.Context, dir string, env []string, input string, a
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && ctx.Err() == nil && exit.ExitCode() >= 0 {
-		return out.String(), exit.ExitCode(), true, err
+		return out.String(), exit.ExitCode(), true, errors.Join(ErrGitFailed, err)
 	}
 	return "", -1, false, errors.Join(err, ctx.Err())
 }

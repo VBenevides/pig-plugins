@@ -38,7 +38,7 @@ func Extension() *sdk.Extension {
 	// Hidden exposure excludes both provider declarations and tool discovery.
 	// DefaultActive alone would still allow tool_search to find disabled tools.
 	register(e, s, false)
-	e.OnSessionStart(func(ctx sdk.Context, _ map[string]any) (any, error) {
+	e.OnSessionStart(sdkctx.IgnoreStale(func(ctx sdk.Context, _ map[string]any) (any, error) {
 		if err := s.setMode(e, ctx, browseruse.Off); err != nil {
 			return nil, err
 		}
@@ -49,7 +49,7 @@ func Extension() *sdk.Extension {
 		}
 		s.mu.Unlock()
 		return nil, nil
-	})
+	}))
 	e.OnEvent(sdk.EventSessionShutdown, func(ctx sdk.Context, _ map[string]any) (any, error) {
 		s.changeMu.Lock()
 		defer s.changeMu.Unlock()
@@ -176,16 +176,13 @@ func (s *state) setMode(e *sdk.Extension, ctx sdk.Context, mode browseruse.Mode)
 		return fmt.Errorf("browser-use: read active tools: %w", err)
 	}
 	active = slices.DeleteFunc(active, func(name string) bool { return slices.Contains(toolNames(), name) })
-	if enabled {
-		active = append(active, toolNames()...)
-	}
 	ctx.SetActiveTools(active)
 	actual, err := ctx.GetActiveTools()
 	if err != nil {
 		return fmt.Errorf("browser-use: verify active tools: %w", err)
 	}
 	for _, name := range toolNames() {
-		if slices.Contains(actual, name) != enabled {
+		if slices.Contains(actual, name) {
 			return fmt.Errorf("browser-use: failed to set tool visibility")
 		}
 	}
@@ -227,7 +224,7 @@ func toolNames() []string {
 func register(e *sdk.Extension, s *state, enabled bool) {
 	exposure := sdk.ToolExposureHidden
 	if enabled {
-		exposure = sdk.ToolExposureDirect
+		exposure = sdk.ToolExposureDeferred
 	}
 	for _, spec := range specs() {
 		parameters := sdk.Schema{"type": "object", "additionalProperties": false, "properties": spec.properties}

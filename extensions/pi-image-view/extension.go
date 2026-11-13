@@ -16,6 +16,7 @@ import (
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
 	"github.com/VBenevides/pig-plugins/internal/agentdir"
 	images "github.com/VBenevides/pig-plugins/internal/imageview"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 )
 
 const Name = "pi-image-view"
@@ -192,7 +193,7 @@ func Extension() *sdk.Extension {
 		}
 		return nil, nil
 	}
-	e.OnEvent(sdk.EventSessionStart, restore)
+	sdkctx.OnSessionStart(e, restore)
 	e.OnEvent(sdk.EventSessionTree, restore)
 	e.OnEvent(sdk.EventSessionShutdown, func(_ sdk.Context, _ map[string]any) (any, error) {
 		polling.stop()

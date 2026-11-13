@@ -99,10 +99,10 @@ func (s *service) provider() *sdk.Provider {
 		// key lives in its own field and stays as it is.
 		Refresh: func(credential *sdk.Credential, ctx context.Context) (*sdk.Credential, error) {
 			if credential.String("apiKey") == "" {
-				return nil, errors.New("Cursor session cannot be renewed; run /login cursor again")
+				return nil, errors.New("cursor session cannot be renewed; run /login cursor again")
 			}
 			if ms := millis(credential, "apiKeyExpires"); ms > 0 && time.Now().UnixMilli() >= ms {
-				return nil, errors.New("Cursor API key expired; run /login cursor again")
+				return nil, errors.New("cursor API key expired; run /login cursor again")
 			}
 			session, err := s.browser().refresh(ctx, credential.String("refresh"))
 			if err != nil {
@@ -117,7 +117,7 @@ func (s *service) provider() *sdk.Provider {
 		ToAuth: func(credential *sdk.Credential) (map[string]any, error) {
 			key := apiKey(credential)
 			if key == "" {
-				return nil, errors.New("Cursor session is missing; run /login")
+				return nil, errors.New("cursor session is missing; run /login")
 			}
 			return map[string]any{"apiKey": key}, nil
 		},
@@ -156,7 +156,7 @@ func (s *service) login(interaction sdk.AuthInteraction, _ sdk.LoginOptions) (*s
 		ctx = context.Background()
 	}
 	if interaction.Notify == nil {
-		return nil, errors.New("Cursor login needs the host notification callback")
+		return nil, errors.New("cursor login needs the host notification callback")
 	}
 	show := func(target string) error {
 		if err := interaction.Notify(map[string]any{"type": "auth_url", "url": target, "instructions": "Approve the login in your browser; this window continues automatically."}); err != nil {
@@ -262,7 +262,7 @@ func modelMap(entry cursormodels.Entry) map[string]any {
 // An online failure leaves the current account's valid catalog available.
 func (s *service) refreshModels(refresh sdk.RefreshModelsContext) error {
 	if refresh.Publish == nil {
-		return errors.New("Cursor: the host did not provide a model publication callback")
+		return errors.New("cursor: the host did not provide a model publication callback")
 	}
 	key := ""
 	if refresh.Credential != nil {

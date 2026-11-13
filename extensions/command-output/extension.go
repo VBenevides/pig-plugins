@@ -27,7 +27,7 @@ func Extension() *sdk.Extension {
 		recovery = rtk.NewRecovery()
 		return nil, nil
 	}
-	e.OnSessionStart(reset)
+	sdkctx.OnSessionStart(e, reset)
 	e.OnSessionShutdown(reset)
 	e.OnEvent(sdk.EventSessionTree, reset)
 	e.OnToolResult(func(ctx sdk.Context, event map[string]any) (any, error) {

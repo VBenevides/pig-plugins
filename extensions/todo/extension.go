@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	sdk "github.com/MichaelKinsy/PiG/extensions/sdk"
+	"github.com/VBenevides/pig-plugins/internal/sdkctx"
 	tasks "github.com/VBenevides/pig-plugins/internal/todo"
 	"sync"
 )
@@ -49,10 +50,10 @@ func Extension() *sdk.Extension {
 		}
 		return nil, syncWidget(ctx, phases)
 	}
-	e.OnEvent(sdk.EventSessionStart, restore)
+	sdkctx.OnSessionStart(e, restore)
 	e.OnEvent(sdk.EventSessionTree, restore)
 	e.OnEvent(sdk.EventBeforeAgentStart, appendGuidance)
-	e.RegisterTool(sdk.ToolDefinition{Name: "todo", Label: "Todo", Description: "Manage phased tasks by exact content, never IDs. Ops: init (list or items), start (task), done/drop (task or phase), rm (task or phase; omit to clear), append (phase, items), view. The earliest open task auto-promotes when no task is in progress.", PromptSnippet: "Track phased tasks with one op-based todo tool; reference tasks by exact content.", PromptGuidelines: []string{"Use one todo operation at a time; batch it with real work.", "Reference tasks and phases by exact content/name; use view when uncertain.", "Mark verified work done immediately and drop obsolete work."}, Parameters: tasks.PhasedSchema(), ExecutionMode: "sequential", Execute: func(ctx sdk.Context, raw map[string]any) (any, error) {
+	e.RegisterTool(sdk.ToolDefinition{Name: "todo", Label: "Todo", Exposure: sdk.ToolExposureDeferred, Description: "Manage phased tasks by exact content, never IDs. Ops: init (list or items), start (task), done/drop (task or phase), rm (task or phase; omit to clear), append (phase, items), view. The earliest open task auto-promotes when no task is in progress.", PromptSnippet: "Track phased tasks with one op-based todo tool; reference tasks by exact content.", PromptGuidelines: []string{"Use one todo operation at a time; batch it with real work.", "Reference tasks and phases by exact content/name; use view when uncertain.", "Mark verified work done immediately and drop obsolete work."}, Parameters: tasks.PhasedSchema(), ExecutionMode: "sequential", Execute: func(ctx sdk.Context, raw map[string]any) (any, error) {
 		data, err := json.Marshal(raw)
 		if err != nil {
 			return nil, err

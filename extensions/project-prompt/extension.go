@@ -34,8 +34,7 @@ func appendRules(ctx sdk.Context, data map[string]any) (any, error) {
 
 const maxLocalInstructionBytes = 256 << 10
 
-// appendPrompt reads the literal defaults on every request. It does not cache
-// instructions or substitute local/APPEND_SYSTEM.md for .local/APPEND_SYSTEM.md.
+// appendPrompt reads project instructions on every request, in directory order then file order.
 func appendPrompt(base, cwd string, trusted bool) (result any, err error) {
 	if !trusted {
 		return nil, nil
@@ -46,7 +45,7 @@ func appendPrompt(base, cwd string, trusted bool) (result any, err error) {
 	}
 	defer func() { err = errors.Join(err, root.Close()) }()
 	var additions strings.Builder
-	for _, path := range []string{".local/APPEND_SYSTEM.md", "local/AGENTS.md"} {
+	for _, path := range instructionPaths() {
 		content, err := readLocalInstructions(root, path)
 		if err != nil {
 			return nil, fmt.Errorf("project-prompt: read %s: %w", path, err)
@@ -63,6 +62,17 @@ func appendPrompt(base, cwd string, trusted bool) (result any, err error) {
 		return nil, nil
 	}
 	return map[string]any{"systemPrompt": base + additions.String()}, nil
+}
+
+// All supported files append instructions; even SYSTEM.md does not replace the host prompt.
+func instructionPaths() []string {
+	var paths []string
+	for _, directory := range []string{".local", "local", ".pig", "pig"} {
+		for _, name := range []string{"SYSTEM.md", "APPEND_SYSTEM.md", "AGENTS.md", "RULES.md"} {
+			paths = append(paths, directory+"/"+name)
+		}
+	}
+	return paths
 }
 
 func readLocalInstructions(root *os.Root, path string) (result string, err error) {

@@ -63,15 +63,15 @@ type loginSession struct {
 func (b *browserAuth) login(ctx context.Context, show func(url string) error) (loginSession, error) {
 	verifier, challenge, err := newPKCE()
 	if err != nil {
-		return loginSession{}, fmt.Errorf("Cursor login: create PKCE values: %w", err)
+		return loginSession{}, fmt.Errorf("cursor login: create PKCE values: %w", err)
 	}
 	id, err := newUUID()
 	if err != nil {
-		return loginSession{}, fmt.Errorf("Cursor login: create login id: %w", err)
+		return loginSession{}, fmt.Errorf("cursor login: create login id: %w", err)
 	}
 	query := url.Values{"challenge": {challenge}, "uuid": {id}, "mode": {"login"}, "redirectTarget": {"sdk"}}
 	if err := show(b.loginURL + "?" + query.Encode()); err != nil {
-		return loginSession{}, fmt.Errorf("Cursor login: show sign-in page: %w", err)
+		return loginSession{}, fmt.Errorf("cursor login: show sign-in page: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, b.timeout)
 	defer cancel()
@@ -79,7 +79,7 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (l
 	for {
 		status, body, err := b.do(ctx, http.MethodGet, pollURL, nil)
 		if err != nil {
-			return loginSession{}, fmt.Errorf("Cursor login: wait for approval: %w", err)
+			return loginSession{}, fmt.Errorf("cursor login: wait for approval: %w", err)
 		}
 		switch status {
 		case http.StatusNotFound: // Cursor answers 404 until the user approves.
@@ -89,7 +89,7 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (l
 				RefreshToken string `json:"refreshToken"`
 			}
 			if err := json.Unmarshal(body, &wire); err != nil {
-				return loginSession{}, errors.New("Cursor login: the approval reply was not valid")
+				return loginSession{}, errors.New("cursor login: the approval reply was not valid")
 			}
 			key, err := b.mintKey(ctx, wire.AccessToken)
 			if err != nil {
@@ -102,11 +102,11 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (l
 			}
 			return loginSession{Key: key, Browser: browser}, nil
 		default:
-			return loginSession{}, fmt.Errorf("Cursor login: approval check failed (HTTP %d)", status)
+			return loginSession{}, fmt.Errorf("cursor login: approval check failed (HTTP %d)", status)
 		}
 		select {
 		case <-ctx.Done():
-			return loginSession{}, fmt.Errorf("Cursor login: not approved in time: %w", ctx.Err())
+			return loginSession{}, fmt.Errorf("cursor login: not approved in time: %w", ctx.Err())
 		case <-time.After(b.pollInterval):
 		}
 	}
@@ -115,7 +115,7 @@ func (b *browserAuth) login(ctx context.Context, show func(url string) error) (l
 // mintKey does not retry: an uncertain reply can mean a key already exists.
 func (b *browserAuth) mintKey(ctx context.Context, access string) (tokens, error) {
 	if access == "" {
-		return tokens{}, errors.New("Cursor approval reply carried no access token")
+		return tokens{}, errors.New("cursor approval reply carried no access token")
 	}
 	expires := time.Now().Add(userKeyLifetime)
 	payload, err := json.Marshal(map[string]any{"name": "PiG", "expiresAt": fmt.Sprint(expires.UnixMilli())})
@@ -127,31 +127,31 @@ func (b *browserAuth) mintKey(ctx context.Context, access string) (tokens, error
 		return tokens{}, fmt.Errorf("create Cursor user API key (not retried): %w", err)
 	}
 	if status != http.StatusOK {
-		return tokens{}, fmt.Errorf("Cursor browser approval succeeded, but user API key creation failed (HTTP %d). Your team may restrict user API keys", status)
+		return tokens{}, fmt.Errorf("cursor browser approval succeeded, but user API key creation failed (HTTP %d). Your team may restrict user API keys", status)
 	}
 	var wire struct {
 		APIKey string `json:"apiKey"`
 	}
 	if err := json.Unmarshal(body, &wire); err != nil || wire.APIKey == "" {
-		return tokens{}, errors.New("Cursor key creation returned no valid API key")
+		return tokens{}, errors.New("cursor key creation returned no valid API key")
 	}
 	return tokens{Access: wire.APIKey, Expires: expires}, nil
 }
 
 func (b *browserAuth) refresh(ctx context.Context, refresh string) (tokens, error) {
 	if refresh == "" {
-		return tokens{}, errors.New("Cursor session has no refresh token; run /login cursor again")
+		return tokens{}, errors.New("cursor session has no refresh token; run /login cursor again")
 	}
 	payload, err := json.Marshal(map[string]string{"grant_type": "refresh_token", "client_id": refreshClientID, "refresh_token": refresh})
 	if err != nil {
-		return tokens{}, fmt.Errorf("Cursor refresh: encode request: %w", err)
+		return tokens{}, fmt.Errorf("cursor refresh: encode request: %w", err)
 	}
 	status, body, err := b.do(ctx, http.MethodPost, b.apiBaseURL+"/oauth/token", payload)
 	if err != nil {
-		return tokens{}, fmt.Errorf("Cursor refresh: %w", err)
+		return tokens{}, fmt.Errorf("cursor refresh: %w", err)
 	}
 	if status != http.StatusOK {
-		return tokens{}, fmt.Errorf("Cursor refresh failed (HTTP %d)", status)
+		return tokens{}, fmt.Errorf("cursor refresh failed (HTTP %d)", status)
 	}
 	var wire struct {
 		AccessToken  string `json:"access_token"`
@@ -159,18 +159,18 @@ func (b *browserAuth) refresh(ctx context.Context, refresh string) (tokens, erro
 		ShouldLogout bool   `json:"shouldLogout"`
 	}
 	if err := json.Unmarshal(body, &wire); err != nil {
-		return tokens{}, errors.New("Cursor refresh: the reply was not valid")
+		return tokens{}, errors.New("cursor refresh: the reply was not valid")
 	}
 	// Cursor ends a session it will not renew with 200, an empty token and shouldLogout.
 	if wire.ShouldLogout {
-		return tokens{}, errors.New("Cursor ended this session; run /login cursor again")
+		return tokens{}, errors.New("cursor ended this session; run /login cursor again")
 	}
 	return tokensFrom(wire.AccessToken, wire.RefreshToken, refresh)
 }
 
 func tokensFrom(access, refresh, fallbackRefresh string) (tokens, error) {
 	if access == "" {
-		return tokens{}, errors.New("Cursor reply carried no access token")
+		return tokens{}, errors.New("cursor reply carried no access token")
 	}
 	if refresh == "" {
 		refresh = fallbackRefresh
@@ -187,7 +187,7 @@ func tokensFrom(access, refresh, fallbackRefresh string) (tokens, error) {
 func jwtExpiry(token string) (time.Time, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return time.Time{}, errors.New("Cursor access token is not a JWT")
+		return time.Time{}, errors.New("cursor access token is not a JWT")
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
 	if err != nil {
@@ -197,7 +197,7 @@ func jwtExpiry(token string) (time.Time, error) {
 		Exp float64 `json:"exp"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil || claims.Exp <= 0 {
-		return time.Time{}, errors.New("Cursor access token has no expiry")
+		return time.Time{}, errors.New("cursor access token has no expiry")
 	}
 	return time.Unix(int64(claims.Exp), 0), nil
 }
@@ -231,7 +231,7 @@ func (b *browserAuth) do(ctx context.Context, method, target string, body []byte
 	if err != nil {
 		return 0, nil, errors.New("request failed: " + redact(err))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return 0, nil, errors.New("read response failed")

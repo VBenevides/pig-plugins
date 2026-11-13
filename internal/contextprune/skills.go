@@ -77,9 +77,10 @@ func SkillBodies(message map[string]any) []SkillBody {
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 				marker := trimmed[:3]
-				if fence == "" {
+				switch fence {
+				case "":
 					fence = marker
-				} else if fence == marker {
+				case marker:
 					fence = ""
 				}
 			}

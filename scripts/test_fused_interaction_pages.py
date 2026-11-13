@@ -20,8 +20,8 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-bodies = []
-failures = []
+bodies: list[bytes] = []
+failures: list[str] = []
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -268,7 +268,9 @@ def check(binary):
             os.write(master, b"\r")
             pump(lambda: b"fixture answer 2" in transcript, "first answer")
             pump(
-                lambda: b"Interaction: 1/1" in transcript and b"\x1b_Ga=T" in transcript,
+                lambda: (
+                    b"Interaction: 1/1" in transcript and b"\x1b_Ga=T" in transcript
+                ),
                 "first interaction and inline image",
             )
             assert b"Tasks" in transcript and b"panel item 02" in transcript

@@ -39,10 +39,10 @@ func TestMain(m *testing.M) {
 		}
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			var value any
-			switch {
-			case r.URL.Path == "/status":
+			switch r.URL.Path {
+			case "/status":
 				value = map[string]any{"ready": mode == "ready"}
-			case r.URL.Path == "/session":
+			case "/session":
 				value = map[string]any{"sessionId": "fixture"}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"value": value})

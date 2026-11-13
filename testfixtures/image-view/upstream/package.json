@@ -60,7 +60,11 @@
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.0",
+    "eslint": "^10.15.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.2",
     "vitest": "^4.1.9"
   }
 }

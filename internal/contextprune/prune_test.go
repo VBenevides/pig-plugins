@@ -31,9 +31,7 @@ var small = Settings{KeepRecent: 2, MinSavingChars: 1, BashMaxChars: 100, BashHe
 
 func history(parts ...any) []any {
 	var messages []any
-	for _, part := range parts {
-		messages = append(messages, part)
-	}
+	messages = append(messages, parts...)
 	return append(messages, filler(small.KeepRecent)...)
 }
 

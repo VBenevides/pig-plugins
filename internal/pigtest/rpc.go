@@ -19,11 +19,17 @@ type RPCOptions struct {
 	Extensions []string
 	// Vision enables image input for the mock model.
 	Vision bool
+	// Reasoning enables host thinking-level selection for the mock model.
+	Reasoning bool
 	// Env adds or overrides environment variables.
 	Env map[string]string
 	// Prompts are sent in order, one at a time. A slash command is answered at once; any other prompt runs the
 	// agent loop until the agent settles.
 	Prompts []string
+	// SettleWait pauses after a prompt's agent_settled event before the next prompt. The host sends that event to
+	// the client while extension agent_settled hooks still run on their own goroutines, so a test that needs a hook
+	// to finish first (for example a compact that starts when the run settles) sets it.
+	SettleWait time.Duration
 	// Confirm answers confirm dialogs; nil declines them.
 	Confirm func(request map[string]any) bool
 	// Dialog answers select, input and editor dialogs with the response fields (for example {"value": "x"} or
@@ -71,7 +77,7 @@ var dialogMethods = map[string]bool{"confirm": true, "select": true, "input": tr
 // RunRPC starts `pig --mode rpc` on provider "mock", model "mock-model", sends each prompt and answers dialogs.
 func (h *Home) RunRPC(t testing.TB, mock *MockLLM, opts RPCOptions) RPCResult {
 	t.Helper()
-	h.WriteModels(t, map[string]ProviderModels{"mock": {Mock: mock, Models: []string{"mock-model"}, Vision: opts.Vision}})
+	h.WriteModels(t, map[string]ProviderModels{"mock": {Mock: mock, Models: []string{"mock-model"}, Vision: opts.Vision, Reasoning: opts.Reasoning}})
 	timeout := opts.Timeout
 	if timeout == 0 {
 		timeout = 90 * time.Second
@@ -174,6 +180,7 @@ func (h *Home) RunRPC(t testing.TB, mock *MockLLM, opts RPCOptions) RPCResult {
 				time.Sleep(200 * time.Millisecond)
 			}
 		}
+		time.Sleep(opts.SettleWait)
 	}
 	// A state round trip guarantees that every earlier event has arrived.
 	send(map[string]any{"type": "get_state"})
@@ -197,11 +204,15 @@ func (h *Home) RunRPC(t testing.TB, mock *MockLLM, opts RPCOptions) RPCResult {
 	_ = stdin.Close()
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
+	var waitErr error
 	select {
-	case <-waited:
+	case waitErr = <-waited:
 	case <-time.After(10 * time.Second):
 		_ = cmd.Process.Kill()
-		<-waited
+		waitErr = <-waited
+	}
+	if waitErr != nil {
+		t.Logf("pig exited with: %v", waitErr)
 	}
 	result.Stderr = stderr.String()
 	return result

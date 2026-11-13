@@ -28,31 +28,23 @@ func Extension() *sdk.Extension {
 	registerSearchServers(e)
 	for _, name := range []string{"web_search", "url_context"} {
 		urlOnly := name == "url_context"
-		exposure := sdk.ToolExposureDirect
-		if !urlOnly {
-			exposure = sdk.ToolExposureDeferred
-		}
+		exposure := sdk.ToolExposureDeferred
 		urls := map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 20}
 		required := []string{"query"}
 		if urlOnly {
 			urls["minItems"] = 1
 			required = append(required, "urls")
 		}
-		e.RegisterTool(sdk.ToolDefinition{Name: name, Exposure: exposure, Label: map[bool]string{true: "URL Context", false: "Web Search"}[urlOnly], Description: map[bool]string{true: "Analyze up to 20 public URLs using Gemini URL Context, including web pages, documents, images and YouTube videos.", false: "Search with Parallel MCP, falling back to the current model's native web search, then Exa MCP. Optionally analyze URLs."}[urlOnly], Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}, "urls": urls}, "required": required}, Execute: func(ctx sdk.Context, p map[string]any) (any, error) { return execute(ctx, p, urlOnly) }})
+		e.RegisterTool(sdk.ToolDefinition{Name: name, Exposure: exposure, PrepareLoadout: x.prepareLoadout, Label: map[bool]string{true: "URL Context", false: "Web Search"}[urlOnly], Description: map[bool]string{true: "Analyze up to 20 public URLs using Gemini URL Context, including web pages, documents, images and YouTube videos.", false: "Search with Parallel MCP, falling back to the current model's native web search, then Exa MCP. Optionally analyze URLs."}[urlOnly], Parameters: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}, "urls": urls}, "required": required}, Execute: func(ctx sdk.Context, p map[string]any) (any, error) { return execute(ctx, p, urlOnly) }})
 	}
 	for _, event := range []string{sdk.EventSessionStart, sdk.EventSessionTree, sdk.EventModelSelect} {
-		e.OnEvent(event, func(ctx sdk.Context, _ map[string]any) (any, error) {
-			if event == sdk.EventSessionStart {
-				active, err := ctx.GetActiveTools()
-				if err != nil {
-					return nil, err
-				}
-				if !slices.Contains(active, "tool_search") && !slices.Contains(active, "codemode") {
-					ctx.SetActiveTools(append(active, "web_search"))
-				}
-			}
+		handler := func(ctx sdk.Context, _ map[string]any) (any, error) {
 			return nil, x.sync(ctx)
-		})
+		}
+		if event == sdk.EventSessionStart {
+			handler = sdkctx.IgnoreStale(handler)
+		}
+		e.OnEvent(event, handler)
 	}
 	return e
 }

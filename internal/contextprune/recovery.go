@@ -174,7 +174,7 @@ func ReadRecoveryPage(session string, refs map[string]RecoveryRef, handle string
 	if err != nil {
 		return RecoveryPage{}, fmt.Errorf("open recovery session: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	reader := bufio.NewReaderSize(io.LimitReader(file, RecoveryScanLimit+1), RecoveryRecordLimit)
 	consumed := 0
 	for records := 0; records < 100000; records++ {

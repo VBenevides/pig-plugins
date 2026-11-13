@@ -30,7 +30,7 @@ func TestPiGRPCAnswersAndCancellation(t *testing.T) {
 		mock := pigtest.NewMockLLM(pigtest.Calls(pigtest.Call("ask_user_question", rawParams(params))), pigtest.Text("done"))
 		defer mock.Close()
 		selects, inputs := 0, 0
-		result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"Ask me"}, Dialog: func(request map[string]any) map[string]any {
+		result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}, Prompts: []string{"Ask me"}, Dialog: func(request map[string]any) map[string]any {
 			switch request["method"] {
 			case "select":
 				selects++
@@ -62,7 +62,7 @@ func TestPiGRPCAnswersAndCancellation(t *testing.T) {
 		home := pigtest.NewHome(t)
 		mock := pigtest.NewMockLLM(pigtest.Calls(pigtest.Call("ask_user_question", rawParams(ask.Params{Questions: []ask.Question{question("Pick?", false)}}))), pigtest.Text("done"))
 		defer mock.Close()
-		result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext}, Prompts: []string{"Ask me"}})
+		result := home.RunRPC(t, mock, pigtest.RPCOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}, Prompts: []string{"Ask me"}})
 		results := pigtest.ToolResults(mock)
 		if len(result.Asked) != 1 || len(results) != 1 || results[0] != "User declined to answer questions" {
 			t.Fatalf("cancel %v; dialogs=%v stderr=%s", results, result.Asked, result.Stderr)
@@ -79,7 +79,7 @@ func TestPiGPrintRejectsInteractiveTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := home.RunPig(t, pigtest.RunOptions{Extensions: []string{ext}}, "-p", "--provider", "mock", "--model", "mock-model")
+	result := home.RunPig(t, pigtest.RunOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}}, "-p", "--provider", "mock", "--model", "mock-model")
 	if result.ExitCode != 0 {
 		t.Fatalf("pig: %s %s", result.Stdout, result.Stderr)
 	}

@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
 """Check the supported patch inventory and current script/document references."""
-from pathlib import Path
+
 import re
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PATCHES = [
@@ -24,27 +24,39 @@ PATCHES = [
     "0016-task-panel-host.patch",
 ]
 
+
 class PatchInventoryTest(unittest.TestCase):
     def test_exact_inventory(self):
-        self.assertEqual(sorted(p.name for p in (ROOT / "patches/pig").glob("*.patch")), PATCHES)
+        self.assertEqual(
+            sorted(p.name for p in (ROOT / "patches/pig").glob("*.patch")), PATCHES
+        )
         for name in PATCHES:
             text = (ROOT / "patches/pig" / name).read_text()
             self.assertIn("diff --git a/", text, name)
-            paths = re.findall(r"^diff --git a/(.*?) b/", text, re.M)
+            paths = re.findall(r"^diff --git a/(.*?) b/", text, re.MULTILINE)
             self.assertEqual(len(paths), len(set(paths)), name)
 
     def test_build_and_workspace_cover_each_patch_once_in_order(self):
         for script, expected in (
-            ("scripts/dev_build.sh", [p for p in PATCHES if p.endswith("-host.patch")] + [p for p in PATCHES if p.endswith("-sdk.patch")]),
+            (
+                "scripts/dev_build.sh",
+                [p for p in PATCHES if p.endswith("-host.patch")]
+                + [p for p in PATCHES if p.endswith("-sdk.patch")],
+            ),
             ("scripts/gowork.sh", [p for p in PATCHES if p.endswith("-sdk.patch")]),
         ):
-            actual = re.findall(r"patches/pig/([\w-]+\.patch)", (ROOT / script).read_text())
+            actual = re.findall(
+                r"patches/pig/([\w-]+\.patch)", (ROOT / script).read_text()
+            )
             self.assertEqual(actual, expected, script)
 
     def test_current_document_references_resolve(self):
         for name in ("README.md", "docs/pig-051-port.md"):
-            for patch in re.findall(r"\b\d{4}-[\w-]+\.patch", (ROOT / name).read_text()):
+            for patch in re.findall(
+                r"\b\d{4}-[\w-]+\.patch", (ROOT / name).read_text()
+            ):
                 self.assertIn(patch, PATCHES, name)
+
 
 if __name__ == "__main__":
     unittest.main()

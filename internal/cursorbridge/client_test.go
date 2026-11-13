@@ -27,10 +27,10 @@ func versionServer(t *testing.T, reply string) *Client {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "GetVersion") {
-			io.WriteString(w, reply)
+			_, _ = io.WriteString(w, reply)
 			return
 		}
-		io.WriteString(w, `{}`)
+		_, _ = io.WriteString(w, `{}`)
 	}))
 	t.Cleanup(server.Close)
 	client, err := NewClient(server.URL, "token")
@@ -77,10 +77,10 @@ func TestBridgeContractIsCheckedByProtocolAndCapabilities(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if strings.HasSuffix(r.URL.Path, "GetVersion") {
-					io.WriteString(w, reply)
+					_, _ = io.WriteString(w, reply)
 					return
 				}
-				io.WriteString(w, `{}`)
+				_, _ = io.WriteString(w, `{}`)
 			}))
 			defer server.Close()
 			client, _ := NewClient(server.URL, "token")
@@ -97,8 +97,8 @@ func frame(w io.Writer, flags byte, value any) {
 	header := make([]byte, 5)
 	header[0] = flags
 	binary.BigEndian.PutUint32(header[1:], uint32(len(body)))
-	w.Write(header)
-	w.Write(body)
+	_, _ = w.Write(header)
+	_, _ = w.Write(body)
 }
 func TestLoopbackOnly(t *testing.T) {
 	for _, url := range []string{"https://127.0.0.1:80", "http://localhost:80", "http://example.com:80", "http://127.0.0.1:80/path", "http://user@127.0.0.1:80", "http://127.0.0.1:80?x=1"} {
@@ -117,22 +117,22 @@ func TestCatalogAndLifecycle(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/sdk.v1.SdkBridgeControlService/Ping":
-			io.WriteString(w, `{"message":"pong"}`)
+			_, _ = io.WriteString(w, `{"message":"pong"}`)
 		case "/sdk.v1.SdkBridgeControlService/GetVersion":
-			io.WriteString(w, realVersion)
+			_, _ = io.WriteString(w, realVersion)
 		case "/sdk.v1.SdkCursorService/ListModels":
 			var in struct {
 				Options struct {
 					APIKey string `json:"apiKey"`
 				} `json:"options"`
 			}
-			json.NewDecoder(r.Body).Decode(&in)
+			_ = json.NewDecoder(r.Body).Decode(&in)
 			if in.Options.APIKey != "account-key" {
 				t.Error("missing explicit account key")
 			}
-			io.WriteString(w, `{"items":[{"id":"grok-4.6"}]}`)
+			_, _ = io.WriteString(w, `{"items":[{"id":"grok-4.6"}]}`)
 		default:
-			io.WriteString(w, `{}`)
+			_, _ = io.WriteString(w, `{}`)
 		}
 	}))
 	defer server.Close()
@@ -168,17 +168,17 @@ func TestStreamContract(t *testing.T) {
 				case "bad-flags":
 					frame(w, 1, map[string]any{})
 				case "oversize":
-					w.Write([]byte{0, 0xff, 0xff, 0xff, 0xff})
+					_, _ = w.Write([]byte{0, 0xff, 0xff, 0xff, 0xff})
 				case "remote-error":
 					frame(w, 2, map[string]any{"error": map[string]string{"code": "unauthenticated", "message": "account-key"}})
 				case "invalid-json":
-					w.Write([]byte{0, 0, 0, 0, 1, '{'})
+					_, _ = w.Write([]byte{0, 0, 0, 0, 1, '{'})
 				case "cancel":
 					w.(http.Flusher).Flush()
 					<-r.Context().Done()
 				default:
 					var header [5]byte
-					io.ReadFull(r.Body, header[:])
+					_, _ = io.ReadFull(r.Body, header[:])
 					if header[0] != 0 {
 						t.Error("request frame flags")
 					}
@@ -213,7 +213,7 @@ func TestErrorsDoNotRetryOrLeak(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		w.WriteHeader(503)
-		io.WriteString(w, `{"code":"unavailable","message":"SECRET"}`)
+		_, _ = io.WriteString(w, `{"code":"unavailable","message":"SECRET"}`)
 	}))
 	defer server.Close()
 	c, _ := NewClient(server.URL, "token")
@@ -235,9 +235,9 @@ func TestProcessLifecycle(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "GetVersion") {
-			io.WriteString(w, realVersion)
+			_, _ = io.WriteString(w, realVersion)
 		} else {
-			io.WriteString(w, `{}`)
+			_, _ = io.WriteString(w, `{}`)
 		}
 	}))
 	defer server.Close()
@@ -267,7 +267,9 @@ func TestStartupFailures(t *testing.T) {
 	}
 	for _, body := range []string{"exit 1", "exec sleep 60"} {
 		script := filepath.Join(t.TempDir(), "bridge")
-		os.WriteFile(script, []byte("#!/bin/sh\n"+body+"\n"), 0700)
+		if err := os.WriteFile(script, []byte("#!/bin/sh\n"+body+"\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := start(context.Background(), script, "secret", 50*time.Millisecond); err == nil {
 			t.Fatal("startup succeeded")
 		}

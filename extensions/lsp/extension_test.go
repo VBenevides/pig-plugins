@@ -45,7 +45,7 @@ func TestNativeNavigationStructureAndReadOnlyRename(t *testing.T) {
 		pigtest.Calls(pigtest.Call("code_search", map[string]any{"path": "main.py", "kind": "function", "query": "alpha", "body": "ERROR_TOKEN", "lsp": false})),
 		pigtest.Text("done"))
 	defer mock.Close()
-	result := h.Run(t, mock, pigtest.RunOptions{Extensions: []string{ext}, Env: env, Prompt: "Inspect alpha without applying a rename"})
+	result := h.Run(t, mock, pigtest.RunOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}, Env: env, Prompt: "Inspect alpha without applying a rename"})
 	if result.ExitCode != 0 {
 		t.Fatal(result)
 	}
@@ -86,7 +86,7 @@ func TestHeadlessRejectsProjectExecutableConfiguration(t *testing.T) {
 	write(t, filepath.Join(h.Work, ".pi/lsp.json"), `{"servers":[{"id":"python","bin":"./server","include":["**/*.py"]}]}`)
 	mock := pigtest.NewMockLLM(pigtest.Calls(pigtest.Call("lsp_hover", map[string]any{"path": "main.py", "line": 0, "character": 5})), pigtest.Text("done"))
 	defer mock.Close()
-	h.Run(t, mock, pigtest.RunOptions{Extensions: []string{ext}, Env: env, Prompt: "inspect"})
+	h.Run(t, mock, pigtest.RunOptions{Extensions: []string{ext, pigtest.ActivateDeferredForTest(t)}, Env: env, Prompt: "inspect"})
 	results := pigtest.ToolResults(mock)
 	if len(results) != 1 || !strings.Contains(results[0], "project-local LSP config rejected") {
 		t.Fatal(results)

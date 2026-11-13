@@ -77,12 +77,13 @@ func (c Client) fetch(ctx context.Context, entry AuthEntry, provider, url string
 	}
 	request.Header.Set("Authorization", "Bearer "+entry.Access)
 	request.Header.Set("Accept", "application/json")
-	if provider == "Claude" {
+	switch provider {
+	case "Claude":
 		request.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	} else if provider == "Cursor" {
+	case "Cursor":
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Connect-Protocol-Version", "1")
-	} else if provider == "Codex" {
+	case "Codex":
 		accountID := entry.AccountID
 		if accountID == "" {
 			accountID = extractCodexAccountID(entry.Access)
