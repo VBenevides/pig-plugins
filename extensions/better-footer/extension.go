@@ -194,6 +194,10 @@ func (x *extension) report(ctx interface {
 			return
 		}
 		message := bf.SanitizePlain(err.Error())
+		if errors.Is(err, bf.ErrGitFailed) {
+			slog.Debug("better-footer: git count skipped", "error", message)
+			return
+		}
 		if !ctx.HasUI() || !notice.Show(ctx, "better-footer: "+message, "warning") {
 			log.Printf("better-footer: %s", message)
 		}

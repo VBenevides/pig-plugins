@@ -46,10 +46,16 @@ func TestGitChangesPreservesAddFailure(t *testing.T) {
 				if !errors.Is(err, context.DeadlineExceeded) {
 					t.Fatalf("deadline cause discarded: %v", err)
 				}
+				if errors.Is(err, ErrGitFailed) {
+					t.Fatalf("timeout was classified as a transient git exit: %v", err)
+				}
 			} else {
 				var exit *exec.ExitError
 				if !errors.As(err, &exit) || exit.ExitCode() != 42 {
 					t.Fatalf("Git exit status discarded: %v", err)
+				}
+				if !errors.Is(err, ErrGitFailed) {
+					t.Fatalf("git exit not marked as ErrGitFailed: %v", err)
 				}
 			}
 		})
