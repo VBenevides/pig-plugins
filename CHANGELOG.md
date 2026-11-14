@@ -2,6 +2,12 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.4.1] - 2026-11-14
+
+### Bugfixes
+
+- Fix a TUI hang during mid-run compaction in `compact-settings`. Let the host abort the run when it handles compaction instead of calling `ctx.Abort()` first.
+
 ## [0.4.0] - 2026-11-13
 
 ### Features
