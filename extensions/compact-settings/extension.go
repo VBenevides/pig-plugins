@@ -338,13 +338,9 @@ func (st *state) trigger(ctx sdk.Context, from source) error {
 			ctx.Notify(fmt.Sprintf("compact-settings: could not resume the task after compacting: %v", err), "error")
 		}
 	}
-	if resume {
-		// The host aborts the run only when it handles the compact call, on its own goroutine. Returning from
-		// turn_end before that let the next model request leave first, so the request was sent and then aborted.
-		// Abort is answered once the host has cancelled the run, and it does not wait for idle, so it cannot
-		// deadlock the awaited hook. The compact below then finds the run already aborted.
-		ctx.Abort()
-	}
+	// Do not call ctx.Abort() here to stop the run first. It made the RPC tests stable, but in the real TUI the
+	// compact then never started and the session stayed on "Working". The host aborts the run itself when it
+	// handles the compact call; a request may leave just before that, which wastes one request but cannot hang.
 	ctx.CompactWithOptions(sdk.CompactOptions{
 		OnComplete: func(map[string]any) {
 			finish(-1)
