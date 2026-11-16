@@ -196,6 +196,7 @@ model plus every native OAuth account, with labels, selection markers, and
 individual quota windows. A failed account does not hide successful neighbors.
 The `openai` direct API login remains distinct from `openai-codex`; its token
 does not supply a numeric ChatGPT quota.
+Model construction uses the current refreshed catalog for newly added and updated models, not just the catalog bundled with the binary. Switching models preserves supported thinking levels, model limits, and provider configuration. This requires `patches/pig/0018-model-catalog-resolution-host.patch`.
 
 OMP's accounts in `~/.omp/agent/agent.db` are separate and are not copied.
 Both existing OMP Codex accounts must be logged into PiG before this dashboard

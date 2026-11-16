@@ -23,6 +23,7 @@ PATCHES = [
     "0015-interaction-pages-host.patch",
     "0016-task-panel-host.patch",
     "0017-missing-tool-hint-host.patch",
+    "0018-model-catalog-resolution-host.patch",
 ]
 
 
