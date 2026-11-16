@@ -1,0 +1,54 @@
+diff --git a/agent/missing_tool_message_test.go b/agent/missing_tool_message_test.go
+new file mode 100644
+index 00000000..ba8ffd8f
+--- /dev/null
++++ b/agent/missing_tool_message_test.go
+@@ -0,0 +1,17 @@
++package agent
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestMissingToolMessageHintsToolSearchOnlyWhenActive(t *testing.T) {
++	without := missingToolMessage([]AgentTool{iserrorTool("bash", nil)}, "todo")
++	if without != "Tool todo not found" {
++		t.Fatalf("without tool_search = %q", without)
++	}
++	with := missingToolMessage([]AgentTool{iserrorTool("tool_search", nil)}, "todo")
++	if !strings.HasPrefix(with, "Tool todo not found") || !strings.Contains(with, "Call tool_search") {
++		t.Fatalf("with tool_search = %q", with)
++	}
++}
+diff --git a/agent/tool_execution.go b/agent/tool_execution.go
+index eb946c3d..c3019974 100644
+--- a/agent/tool_execution.go
++++ b/agent/tool_execution.go
+@@ -272,6 +272,17 @@ func errorToolResult(message string) AgentToolResult {
+ 
+ func (h *loopHost) findTool(name string) AgentTool { return findTool(h.tools(), name) }
+ 
++// missingToolMessage is the error for an unknown tool name. When tool_search is
++// active the tool may be a deferred one that was released earlier, so the message
++// says how to load it again. The "Tool NAME not found" prefix stays unchanged.
++func missingToolMessage(tools []AgentTool, name string) string {
++	message := "Tool " + name + " not found"
++	if findTool(tools, "tool_search") != nil {
++		message += ". If it is a deferred tool, it is not loaded now. Call tool_search with a query for it, then call it again"
++	}
++	return message
++}
++
+ func findTool(tools []AgentTool, name string) AgentTool {
+ 	for _, t := range tools {
+ 		if t.Name() == name {
+@@ -301,7 +312,7 @@ func (h *loopHost) prepareToolCall(ctx context.Context, call pendingToolCall) to
+ func prepareToolCall(ctx context.Context, tools []AgentTool, hooks ToolCallHooks, call pendingToolCall) (outcome toolCallOutcome) {
+ 	tool := findTool(tools, call.name)
+ 	if tool == nil {
+-		return immediateOutcome(call, errorToolResult("Tool "+call.name+" not found"))
++		return immediateOutcome(call, errorToolResult(missingToolMessage(tools, call.name)))
+ 	}
+ 	defer func() {
+ 		if recovered := recover(); recovered != nil {

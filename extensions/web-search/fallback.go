@@ -132,7 +132,7 @@ func mcpOutcome(name string, outcome sdk.AgentToolCallOutcome) sdk.ToolResult {
 	if failed {
 		// Unclassified hook errors may be permission refusals with arbitrary text.
 		// Only known provider/connection failures are eligible for fallback.
-		knownFailure := outcome.Result.StructuredContent != nil || text == "Tool "+name+" not found"
+		knownFailure := outcome.Result.StructuredContent != nil || strings.HasPrefix(text, "Tool "+name+" not found")
 		for _, marker := range []string{"MCP", "HTTP", "connection refused", "dial tcp", "context deadline exceeded", "request timed out"} {
 			knownFailure = knownFailure || strings.Contains(text, marker)
 		}
