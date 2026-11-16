@@ -2,6 +2,19 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.4.2] - 2026-11-16
+
+### Bugfixes
+
+- Add a reload hint to missing-tool errors when `tool_search` is active. The hint tells the model to discover the tool again before retrying.
+- Preserve web-search fallback when a missing-tool error includes the new reload hint.
+
+### Other
+
+- Include the missing-tool hint host patch in bundled builds and the patch inventory.
+- Add host unit tests, a fused-binary regression test, and web-search fallback coverage for the reload hint.
+- Document tool expiry and the reload hint. Set the release version to `0.4.2`.
+
 ## [0.4.1] - 2026-11-14
 
 ### Bugfixes
