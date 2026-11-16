@@ -83,6 +83,7 @@ func TestMCPOutcomeFailures(t *testing.T) {
 		{"Search unavailable", map[string]any{"isError": true}, false, false},
 		{"HTTP 503", nil, false, false},
 		{"Tool search not found", nil, false, false},
+		{"Tool search not found. If it is a deferred tool, it is not loaded now.", nil, false, false},
 		{"user denied MCP search", nil, false, true},
 		{"custom policy refusal", nil, false, true},
 		{"Operation aborted", nil, false, true},

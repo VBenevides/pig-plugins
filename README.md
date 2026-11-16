@@ -902,6 +902,7 @@ The host also discovers some project files itself and can cache them as its base
 
 Controls the built-in `tool_search` tool through `/tool-settings`. Toggle the `tool_search` row and press Enter to save and reload. There is no `/tool-search` command.
 New sessions and `/reload` respect the saved setting and launch profile. Before each user request, tool-settings exposes only `read`, `write`, `edit`, `bash`, and permitted `tool_search`. Other permitted tools load through discovery for that request. Without discovery, only the four core tools remain exposed and a warning is shown.
+Discovered tools are released after each request. When the model calls a released tool and `tool_search` is active, the "Tool X not found" error adds a hint to call `tool_search` again. This requires `patches/pig/0017-missing-tool-hint-host.patch`.
 Disabling discovery does not stop MCP servers. Discovered tools expire at the safe request boundary.
 Discovery searches registered session tools; it does not scan directories or install tools.
 
