@@ -24,6 +24,7 @@ PATCHES = [
     "0016-task-panel-host.patch",
     "0017-missing-tool-hint-host.patch",
     "0018-model-catalog-resolution-host.patch",
+    "0019-archived-favorite-pages-host.patch",
 ]
 
 
