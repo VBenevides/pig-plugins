@@ -2,6 +2,24 @@
 
 All notable changes to pig-plugins are documented here.
 
+## [0.4.3] - 2026-11-16
+
+### Features
+
+- Keep older pages in the fullscreen page view after a compaction. Pages that the agent no longer receives show a grey `[ARCHIVED - NO LONGER IN AGENT CONTEXT]` line at the top.
+- Add favorites. Press Ctrl+S to mark the selected page with a yellow `[FAVORITE]` line. Press Ctrl+S again to remove it. Favorites stay in the session file and do not enter the model context.
+- Delete the unused LANCET model automatically. If LANCET stays off and no use is recorded for 7 days, session start deletes the model directory and prints the path and reason. The model stays in the agent directory, and the ONNX Runtime library stays. `lancet status` shows the deletion date.
+
+### Bugfixes
+
+- Use the current model catalog when you switch models with `/model` or start PiG. Models that are not in the bundled catalog, such as newer models, now keep their reasoning capability, so thinking levels work.
+
+### Other
+
+- Add host patches `0018-model-catalog-resolution-host.patch` and `0019-archived-favorite-pages-host.patch` to bundled builds and the patch inventory.
+- Add tests for the model cleanup, catalog resolution, page marks, favorites, and the compaction render.
+- Document the archived pages, the Ctrl+S key, and the model cleanup in the README.
+
 ## [0.4.2] - 2026-11-16
 
 ### Bugfixes

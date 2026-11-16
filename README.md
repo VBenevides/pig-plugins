@@ -182,7 +182,7 @@ It adds durable account selection and independent quota reporting.
 Start `build/pig-plugins`, run `/login openai-codex` once for each account,
 then use `/accounts` to choose the account used for native model requests.
 
-The bundled fullscreen view shows one page per user prompt, including replies and tool activity. Use Alt+Left/Right or Alt+h/l to change pages. Long pages scroll vertically; the input stays below them. Older pages stay selected during new output, with a notice for the latest page. Agent input and saved history do not change. Fullscreen is the default when no TUI mode is configured; an explicit regular mode retains continuous output. This view uses `patches/pig/0015-interaction-pages-host.patch`.
+The bundled fullscreen view shows one page per user prompt, including replies and tool activity. Use Alt+Left/Right or Alt+h/l to change pages. Long pages scroll vertically; the input stays below them. Older pages stay selected during new output, with a notice for the latest page. Agent input and saved history do not change. Fullscreen is the default when no TUI mode is configured; an explicit regular mode retains continuous output. This view uses `patches/pig/0015-interaction-pages-host.patch`. After a compaction, older pages stay in the view with a grey `[ARCHIVED - NO LONGER IN AGENT CONTEXT]` line at the top; the agent no longer receives them. Press Ctrl+S to bookmark the selected page; it gets a yellow `[FAVORITE]` line, and Ctrl+S again removes it. Favorites are saved in the session file as `pig-plugins/favorite` entries, which never enter the agent context. This requires `patches/pig/0019-archived-favorite-pages-host.patch`.
 
 In the bundled chat input, `/` at the start of any line (after optional whitespace) completes commands, prompt templates and skills. After other text on the same line, `/` completes only skills and non-skill commands require `//`. For example, `/model` works at line start, `explain /model` stays prompt text, and `explain //model` invokes the command. `//` remains available for non-skill commands at line start too. Keyboard shortcuts and programmatic command APIs are unchanged. This is provided by `patches/pig/0003-editor-images-host.patch`.
 Skill matching supports the `skill:` prefix, a name prefix, or a hyphen-separated name segment. Accepting a mid-text completion inserts the token without submitting.
@@ -196,6 +196,7 @@ model plus every native OAuth account, with labels, selection markers, and
 individual quota windows. A failed account does not hide successful neighbors.
 The `openai` direct API login remains distinct from `openai-codex`; its token
 does not supply a numeric ChatGPT quota.
+Model construction uses the current refreshed catalog for newly added and updated models, not just the catalog bundled with the binary. Switching models preserves supported thinking levels, model limits, and provider configuration. This requires `patches/pig/0018-model-catalog-resolution-host.patch`.
 
 OMP's accounts in `~/.omp/agent/agent.db` are separate and are not copied.
 Both existing OMP Codex accounts must be logged into PiG before this dashboard
@@ -635,6 +636,7 @@ Differences from the TypeScript original:
   ONNX Runtime 1.30.0 archive for linux/amd64, linux/arm64 or darwin/arm64 into `<agent dir>/smart-approve-lancet/`;
   both are checked for size and SHA-256 before use, and the library is hashed again before every load. Set
   `LANCET_ORT_LIBRARY` to use another library (and on other platforms).
+- Unused model cleanup: loading the model, scoring a command and `setup` refresh `<agent dir>/smart-approve-lancet/last-used` (at most once an hour per process). At session start, a profile with LANCET off deletes only `<agent dir>/smart-approve-lancet/lancet-nano-v0.4.3` when that marker is older than 7 days, and prints the path and reason. The ONNX Runtime library stays. A missing or invalid marker is reset to now and deletes nothing. Nothing is deleted while LANCET is on, when the settings cannot be read, or when the path is a symbolic link or resolves outside that directory. `lancet on` then asks for `lancet setup`. `lancet status` shows the deletion date. The model stays under the agent directory; unlike the TypeScript plugin 2.6.0, it is not moved to a shared data directory.
 - A native scoring call cannot be interrupted once it started; scoring is bounded by a 60 s timeout between steps.
 
 Do not enable another smart-approve extension at the same time.

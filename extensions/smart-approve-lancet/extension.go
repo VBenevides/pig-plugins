@@ -47,6 +47,8 @@ func Extension() *sdk.Extension {
 			fmt.Fprintf(os.Stderr, "%s%s\n", guard.Prefix, note)
 			ctx.Notify(guard.Prefix+note, "warning")
 		}
+		// err means the settings are unreadable, so whether LANCET is on is unknown and nothing is deleted.
+		service.CleanupUnused(gate.LancetOn(), err != nil)
 		announce(ctx)
 		return nil, nil
 	})

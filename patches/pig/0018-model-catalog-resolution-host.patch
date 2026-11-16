@@ -1,0 +1,196 @@
+diff --git a/coding/cli/model.go b/coding/cli/model.go
+index 01919cbb..ca2d35ec 100644
+--- a/coding/cli/model.go
++++ b/coding/cli/model.go
+@@ -55,7 +55,7 @@ func resolveStartupModelEntry(providerID, modelID string, registry *codingagent.
+ 		return registry.ResolveGeneratedModel(providerID, modelID, generated)
+ 	}
+ 	entry, entryOK := registry.Resolve(providerID, modelID)
+-	if entryOK && registry.HasModelDefinition(providerID, modelID) {
++	if entryOK && (registry.HasModelDefinition(providerID, modelID) || registry.GetProviderModelDataByID(providerID, modelID) != nil) {
+ 		return entry
+ 	}
+ 	if base, ok := providerFallbackModel(providerID); ok {
+diff --git a/internal/codingagent/model_registry.go b/internal/codingagent/model_registry.go
+index 582b3e14..36ef4e86 100644
+--- a/internal/codingagent/model_registry.go
++++ b/internal/codingagent/model_registry.go
+@@ -560,6 +560,9 @@ func (r *ModelRegistry) Resolve(providerID, modelID string) (ModelEntry, bool) {
+ 	if entry, found, owned := r.resolveRadiusModel(providerID, modelID); owned {
+ 		return entry, found
+ 	}
++	if model := r.currentRemoteCatalogModel(providerID, modelID); model != nil {
++		return r.resolveCatalogModelEntry(providerID, modelID, NativeModelEntry(model)), true
++	}
+ 	r.mu.RLock()
+ 	defer r.mu.RUnlock()
+ 	var configured *providerConfig
+@@ -645,12 +648,29 @@ func providerHasDefaults(provider providerConfig) bool {
+ 	return provider.BaseURL != "" || provider.APIKey != "" || provider.API != "" || provider.Compat != nil || len(provider.Headers) > 0 || provider.AuthHeader != nil || provider.OAuth != nil
+ }
+ 
+-// ResolveGeneratedModel layers provider configuration and a matching model override onto one generated model.
++// currentRemoteCatalogModel returns the composed catalog model when a remote
++// catalog is active. Constructors must not replace its metadata with the older
++// bundled entry or an empty custom-model fallback.
++func (r *ModelRegistry) currentRemoteCatalogModel(providerID, modelID string) *ai.Model {
++	if len(r.remoteOverlayModels(providerID)) == 0 {
++		return nil
++	}
++	return r.GetProviderModelDataByID(providerID, modelID)
++}
++
++// ResolveGeneratedModel layers provider configuration and a matching model override onto the current catalog model, falling back to the generated model.
+ func (r *ModelRegistry) ResolveGeneratedModel(providerID, modelID string, generated *ai.GeneratedModel) ModelEntry {
+ 	if entry, found, _ := r.resolveRadiusModel(providerID, modelID); found {
+ 		return entry
+ 	}
+ 	entry := generatedModelEntry(providerID, modelID, generated)
++	if model := r.currentRemoteCatalogModel(providerID, modelID); model != nil {
++		entry = NativeModelEntry(model)
++	}
++	return r.resolveCatalogModelEntry(providerID, modelID, entry)
++}
++
++func (r *ModelRegistry) resolveCatalogModelEntry(providerID, modelID string, entry ModelEntry) ModelEntry {
+ 	r.mu.RLock()
+ 	defer r.mu.RUnlock()
+ 	var configured *providerConfig
+diff --git a/coding/build_model_catalog_regression_test.go b/coding/build_model_catalog_regression_test.go
+new file mode 100644
+index 00000000..8a8b2a8a
+--- /dev/null
++++ b/coding/build_model_catalog_regression_test.go
+@@ -0,0 +1,84 @@
++package coding
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"reflect"
++	"slices"
++	"strings"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/ai"
++)
++
++// Model switching must use the same composed catalog as the selector and runtime,
++// including models added or changed after the binary's catalog was generated.
++func TestBuildModelUsesCurrentCatalogMetadata(t *testing.T) {
++	t.Setenv("PIG_HOME", t.TempDir())
++	for _, tc := range []struct {
++		name      string
++		modelID   string
++		reasoning bool
++	}{
++		{"new model", "gpt-future-catalog-fixture", true},
++		{"updated model", "gpt-5.3-codex", true},
++		{"reasoning removed", "gpt-5.3-codex", false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			modelID := tc.modelID
++			agentDir := t.TempDir()
++			config := `{"providers":{"openai-codex":{"headers":{"X-Catalog-Fixture":"preserved"},"modelOverrides":{"` + modelID + `":{"maxTokens":32000}}}}}`
++			if err := os.WriteFile(filepath.Join(agentDir, "models.json"), []byte(config), 0o600); err != nil {
++				t.Fatal(err)
++			}
++			record := json.RawMessage(`{"id":"` + modelID + `","name":"Updated reasoning model","api":"openai-codex-responses","provider":"openai-codex","baseUrl":"https://chatgpt.com/backend-api","reasoning":true,"input":["text","image"],"cost":{"input":3,"output":9,"cacheRead":0.3,"cacheWrite":0},"contextWindow":500000,"maxTokens":64000,"thinkingLevelMap":{"off":null,"low":"low","medium":"medium","high":"high"},"compat":{"supportsAdditionalTools":true},"inputLimits":{"images":{"maxPerRequest":42}}}`)
++			if !tc.reasoning {
++				record = json.RawMessage(strings.ReplaceAll(strings.ReplaceAll(string(record), `"reasoning":true`, `"reasoning":false`), `"thinkingLevelMap":{"off":null,"low":"low","medium":"medium","high":"high"}`, `"thinkingLevelMap":{"off":null}`))
++			}
++			generatedAt := ai.GetBuiltinModelDataGeneratedAt()
++			if generatedAt == nil {
++				t.Fatal("missing catalog generation timestamp")
++			}
++			entry := ai.ModelsStoreEntry{Models: mustStoredModels([]json.RawMessage{record}), CheckedAt: new(float64(1)), LastModified: new(*generatedAt + 1)}
++			if err := ai.NewFileModelsStore(filepath.Join(agentDir, "models-store.json")).Write(t.Context(), "openai-codex", entry); err != nil {
++				t.Fatal(err)
++			}
++			services, err := CreateAgentSessionServices(CreateAgentSessionServicesOptions{CWD: t.TempDir(), AgentDir: agentDir})
++			if err != nil {
++				t.Fatal(err)
++			}
++			t.Cleanup(services.Close)
++			result := services.ModelRuntime().Refresh(t.Context(), ai.ModelsRefreshOptions{Providers: []string{"openai-codex"}, AllowNetwork: new(false)})
++			if len(result.Errors) != 0 {
++				t.Fatalf("restore catalog: %v", result.Errors)
++			}
++			expected := services.ModelRuntime().GetModel("openai-codex", modelID)
++			if expected == nil || expected.ProviderMeta.Reasoning != tc.reasoning || expected.Capabilities.ContextWindow != 500000 || expected.Capabilities.MaxOutputTokens != 32000 {
++				t.Fatal("cached catalog fixture was not restored")
++			}
++			resolved, ok := services.Registry().Resolve("openai-codex", modelID)
++			if !ok || resolved.Headers["X-Catalog-Fixture"] != "preserved" || resolved.MaxTokens != 32000 || resolved.Reasoning != tc.reasoning {
++				t.Fatal("catalog resolution lost provider headers, overrides, or reasoning metadata")
++			}
++			actual, err := BuildModel("openai-codex/"+modelID, services)
++			if err != nil {
++				t.Fatal(err)
++			}
++			// Catalog records carry input capabilities in Input; BuildModel also
++			// computes the provider-facing image and tool-use capability flags.
++			expectedCapabilities := expected.Capabilities
++			expectedCapabilities.SupportsImages = true
++			expectedCapabilities.SupportsToolUse = true
++			if !reflect.DeepEqual(actual.ProviderMeta, expected.ProviderMeta) || !reflect.DeepEqual(actual.Capabilities, expectedCapabilities) || !reflect.DeepEqual(actual.ThinkingLevelMap, expected.ThinkingLevelMap) || !reflect.DeepEqual(actual.InputLimits, expected.InputLimits) || !slices.Equal(actual.Input, expected.Input) || actual.DisplayName != expected.DisplayName {
++				t.Errorf("builder lost catalog metadata: reasoning=%v maxThinking=%q context=%d name=%q; want reasoning=%v maxThinking=%q context=%d name=%q", actual.ProviderMeta.Reasoning, actual.Capabilities.MaxThinking, actual.Capabilities.ContextWindow, actual.DisplayName, expected.ProviderMeta.Reasoning, expected.Capabilities.MaxThinking, expected.Capabilities.ContextWindow, expected.DisplayName)
++			}
++			if slices.Contains(ai.GetSupportedThinkingLevels(actual), ai.ModelThinkingLevel("medium")) != tc.reasoning {
++				t.Error("built model thinking levels do not match the current reasoning capability")
++			}
++			if actual.Provider == nil || actual.Provider.ID() != "openai-codex" {
++				t.Error("built model lost provider binding")
++			}
++		})
++	}
++}
+diff --git a/coding/cli/startup_catalog_regression_test.go b/coding/cli/startup_catalog_regression_test.go
+new file mode 100644
+index 00000000..d350c6dd
+--- /dev/null
++++ b/coding/cli/startup_catalog_regression_test.go
+@@ -0,0 +1,42 @@
++package cli
++
++import (
++	"encoding/json"
++	"path/filepath"
++	"testing"
++
++	"github.com/MichaelKinsy/PiG/ai"
++	"github.com/MichaelKinsy/PiG/coding"
++)
++
++func TestStartupModelUsesRemoteCatalogBeforeProviderFallback(t *testing.T) {
++	t.Setenv("PIG_HOME", t.TempDir())
++	agentDir := t.TempDir()
++	const modelID = "gpt-future-startup-fixture"
++	record := json.RawMessage(`{"id":"gpt-future-startup-fixture","name":"Current catalog name","api":"openai-codex-responses","provider":"openai-codex","baseUrl":"https://chatgpt.com/backend-api","reasoning":true,"input":["text"],"cost":{"input":3,"output":9,"cacheRead":0.3,"cacheWrite":0},"contextWindow":500000,"maxTokens":64000,"thinkingLevelMap":{"medium":"medium","high":"high"}}`)
++	models, err := ai.DecodeStoredModels([]json.RawMessage{record})
++	if err != nil {
++		t.Fatal(err)
++	}
++	generatedAt := ai.GetBuiltinModelDataGeneratedAt()
++	if generatedAt == nil {
++		t.Fatal("missing catalog generation timestamp")
++	}
++	storeEntry := ai.ModelsStoreEntry{Models: models, CheckedAt: new(float64(1)), LastModified: new(*generatedAt + 1)}
++	if err := ai.NewFileModelsStore(filepath.Join(agentDir, "models-store.json")).Write(t.Context(), "openai-codex", storeEntry); err != nil {
++		t.Fatal(err)
++	}
++	services, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{CWD: t.TempDir(), AgentDir: agentDir})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer services.Close()
++	result := services.ModelRuntime().Refresh(t.Context(), ai.ModelsRefreshOptions{Providers: []string{"openai-codex"}, AllowNetwork: new(false)})
++	if len(result.Errors) != 0 {
++		t.Fatalf("restore catalog: %v", result.Errors)
++	}
++	entry := resolveStartupModelEntry("openai-codex", modelID, services.Registry().ModelRegistry)
++	if entry.DisplayName != "Current catalog name" || !entry.Reasoning || entry.ContextWindow != 500000 || entry.MaxTokens != 64000 {
++		t.Fatalf("startup used fallback metadata: name=%q reasoning=%v context=%d maxTokens=%d", entry.DisplayName, entry.Reasoning, entry.ContextWindow, entry.MaxTokens)
++	}
++}

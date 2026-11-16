@@ -1,0 +1,598 @@
+diff --git a/internal/codingagent/interactive.go b/internal/codingagent/interactive.go
+index 1443286f..28f400e8 100644
+--- a/internal/codingagent/interactive.go
++++ b/internal/codingagent/interactive.go
+@@ -612,6 +612,10 @@ type InteractiveMode struct {
+ 	// altScreen is the alternate-screen renderer, non-nil only when the TuiMode
+ 	// setting is "fullscreen"; it also backs tuiInst in that mode.
+ 	altScreen *tui.TuiAltScreen
++	// pagesActive is true while the transcript shows as interaction pages. A
++	// compaction then keeps the older pages, marked as archived, instead of
++	// dropping them from the transcript.
++	pagesActive bool
+ 	// editorContainer wraps the editor so a selector/input/overlay can take the
+ 	// editor's slot via SetChildren in both the flat and fullscreen layouts.
+ 	// Mirrors upstream editorContainer.
+diff --git a/internal/codingagent/interactive_compaction.go b/internal/codingagent/interactive_compaction.go
+index c964f6b7..f5227dc0 100644
+--- a/internal/codingagent/interactive_compaction.go
++++ b/internal/codingagent/interactive_compaction.go
+@@ -45,6 +45,11 @@ func (m *InteractiveMode) renderCompactionResult(event agent.CompactionEndEvent,
+ 	m.disposeArminComponents()
+ 	m.chatContainer.Clear()
+ 	m.tuiInst.ForceFullRender()
++	if m.keepArchivedHistory() {
++		// The whole branch stays visible; the summary renders at the compaction entry.
++		m.renderSessionEntriesWithHistory(false)
++		return
++	}
+ 	if len(entries) > 0 {
+ 		entries = entries[1:]
+ 	}
+diff --git a/internal/codingagent/interactive_page_marks.go b/internal/codingagent/interactive_page_marks.go
+new file mode 100644
+index 00000000..1400a6fe
+--- /dev/null
++++ b/internal/codingagent/interactive_page_marks.go
+@@ -0,0 +1,120 @@
++package codingagent
++
++import (
++	"encoding/json"
++
++	"github.com/MichaelKinsy/PiG/internal/orderedjson"
++	"github.com/MichaelKinsy/PiG/tui"
++)
++
++// favoriteEntryType is the custom session entry that records a bookmark. The
++// model context never includes custom entries.
++const favoriteEntryType = "pig-plugins/favorite"
++
++// keepArchivedHistory reports whether a compaction keeps the older transcript.
++// Only the interaction-page view can mark pages that left the context, so the
++// regular transcript still shows the agent context only.
++func (m *InteractiveMode) keepArchivedHistory() bool {
++	return m.pagesActive
++}
++
++// pageEntry is one interaction page: a user prompt on the active branch.
++type pageEntry struct {
++	id       string
++	archived bool
++}
++
++// branchPages lists the user prompts of a branch, oldest first, as the page view
++// counts them. A prompt is archived when it lies before the kept range of the
++// latest compaction, so the agent no longer receives it.
++func (s *Session) branchPages(branch []SessionEntry) []pageEntry {
++	entries := make([]parsedEntry, len(branch))
++	for i, entry := range branch {
++		entries[i] = parsedEntry{entry: entry}
++	}
++	keptFrom := compactionTrimIndex(entries)
++	var pages []pageEntry
++	for i, entry := range branch {
++		if entry.Base().Type != "message" {
++			continue
++		}
++		message, ok := s.messageFor(entry)
++		// The transcript renders a prompt with text or images; a prompt with neither has no page.
++		if !ok || message.Message.User == nil || extractAgentMessageText(message.Message) == "" && len(userMessageImages(message.Message)) == 0 {
++			continue
++		}
++		pages = append(pages, pageEntry{id: entry.Base().ID, archived: i < keptFrom})
++	}
++	return pages
++}
++
++// favoriteTargets returns the prompts the branch currently marks as favorite.
++// The newest record for a prompt wins.
++func favoriteTargets(branch []SessionEntry) map[string]bool {
++	favorites := map[string]bool{}
++	for _, entry := range branch {
++		var custom CustomEntry
++		// The entry's own decoder keeps `data` as ordered JSON; its embedded base decoder would drop it.
++		if json.Unmarshal(entry.Raw(), &custom) != nil || custom.CustomType != favoriteEntryType {
++			continue
++		}
++		data, _ := orderedjson.Map(custom.Data)
++		target, _ := data["entryId"].(string)
++		on, _ := data["favorite"].(bool)
++		if target != "" {
++			favorites[target] = on
++		}
++	}
++	return favorites
++}
++
++// pageMarks is the marker of the interaction pages. It reads the session, never the transcript.
++func (m *InteractiveMode) pageMarks() []tui.PageMark {
++	session := m.currentSession()
++	if session == nil {
++		return nil
++	}
++	branch := session.GetBranch()
++	favorites := favoriteTargets(branch)
++	pages := session.branchPages(branch)
++	marks := make([]tui.PageMark, len(pages))
++	for i, page := range pages {
++		marks[i] = tui.PageMark{Archived: page.archived, Favorite: favorites[page.id]}
++	}
++	return marks
++}
++
++// refreshPageMarks makes the page view read the marks again.
++func (m *InteractiveMode) refreshPageMarks() {
++	if m.interactionPages != nil {
++		m.interactionPages.RefreshMarks()
++	}
++}
++
++// toggleFavoritePage bookmarks or unbookmarks the selected interaction page.
++func (m *InteractiveMode) toggleFavoritePage() {
++	session := m.currentSession()
++	if m.interactionPages == nil || session == nil {
++		return
++	}
++	index, total := m.interactionPages.Position()
++	branch := session.GetBranch()
++	pages := session.branchPages(branch)
++	if total == 0 || index < 0 || index >= len(pages) {
++		m.showWarning("Nothing to favorite on this page yet")
++		return
++	}
++	target := pages[index].id
++	favorite := !favoriteTargets(branch)[target]
++	if _, err := session.AppendCustomEntry(favoriteEntryType, map[string]any{"entryId": target, "favorite": favorite}); err != nil {
++		m.showError("Could not save favorite: " + err.Error())
++		return
++	}
++	m.refreshPageMarks()
++	if favorite {
++		m.showStatus("Page added to favorites")
++	} else {
++		m.showStatus("Page removed from favorites")
++	}
++	m.tuiInst.RequestRender()
++}
+diff --git a/internal/codingagent/interactive_page_marks_test.go b/internal/codingagent/interactive_page_marks_test.go
+new file mode 100644
+index 00000000..604d3e50
+--- /dev/null
++++ b/internal/codingagent/interactive_page_marks_test.go
+@@ -0,0 +1,137 @@
++package codingagent
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/MichaelKinsy/PiG/agent"
++	"github.com/MichaelKinsy/PiG/ai"
++)
++
++func pageMarksTestSession(t *testing.T) (*Session, []string) {
++	t.Helper()
++	session := NewSession("page-marks", t.TempDir())
++	now := time.Now().UnixMilli()
++	var prompts []string
++	for _, text := range []string{"one", "two", "three"} {
++		id, err := session.AppendMessage(agent.AgentMessage{User: &agent.UserMessage{Role: agent.RoleUser, Content: ai.UserContentBlocks{ai.TextContent{Text: text}}, Timestamp: now}})
++		if err != nil {
++			t.Fatal(err)
++		}
++		prompts = append(prompts, id)
++		if _, err := session.AppendMessage(agent.AgentMessage{Assistant: &agent.AssistantMessage{Role: "assistant", Content: []ai.AssistantContentBlock{ai.TextContent{Text: "reply " + text}}, StopReason: ai.StopReasonStop, API: "anthropic-messages", Provider: "anthropic", ModelID: "claude", Timestamp: now}}); err != nil {
++			t.Fatal(err)
++		}
++	}
++	return session, prompts
++}
++
++func TestBranchPagesArchiveOnlyPromptsOutsideTheKeptRange(t *testing.T) {
++	session, prompts := pageMarksTestSession(t)
++	if got := session.branchPages(session.GetBranch()); len(got) != 3 || got[0].archived || got[2].archived {
++		t.Fatalf("before compaction: %+v", got)
++	}
++	// The kept range starts at the second prompt, so only the first leaves the context.
++	if _, err := session.AppendCompaction("summary", prompts[1], 100, nil, true, nil); err != nil {
++		t.Fatal(err)
++	}
++	got := session.branchPages(session.GetBranch())
++	want := []bool{true, false, false}
++	if len(got) != len(want) {
++		t.Fatalf("pages = %+v", got)
++	}
++	for i := range want {
++		if got[i].id != prompts[i] || got[i].archived != want[i] {
++			t.Errorf("page %d = %+v, want id %s archived %v", i, got[i], prompts[i], want[i])
++		}
++	}
++	// A prompt after the compaction stays active, and the older ones stay in the list.
++	if _, err := session.AppendMessage(agent.AgentMessage{User: &agent.UserMessage{Role: agent.RoleUser, Content: ai.UserContentBlocks{ai.TextContent{Text: "four"}}, Timestamp: time.Now().UnixMilli()}}); err != nil {
++		t.Fatal(err)
++	}
++	if got := session.branchPages(session.GetBranch()); len(got) != 4 || !got[0].archived || got[3].archived {
++		t.Fatalf("after new prompt: %+v", got)
++	}
++}
++
++func TestBranchPagesArchiveEverythingWhenNoKeptEntryExists(t *testing.T) {
++	session, _ := pageMarksTestSession(t)
++	if _, err := session.AppendCompaction("summary", "missing", 100, nil, true, nil); err != nil {
++		t.Fatal(err)
++	}
++	for i, page := range session.branchPages(session.GetBranch()) {
++		if !page.archived {
++			t.Errorf("page %d is not archived", i)
++		}
++	}
++}
++
++func TestFavoriteRecordsUseTheNewestStateAndStayOutOfTheModelContext(t *testing.T) {
++	session, prompts := pageMarksTestSession(t)
++	contextBefore := len(session.BuildContext(nil))
++	for _, on := range []bool{true, true, false, true} {
++		if _, err := session.AppendCustomEntry(favoriteEntryType, map[string]any{"entryId": prompts[1], "favorite": on}); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if _, err := session.AppendCustomEntry("other-extension", map[string]any{"entryId": prompts[0], "favorite": true}); err != nil {
++		t.Fatal(err)
++	}
++	favorites := favoriteTargets(session.GetBranch())
++	if !favorites[prompts[1]] || favorites[prompts[0]] || favorites[prompts[2]] {
++		t.Fatalf("favorites = %v", favorites)
++	}
++	if after := len(session.BuildContext(nil)); after != contextBefore {
++		t.Fatalf("a favorite record changed the model context from %d to %d messages", contextBefore, after)
++	}
++	if got := session.branchPages(session.GetBranch()); len(got) != 3 {
++		t.Fatalf("a favorite record changed the page count: %+v", got)
++	}
++}
++
++func TestCompactionKeepsOlderPromptsOnlyWhilePagesAreActive(t *testing.T) {
++	build := func(sess *Session) {
++		var prompts []string
++		for _, text := range []string{"old question", "kept question"} {
++			id, err := sess.AppendMessage(userMsg(text))
++			if err != nil {
++				t.Fatal(err)
++			}
++			prompts = append(prompts, id)
++			if _, err := sess.AppendMessage(assistantMsg("", ai.TextContent{Text: "reply to " + text})); err != nil {
++				t.Fatal(err)
++			}
++		}
++		if _, err := sess.AppendCompaction("the summary", prompts[1], 100, nil, false, nil); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := sess.AppendMessage(userMsg("new question")); err != nil {
++			t.Fatal(err)
++		}
++	}
++	event := agent.CompactionEndEvent{Summary: "the summary", TokensBefore: 100}
++	for _, tc := range []struct {
++		name  string
++		pages bool
++		old   bool
++	}{{"pages keep the archived prompt", true, true}, {"regular transcript drops it", false, false}} {
++		t.Run(tc.name, func(t *testing.T) {
++			m := resumedModeWithOutputPad(t, 1, build)
++			m.pagesActive = tc.pages
++			m.renderCompactionResult(event, m.currentSession().BuildContextEntries())
++			got := renderedChat(m)
++			if strings.Contains(got, "old question") != tc.old {
++				t.Errorf("old prompt visible = %v, want %v:\n%s", !tc.old, tc.old, got)
++			}
++			for _, want := range []string{"kept question", "new question", "[compaction]"} {
++				if !strings.Contains(got, want) {
++					t.Errorf("transcript lacks %q:\n%s", want, got)
++				}
++			}
++			if strings.Count(got, "[compaction]") != 1 {
++				t.Errorf("compaction summary appears %d times:\n%s", strings.Count(got, "[compaction]"), got)
++			}
++		})
++	}
++}
+diff --git a/internal/codingagent/interactive_pages.go b/internal/codingagent/interactive_pages.go
+index 219d21cc..6dcc0c42 100644
+--- a/internal/codingagent/interactive_pages.go
++++ b/internal/codingagent/interactive_pages.go
+@@ -8,6 +8,11 @@ func (m *InteractiveMode) handleInteractionPageKey(data string) bool {
+ 	}
+ 	delta := 0
+ 	switch {
++	case tui.MatchesKeyID(data, "ctrl+s"):
++		if !tui.IsKeyRelease(data) {
++			m.toggleFavoritePage()
++		}
++		return true
+ 	case tui.MatchesKeyID(data, "alt+left"), tui.MatchesKeyID(data, "alt+h"):
+ 		delta = -1
+ 	case tui.MatchesKeyID(data, "alt+right"), tui.MatchesKeyID(data, "alt+l"):
+diff --git a/internal/codingagent/interactive_transcript.go b/internal/codingagent/interactive_transcript.go
+index ef2e8e3b..fe36b4d0 100644
+--- a/internal/codingagent/interactive_transcript.go
++++ b/internal/codingagent/interactive_transcript.go
+@@ -144,7 +144,7 @@ func (m *InteractiveMode) renderSessionEntriesWithHistory(populateHistory bool)
+ 	if session := m.currentSession(); session != nil {
+ 		// The kept range and everything after it render the same from the context branch, and the entries before it hydrate the same state;
+ 		// cache-miss notices scan the whole branch, and a compaction whose kept entry is not on the branch renders the whole branch.
+-		if m.showCacheMissNotices() || !session.KeptRangeOnBranch() {
++		if m.keepArchivedHistory() || m.showCacheMissNotices() || !session.KeptRangeOnBranch() {
+ 			entries = session.GetBranch()
+ 		} else {
+ 			entries = session.GetContextBranch()
+@@ -341,12 +341,14 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
+ 	// (which precedes the compaction node), mirroring BuildContext's
+ 	// foundFirstKept logic. An empty FirstKeptEntryID keeps all prior
+ 	// history (renderStart stays 0).
++	// The bundled page view keeps compacted history: older pages are archived, not removed.
++	trimToContext := trim && !m.keepArchivedHistory()
+ 	renderStart := 0
+-	if trim {
++	if trimToContext {
+ 		renderStart = compactionTrimIndex(branch)
+ 	}
+ 	rendered := branch[renderStart:]
+-	if trim {
++	if trimToContext {
+ 		// Pi paints a restored transcript from buildContextEntries, whose first entry is the latest compaction (interactive-mode.ts:4220-4223);
+ 		// only the live compaction_end rebuild appends the new summary last (:3708-3721), and renderCompactionResult does that.
+ 		rendered = contextRenderOrder(branch, renderStart)
+@@ -523,6 +525,7 @@ func (m *InteractiveMode) renderSessionEntryListWithHistory(entries []SessionEnt
+ 			renderMessage(msg.Clone())
+ 		}
+ 	}
++	m.refreshPageMarks()
+ 	m.tuiInst.Render()
+ }
+ 
+diff --git a/internal/codingagent/interactive_tui.go b/internal/codingagent/interactive_tui.go
+index 590ee8cd..e49ee56a 100644
+--- a/internal/codingagent/interactive_tui.go
++++ b/internal/codingagent/interactive_tui.go
+@@ -46,11 +46,14 @@ func (m *InteractiveMode) buildChatViewport() ChatViewport {
+ 	m.ensureLoadedResourcesContainer()
+ 	header := m.headerContainer()
+ 	var document tui.Component = tui.NewContainer(header, m.loadedResourcesContainer, m.chatContainer)
++	m.pagesActive = false
+ 	if os.Getenv("PIG_PLUGINS_HOST_VERSION") != "" {
+ 		if m.interactionPages == nil {
+ 			m.interactionPages = tui.NewInteractionPages(m.chatContainer, header, m.loadedResourcesContainer)
++			m.interactionPages.SetMarker(m.pageMarks)
+ 		}
+ 		document = m.interactionPages
++		m.pagesActive = true
+ 	}
+ 	return CreateChatViewport(ChatViewportOptions{
+ 		Document:            document,
+diff --git a/tui/interaction_pages.go b/tui/interaction_pages.go
+index 7328d17e..49a4ce2f 100644
+--- a/tui/interaction_pages.go
++++ b/tui/interaction_pages.go
+@@ -10,6 +10,9 @@ import (
+ 
+ // InteractionPages selects a display-only slice of a transcript. The source
+ // retains every component; session records and model messages are not changed.
++//
++// Pages may carry display-only marks, such as archived and favorite. Marks never
++// change the transcript, the session file, or the model context.
+ type InteractionPages struct {
+ 	source      *Container
+ 	body        *Container
+@@ -21,6 +24,87 @@ type InteractionPages struct {
+ 	selected    Component
+ 	live        bool
+ 	unread      bool
++	marker      func() []PageMark
++	marks       []PageMark
++	marksDirty  bool
++}
++
++// PageMark is the display-only state of one interaction page.
++type PageMark struct {
++	// Archived marks a page whose prompt the agent no longer receives.
++	Archived bool
++	// Favorite marks a page the user bookmarked.
++	Favorite bool
++}
++
++// ArchivedPageLabel is the first line of a page that is outside the agent context.
++const ArchivedPageLabel = "[ARCHIVED - NO LONGER IN AGENT CONTEXT]"
++
++// FavoritePageLabel is the first line of a bookmarked page.
++const FavoritePageLabel = "[FAVORITE]"
++
++var (
++	archivedPageStyle = pageMarkStyle(Rgb(235, 235, 235), Rgb(88, 88, 94))
++	favoritePageStyle = pageMarkStyle(Rgb(40, 32, 0), Rgb(230, 190, 60))
++)
++
++func pageMarkStyle(fg, bg RgbColorValue) TextStyle {
++	return TextStyle{TextAttributes: TextAttributes{Bold: true}, Fg: fg, Bg: bg}
++}
++
++// Rgb returns an RGB color from 0-255 channels.
++func Rgb(r, g, b float64) RgbColorValue { return RgbColorValue{R: r, G: g, B: b} }
++
++// SetMarker sets the source of page marks. The marker lists the marks of the
++// transcript's prompts, oldest first. Pages beyond the list, such as a prompt
++// that is not saved yet, have no mark.
++func (p *InteractionPages) SetMarker(marker func() []PageMark) {
++	p.marker, p.marksDirty = marker, true
++}
++
++// RefreshMarks makes the next render read the marker again.
++func (p *InteractionPages) RefreshMarks() { p.marksDirty = true }
++
++// Position returns the zero-based selected page and the number of pages.
++func (p *InteractionPages) Position() (index, total int) {
++	p.sync()
++	return p.index(), len(p.starts)
++}
++
++// markFor returns the mark of a page index. The marker is read at most once per
++// structure change or refresh.
++func (p *InteractionPages) markFor(index int) PageMark {
++	if p.marker == nil || index < 0 {
++		return PageMark{}
++	}
++	if p.marksDirty {
++		p.marks, p.marksDirty = p.marker(), false
++	}
++	if index >= len(p.marks) {
++		return PageMark{}
++	}
++	return p.marks[index]
++}
++
++// markLines renders the mark lines of a page, each padded to the full width.
++func (p *InteractionPages) markLines(index, width int) []string {
++	mark := p.markFor(index)
++	var lines []string
++	for _, item := range []struct {
++		on    bool
++		label string
++		style TextStyle
++	}{
++		{mark.Archived, ArchivedPageLabel, archivedPageStyle},
++		{mark.Favorite, FavoritePageLabel, favoritePageStyle},
++	} {
++		if !item.on {
++			continue
++		}
++		text := widthx.TruncateToWidth(" "+item.label, max(0, width), "…", true)
++		lines = append(lines, StyleText(text, item.style, ActiveTheme().GetColorMode()))
++	}
++	return lines
+ }
+ 
+ func NewInteractionPages(source *Container, startup ...Component) *InteractionPages {
+@@ -33,6 +117,7 @@ func (p *InteractionPages) sync() {
+ 	if p.initialized && p.version == p.source.structureVersion {
+ 		return
+ 	}
++	previousPages := len(p.starts)
+ 	p.initialized, p.version = true, p.source.structureVersion
+ 	p.children = append(p.children[:0], p.source.children...)
+ 	p.starts = p.starts[:0]
+@@ -67,6 +152,9 @@ func (p *InteractionPages) sync() {
+ 			p.live, p.selected = true, nil
+ 		}
+ 	}
++	if len(p.starts) != previousPages {
++		p.marksDirty = true
++	}
+ 	p.selectBody()
+ }
+ 
+@@ -148,16 +236,17 @@ func (p *InteractionPages) Render(width int) []string {
+ 		prompt = "/skill:" + user.skillBlock.Name
+ 	}
+ 	title := strings.Join(strings.Fields(widthx.StripTerminalSequences(prompt)), " ")
+-	header := fmt.Sprintf("Page %d / %d · Alt+←/→ or Alt+H/L · %s", index+1, len(p.starts), title)
++	header := fmt.Sprintf("Page %d / %d · Alt+←/→ or Alt+H/L · Ctrl+S favorite · %s", index+1, len(p.starts), title)
+ 	if !p.live {
+ 		status := "Latest page →"
+ 		if p.unread {
+ 			status = "Latest page has new output →"
+ 		}
+-		header = fmt.Sprintf("Page %d / %d · Alt+←/→ or Alt+H/L · %s", index+1, len(p.starts), status)
++		header = fmt.Sprintf("Page %d / %d · Alt+←/→ or Alt+H/L · Ctrl+S favorite · %s", index+1, len(p.starts), status)
+ 	}
+ 	header = widthx.TruncateToWidth(header, max(0, width), "…", false)
+-	return append([]string{header}, p.body.Render(width)...)
++	lines := append([]string{header}, p.markLines(index, width)...)
++	return append(lines, p.body.Render(width)...)
+ }
+ 
+ // NoteOutput records activity without rendering a hidden page.
+@@ -170,10 +259,13 @@ func (p *InteractionPages) NoteOutput() {
+ func (p *InteractionPages) Invalidate() { p.body.Invalidate() }
+ 
+ func (p *InteractionPages) HandleMouse(event TuiMouseEvent) *TuiMouseDispatchResult {
+-	if event.Y == 0 {
++	p.sync()
++	// The page header and mark lines are not part of the body. The mark lines do not depend on width.
++	offset := 1 + len(p.markLines(p.index(), 1))
++	if event.Y < offset {
+ 		return nil
+ 	}
+-	event.Y--
+-	event.Height = max(0, event.Height-1)
++	event.Y -= offset
++	event.Height = max(0, event.Height-offset)
+ 	return DispatchMouseEvent(p.body, event)
+ }
+diff --git a/tui/interaction_pages_test.go b/tui/interaction_pages_test.go
+index 82bd6b56..e2d613ae 100644
+--- a/tui/interaction_pages_test.go
++++ b/tui/interaction_pages_test.go
+@@ -152,3 +152,62 @@ func TestInteractionPagesStartupOnlyOnFirstPage(t *testing.T) {
+ 		t.Fatalf("new session lost startup content: %s", got)
+ 	}
+ }
++
++func TestInteractionPagesShowArchivedAndFavoriteMarks(t *testing.T) {
++	first, second, third := pagePrompt("first"), pagePrompt("second"), pagePrompt("third")
++	source := NewContainer(first, NewText("first reply"), second, NewText("second reply"), third, NewText("third reply"))
++	pages := NewInteractionPages(source)
++	marks := []PageMark{{Archived: true, Favorite: true}, {Favorite: true}, {}}
++	reads := 0
++	pages.SetMarker(func() []PageMark { reads++; return marks })
++
++	if got := pageText(pages); strings.Contains(got, "[ARCHIVED") || strings.Contains(got, FavoritePageLabel) {
++		t.Fatalf("unmarked page shows a label: %s", got)
++	}
++	pages.Move(-2)
++	got := pageText(pages)
++	archived, favorite := strings.Index(got, ArchivedPageLabel), strings.Index(got, FavoritePageLabel)
++	if archived < 0 || favorite < archived || strings.Index(got, "first reply") < favorite {
++		t.Fatalf("labels missing or out of order: %s", got)
++	}
++	pages.Move(1)
++	if got := pageText(pages); strings.Contains(got, "ARCHIVED") || !strings.Contains(got, FavoritePageLabel) {
++		t.Fatalf("second page marks: %s", got)
++	}
++	if reads != 1 {
++		t.Fatalf("marker read %d times without a refresh", reads)
++	}
++	marks = []PageMark{{}, {}, {}}
++	pages.RefreshMarks()
++	if got := pageText(pages); strings.Contains(got, FavoritePageLabel) {
++		t.Fatalf("refresh did not clear the label: %s", got)
++	}
++	if index, total := pages.Position(); index != 1 || total != 3 {
++		t.Fatalf("position = %d/%d", index, total)
++	}
++}
++
++func TestInteractionPagesMarkLinesAreFullWidthStyledAndKeepMouseRows(t *testing.T) {
++	prompt := pagePrompt("only")
++	source := NewContainer(prompt, NewText("reply"))
++	pages := NewInteractionPages(source)
++	pages.SetMarker(func() []PageMark { return []PageMark{{Archived: true, Favorite: true}} })
++	lines := pages.Render(60)
++	if len(lines) < 4 {
++		t.Fatalf("lines = %q", lines)
++	}
++	for _, line := range lines[1:3] {
++		if !strings.Contains(line, "\x1b[48;") || widthx.VisibleWidth(line) != 60 {
++			t.Fatalf("mark line is not a full-width background line: %q", line)
++		}
++	}
++	if !strings.Contains(lines[1], "\x1b[48;2;88;88;94m") || !strings.Contains(lines[2], "\x1b[48;2;230;190;60m") {
++		t.Skipf("terminal color mode is not true color: %q", lines[1:3])
++	}
++	// Page header plus two mark lines sit above the body, so a click on them reaches no body component.
++	for y := range 3 {
++		if pages.HandleMouse(TuiMouseEvent{Y: y, Height: 10}) != nil {
++			t.Fatalf("row %d reached the body", y)
++		}
++	}
++}
