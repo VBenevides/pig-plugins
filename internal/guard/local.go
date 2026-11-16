@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/VBenevides/pig-plugins/internal/lancet"
 )
@@ -21,6 +23,8 @@ type ModelInfo struct {
 	// Runtime is the ONNX Runtime library that would be loaded; RuntimeProblem is set when there is none.
 	Runtime        string
 	RuntimeProblem string
+	// DeletesAfter is when cleanup deletes the unused model; zero when no valid last-used marker exists.
+	DeletesAfter time.Time
 }
 
 // Lancet is the local scoring service the command and the gate use.
@@ -74,7 +78,21 @@ func (l *Local) classifier() (*lancet.Classifier, error) {
 		return nil, err
 	}
 	l.loaded = c
+	l.touch()
 	return c, nil
+}
+
+func (l *Local) touch() {
+	lancet.TouchLastUsed(l.agentDir, time.Now(), func(message string) { fmt.Fprintf(os.Stderr, "%s%s\n", Prefix, message) })
+}
+
+// CleanupUnused deletes the model after 7 days without use. It does nothing while LANCET is on or when the settings
+// are unreadable, and it logs what it deletes.
+func (l *Local) CleanupUnused(enabled, configUnreadable bool) {
+	lancet.CleanupUnused(lancet.CleanupOptions{
+		AgentDir: l.agentDir, Enabled: enabled, ConfigUnreadable: configUnreadable, Now: time.Now(),
+		Log: func(message string) { fmt.Fprintf(os.Stderr, "%s%s\n", Prefix, message) },
+	})
 }
 
 // Score scores one bash command. Any failure is an error and the gate blocks.
@@ -83,6 +101,7 @@ func (l *Local) Score(ctx context.Context, command string) (lancet.Result, error
 	if err != nil {
 		return lancet.Result{}, err
 	}
+	l.touch()
 	switch result, err := c.Score(ctx, command, "bash"); {
 	case err != nil:
 		return lancet.Result{}, err
@@ -100,6 +119,11 @@ func (l *Local) Model() ModelInfo {
 	state := lancet.ModelStateOf(dir)
 	info.Installed, info.Problem = state.Installed, state.Problem
 	info.Verified = state.Installed && lancet.ModelVerified(dir)
+	if state.Installed {
+		if date, ok := lancet.DeletionDate(l.agentDir, time.Now()); ok {
+			info.DeletesAfter = date
+		}
+	}
 	if library, err := lancet.LibraryPath(l.agentDir, l.getenv); err != nil {
 		info.RuntimeProblem = err.Error()
 	} else {
@@ -132,6 +156,7 @@ func (l *Local) Setup(ctx context.Context, progress func(what string)) ([]string
 	if err != nil {
 		return installed, err
 	}
+	defer l.touch()
 	if model.Reason == "downloaded" {
 		installed = append(installed, "model")
 	}

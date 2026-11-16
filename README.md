@@ -636,6 +636,7 @@ Differences from the TypeScript original:
   ONNX Runtime 1.30.0 archive for linux/amd64, linux/arm64 or darwin/arm64 into `<agent dir>/smart-approve-lancet/`;
   both are checked for size and SHA-256 before use, and the library is hashed again before every load. Set
   `LANCET_ORT_LIBRARY` to use another library (and on other platforms).
+- Unused model cleanup: loading the model, scoring a command and `setup` refresh `<agent dir>/smart-approve-lancet/last-used` (at most once an hour per process). At session start, a profile with LANCET off deletes only `<agent dir>/smart-approve-lancet/lancet-nano-v0.4.3` when that marker is older than 7 days, and prints the path and reason. The ONNX Runtime library stays. A missing or invalid marker is reset to now and deletes nothing. Nothing is deleted while LANCET is on, when the settings cannot be read, or when the path is a symbolic link or resolves outside that directory. `lancet on` then asks for `lancet setup`. `lancet status` shows the deletion date. The model stays under the agent directory; unlike the TypeScript plugin 2.6.0, it is not moved to a shared data directory.
 - A native scoring call cannot be interrupted once it started; scoring is bounded by a 60 s timeout between steps.
 
 Do not enable another smart-approve extension at the same time.

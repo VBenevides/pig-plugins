@@ -142,6 +142,9 @@ func (c *Controller) lancetStatus() string {
 			loaded = "loaded"
 		}
 		lines = append(lines, fmt.Sprintf("model: verified at %s (%s)", model.Directory, loaded))
+		if !model.DeletesAfter.IsZero() {
+			lines = append(lines, "unused model cleanup: deleted after "+model.DeletesAfter.Local().Format("2006-01-02")+" if LANCET stays off and no host uses it")
+		}
 	case model.Installed:
 		lines = append(lines, "model: damaged (checksum mismatch); run /smart-approve-lancet lancet setup")
 	default:
